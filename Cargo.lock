@@ -74,6 +74,7 @@ name = "amaru"
 version = "10.11.0"
 dependencies = [
  "amaru-bootstrap",
+ "amaru-clock",
  "amaru-consensus",
  "amaru-deps",
  "amaru-iter-borrow",
@@ -100,7 +101,6 @@ dependencies = [
  "diff_json",
  "hex",
  "indoc",
- "libc",
  "opentelemetry",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -148,6 +148,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "zstd",
+]
+
+[[package]]
+name = "amaru-clock"
+version = "0.1.0"
+dependencies = [
+ "amaru-consensus",
+ "amaru-deps",
+ "amaru-observability",
+ "libc",
+ "test-case",
 ]
 
 [[package]]

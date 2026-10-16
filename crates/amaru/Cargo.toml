@@ -61,6 +61,7 @@ tokio-util.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-bootstrap.workspace = true
+amaru-clock.workspace = true
 amaru-consensus.workspace = true
 amaru-kernel = { workspace = true, features = ["tracing", "clap"] }
 amaru-ledger.workspace = true
@@ -83,7 +84,6 @@ tikv-jemallocator.workspace = true
 amaru-deps.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-libc.workspace = true
 rlimit = "0.10.2"
 
 [dev-dependencies]
