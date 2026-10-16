@@ -18,6 +18,8 @@
 //! daemon disciplines (or one whose error bound has grown past [`MAX_CLOCK_ERROR`]) is reported to
 //! the operator with a `WARN`.
 
+const _: () = amaru_deps::AMARU_DEPS_USED;
+
 use std::time::Duration;
 
 use amaru_observability::{info, warn};

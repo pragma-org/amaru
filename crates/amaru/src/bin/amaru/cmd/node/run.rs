@@ -481,7 +481,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     let trace_dump_path = config.trace_dump_path.clone();
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
-    amaru::clock::check();
+    amaru_clock::check();
 
     let meter = Arc::new(meter);
     let metrics = track_system_metrics(meter.clone())?;
