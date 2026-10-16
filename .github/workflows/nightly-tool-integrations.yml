@@ -67,6 +67,11 @@ jobs:
         shell: bash
         run: |
           kill "$(cat amaru.pid)"
+          timeout 120 tail --pid="$(cat amaru.pid)" -f /dev/null || {
+            echo "Amaru did not shut down within 120s. Last log lines:"
+            tail -50 amaru.log
+            exit 1
+          }
 
       - name: Upload Amaru artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
