@@ -1202,12 +1202,19 @@ fn pool_summaries_for<'iter>(stake_distributions: impl Iterator<Item = &'iter St
 // RewardsCalculator
 // ----------------------------------------------------------------------------
 
-impl<S: Store, HS: HistoricalStores> Drop for State<S, HS> {
-    fn drop(&mut self) {
+impl<S: Store, HS: HistoricalStores> State<S, HS> {
+    /// Cancel and join background rewards work. Call only after ledger processing has stopped.
+    pub fn shutdown_rewards(&mut self) {
         self.rewards_cancelled.store(true, Ordering::Relaxed);
         if let Some(handle) = self.rewards_join_handle.take() {
             let _ = handle.join();
         }
+    }
+}
+
+impl<S: Store, HS: HistoricalStores> Drop for State<S, HS> {
+    fn drop(&mut self) {
+        self.shutdown_rewards();
     }
 }
 

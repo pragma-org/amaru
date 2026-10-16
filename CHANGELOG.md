@@ -66,6 +66,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: ledger shutdown warns after 10 seconds and waits up to 60 seconds by default. Timeouts identify pending work, and embedders can retry cleanup before reusing stores.
 - **amaru-tui**: on a large terminal the dashboard keeps the full height and uses at most 65,536 characters. The columns past that stay blank.
 - **amaru**: a fork switch logs each block it adopts. Those blocks, other than the new tip, are recorded as validated headers, so a later chain prune does not report them as pruned.
 - **amaru**: startup no longer logs `db_chain.initialize` when the chain store does not contain the ledger tip. The process still exits with the mismatch error.

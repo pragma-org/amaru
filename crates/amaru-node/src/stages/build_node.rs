@@ -152,7 +152,7 @@ struct NodeLifecycle {
     performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
 
-/// Outcome of a shutdown that released every owned resource.
+/// Component failures observed during shutdown.
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 #[must_use = "inspect unexpected_exits even when cleanup completed successfully"]
 pub struct ShutdownReport {
@@ -165,9 +165,20 @@ impl ShutdownReport {
     pub fn is_clean(&self) -> bool {
         self.unexpected_exits.is_empty()
     }
+
+    pub(crate) fn with_ledger(mut self, result: Result<(), LedgerThreadJoinError>) -> Result<Self, ShutdownError> {
+        match result {
+            Ok(()) => Ok(self),
+            Err(LedgerThreadJoinError::Panicked(message)) => {
+                self.unexpected_exits.push(ComponentFailure::Ledger(message));
+                Ok(self)
+            }
+            Err(source) => Err(ShutdownError::LedgerTimeout { source, report: self }),
+        }
+    }
 }
 
-/// A component failure observed during a completed shutdown.
+/// A component failure observed before or during shutdown.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ComponentFailure {
     Stage(String),
@@ -181,12 +192,31 @@ pub enum ComponentFailure {
 }
 
 /// Shutdown stopped without proving that every owned resource was released.
-#[derive(Debug, Clone, Eq, Error, PartialEq)]
+#[derive(Debug, Clone, Error)]
 pub enum ShutdownError {
-    #[error("timed out after {timeout:?} waiting for the ledger thread; stores may still be active")]
-    LedgerTimeout { timeout: Duration },
+    #[error("{source}")]
+    LedgerTimeout {
+        source: LedgerThreadJoinError,
+        /// Failures observed before ledger cleanup timed out.
+        report: ShutdownReport,
+    },
     #[error("shutdown join task failed: {reason}; resources may still be active")]
     JoinTask { reason: String },
+}
+
+impl ShutdownError {
+    /// Retry ledger cleanup without blocking the runtime; `Ok` confirms release and reports all component failures.
+    /// Timeouts retain ownership; cancellation leaves `self` retryable. Unknown failures require restart.
+    pub async fn wait_for_cleanup(&self, timeout: Duration) -> Result<ShutdownReport, Self> {
+        let Self::LedgerTimeout { source: LedgerThreadJoinError::Timeout { ledger_thread, .. }, report } = self else {
+            return Err(self.clone());
+        };
+        let ledger_thread = ledger_thread.clone();
+        let result = tokio::task::spawn_blocking(move || ledger_thread.join_timeout(timeout))
+            .await
+            .map_err(|error| Self::JoinTask { reason: error.to_string() })?;
+        report.clone().with_ledger(result)
+    }
 }
 
 /// Build a node given the provided configuration and run it on `runtime`.
@@ -319,9 +349,15 @@ impl NodeRunning {
     ///
     /// `Ok` means cleanup completed; inspect the report for component failures.
     /// `Err` means at least one resource may still be active and should not be reopened.
+    /// A ledger timeout retains the worker; use [`ShutdownError::wait_for_cleanup`] to join again.
     /// Cancelling this future does not stop worker joins already running on the blocking pool
     /// and does not establish that cleanup completed.
     pub async fn shutdown(self) -> Result<ShutdownReport, ShutdownError> {
+        self.shutdown_with_timeout(LEDGER_THREAD_STOP_TIMEOUT).await
+    }
+
+    /// Like [`Self::shutdown`], with an explicit ledger-worker wait budget.
+    pub async fn shutdown_with_timeout(self, timeout: Duration) -> Result<ShutdownReport, ShutdownError> {
         let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
@@ -338,19 +374,13 @@ impl NodeRunning {
         );
         drop(connections);
         let (ledger, performance) = tokio::task::spawn_blocking(move || {
-            (ledger_thread.join_timeout(LEDGER_THREAD_STOP_TIMEOUT), performance())
+            let ledger = ledger_thread.join_timeout(timeout);
+            (ledger, performance())
         })
         .await
         .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
-        let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
-        let ledger = match ledger {
-            Ok(()) => None,
-            Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
-            Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
-        };
-
-        unexpected_exits.extend([ledger, performance].into_iter().flatten());
-        Ok(ShutdownReport { unexpected_exits })
+        unexpected_exits.extend(performance.err().map(|_| ComponentFailure::Performance("worker panicked".into())));
+        ShutdownReport { unexpected_exits }.with_ledger(ledger)
     }
 }
 
