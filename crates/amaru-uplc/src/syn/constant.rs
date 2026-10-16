@@ -143,6 +143,7 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
     }
 
     let mut raw_tokens: Vec<RawToken<'a>> = Vec::new();
+    let mut previous_currency: Option<&[u8]> = None;
 
     for item in list {
         let TempConstant::ProtoPair(fst, snd) = item else {
@@ -157,9 +158,19 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
             return None;
         }
 
+        if let Some(previous) = previous_currency
+            && previous >= ccy
+        {
+            return None;
+        }
+        previous_currency = Some(ccy);
+
         let TempConstant::ProtoList(inner_list) = *snd else {
             return None;
         };
+
+        let mut previous_token: Option<&[u8]> = None;
+        let mut has_tokens = false;
 
         for inner_item in inner_list {
             let TempConstant::ProtoPair(tok_fst, tok_snd) = inner_item else {
@@ -174,15 +185,27 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
                 return None;
             }
 
+            if let Some(previous) = previous_token
+                && previous >= tok_name
+            {
+                return None;
+            }
+            previous_token = Some(tok_name);
+
             let TempConstant::Integer(qty) = *tok_snd else {
                 return None;
             };
 
-            if check_quantity_range(qty).is_err() {
+            if check_quantity_range(qty).is_err() || qty.is_zero() {
                 return None;
             }
 
             raw_tokens.push(RawToken { currency: ccy, name: tok_name, quantity: qty });
+            has_tokens = true;
+        }
+
+        if !has_tokens {
+            return None;
         }
     }
 

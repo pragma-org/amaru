@@ -1,8 +1,1 @@
-(program
-  1.0.0
-  (con
-    value
-    [ ( #aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    , [(#, 579)] ) ]
-  )
-)
+parse error
