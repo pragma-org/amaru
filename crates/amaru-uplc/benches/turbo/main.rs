@@ -22,8 +22,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    utils::duration, Epoch, PlutusVersion, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_11,
-    PROTOCOL_VERSION_8, PROTOCOL_VERSION_9,
+    Epoch, PROTOCOL_VERSION_8, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, PROTOCOL_VERSION_11, PlutusVersion,
+    ProtocolVersion, utils::duration,
 };
 use amaru_minicbor_extra::decode_bytes;
 use amaru_uplc::{
@@ -40,7 +40,7 @@ use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
 const TURBO_REPORT_DIR: &str = "benches/turbo";
 const TURBO_DATA_DIR: &str = "benches/turbo/samples";
-const TURBO_ARCHIVE_URL: &str = "https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz";
+const TURBO_ARCHIVE_URL: &str = "https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.zst";
 
 // Initial capacity of the arena, in bytes.
 const BUMP_ARENA_CAPACITY: usize = 20 * 1048576; // 20 MB
@@ -244,11 +244,7 @@ fn machine() -> serde_json::Value {
             .with_cpu(CpuRefreshKind::everything().without_frequency())
             .with_memory(MemoryRefreshKind::nothing().with_ram()),
     );
-    let cpu = system
-        .cpus()
-        .first()
-        .map(|cpu| cpu.brand().trim())
-        .filter(|brand| !brand.is_empty());
+    let cpu = system.cpus().first().map(|cpu| cpu.brand().trim()).filter(|brand| !brand.is_empty());
 
     json!({
         "os": System::name().unwrap_or_else(|| std::env::consts::OS.to_owned()),

@@ -16,9 +16,8 @@ env:
   CARGO_TERM_COLOR: always
   RUST_NIGHTLY_TOOLCHAIN: nightly-2026-09-04
   RUSTUP_LOG: error
-  BENCHMARK_URL: https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.xz
-  BENCHMARK_SHA256: fffe2e959fb8bdb47ee4834008dcceb89fcde53afb659a454beca26cf95507cc
-  BENCHMARK_CACHE_KEY: turbo-benchmarks-v1
+  TURBO_BENCHMARK_URL: https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.zst
+  TURBO_BENCHMARK_SHA256: 626c624d9f5ea99e4343c44f617d467fa3eb82d73812acfae15dee648460f1d3
 
 permissions:
   contents: read
@@ -59,24 +58,16 @@ jobs:
 
       - uses: ./.github/actions/cache
 
-      - name: Cache benchmark data
-        id: cache-benchmarks
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # https://github.com/actions/cache/releases/tag/v6.1.0
-        with:
-          path: uplc-benchmarks-turbo.tar.xz
-          key: ${{ env.BENCHMARK_CACHE_KEY }}
-
       - name: Download benchmark data
-        if: steps.cache-benchmarks.outputs.cache-hit != 'true'
-        run: curl --fail --show-error --location --retry 3 -o uplc-benchmarks-turbo.tar.xz "$BENCHMARK_URL"
+        run: curl --fail --show-error --location --retry 3 -o uplc-benchmarks-turbo.tar.zst "$TURBO_BENCHMARK_URL"
 
       - name: Verify benchmark data
-        run: echo "$BENCHMARK_SHA256 uplc-benchmarks-turbo.tar.xz" | sha256sum --check --strict
+        run: echo "$TURBO_BENCHMARK_SHA256  uplc-benchmarks-turbo.tar.zst" | sha256sum --check --strict
 
       - name: Extract benchmark data
         run: |
           mkdir -p crates/amaru-uplc/benches/turbo/samples
-          tar -xf uplc-benchmarks-turbo.tar.xz -C crates/amaru-uplc/benches/turbo/samples
+          tar --zstd -xf uplc-benchmarks-turbo.tar.zst -C crates/amaru-uplc/benches/turbo/samples
 
       - name: Generate report
         env:
