@@ -86,7 +86,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         .list_snapshot_objects(network)
         .await?
         .into_iter()
-        .map(|s| format!("{}{ARCHIVE_EXTENSION}", s.point))
+        .map(|point| format!("{point}{ARCHIVE_EXTENSION}"))
         .collect();
 
     if local_archives.is_empty() && remote_keys.is_empty() {

@@ -16,7 +16,7 @@ use std::{
     collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex},
 };
 
 use amaru_kernel::{NetworkName, Point, Slot};
@@ -30,7 +30,6 @@ use mithril_client::{
     feedback::{FeedbackReceiver, MithrilEvent, MithrilEventCardanoDatabase},
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
 
 use crate::immutable::{
     chunk_for_slot, immutable_chunk_is_complete, validate_immutable_files, validate_immutable_resume_point,
@@ -120,12 +119,12 @@ struct MonotonicDownloadState {
 
 struct MonotonicDownloadObserver {
     inner: Arc<dyn MithrilDownloadObserver>,
-    state: StdMutex<MonotonicDownloadState>,
+    state: Mutex<MonotonicDownloadState>,
 }
 
 impl MonotonicDownloadObserver {
     fn new(inner: Arc<dyn MithrilDownloadObserver>) -> Self {
-        Self { inner, state: StdMutex::new(MonotonicDownloadState::default()) }
+        Self { inner, state: Mutex::new(MonotonicDownloadState::default()) }
     }
 }
 
@@ -160,7 +159,7 @@ struct AggregatorDetails {
 
 struct ProgressBarObserver {
     with_progress: ProgressFactory,
-    state: StdMutex<ProgressBarState>,
+    state: Mutex<ProgressBarState>,
 }
 
 #[derive(Default)]
@@ -242,14 +241,14 @@ struct CanonicalDownloadState {
     cached_bytes: u64,
     cached_files: u64,
     requested_files: u64,
-    files: BTreeMap<String, (u64, u64, bool)>,
+    files: BTreeMap<u64, (u64, u64, bool)>,
     known_bytes: u64,
     downloaded_bytes: u64,
     completed_files: u64,
 }
 
 impl CanonicalDownloadState {
-    fn update_file(&mut self, name: String, size: u64, downloaded: u64) {
+    fn update_file(&mut self, name: u64, size: u64, downloaded: u64) {
         if let Some((old_size, old_downloaded, was_completed)) = self.files.insert(name, (size, downloaded, false)) {
             self.known_bytes = self.known_bytes.saturating_sub(old_size);
             self.downloaded_bytes = self.downloaded_bytes.saturating_sub(old_downloaded);
@@ -259,7 +258,7 @@ impl CanonicalDownloadState {
         self.downloaded_bytes = self.downloaded_bytes.saturating_add(downloaded);
     }
 
-    fn complete_file(&mut self, name: &str) {
+    fn complete_file(&mut self, name: &u64) {
         if let Some((size, downloaded, completed)) = self.files.get_mut(name) {
             self.downloaded_bytes = self.downloaded_bytes.saturating_sub(*downloaded).saturating_add(*size);
             if !*completed {
@@ -312,16 +311,16 @@ impl FeedbackReceiver for CanonicalFeedbackReceiver {
             }
             _ => return,
         };
-        let mut state = self.state.lock().await;
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match event {
-            MithrilEventCardanoDatabase::Started { total_immutable_files, include_ancillary, .. } => {
-                state.requested_files = total_immutable_files + u64::from(include_ancillary);
+            MithrilEventCardanoDatabase::Started { total_immutable_files, .. } => {
+                state.requested_files = total_immutable_files;
                 self.observer.on_progress(MithrilDownloadProgress::StageChanged {
                     stage: MithrilDownloadStage::Downloading { files: state.cached_files + state.requested_files },
                 });
             }
             MithrilEventCardanoDatabase::ImmutableDownloadStarted { immutable_file_number, size, .. } => {
-                state.update_file(immutable_file_number.to_string(), size, 0);
+                state.update_file(immutable_file_number, size, 0);
             }
             MithrilEventCardanoDatabase::ImmutableDownloadProgress {
                 immutable_file_number,
@@ -329,19 +328,10 @@ impl FeedbackReceiver for CanonicalFeedbackReceiver {
                 size,
                 ..
             } => {
-                state.update_file(immutable_file_number.to_string(), size, downloaded_bytes);
+                state.update_file(immutable_file_number, size, downloaded_bytes);
             }
             MithrilEventCardanoDatabase::ImmutableDownloadCompleted { immutable_file_number, .. } => {
-                state.complete_file(&immutable_file_number.to_string());
-            }
-            MithrilEventCardanoDatabase::AncillaryDownloadStarted { size, .. } => {
-                state.update_file("ancillary".to_string(), size, 0);
-            }
-            MithrilEventCardanoDatabase::AncillaryDownloadProgress { downloaded_bytes, size, .. } => {
-                state.update_file("ancillary".to_string(), size, downloaded_bytes);
-            }
-            MithrilEventCardanoDatabase::AncillaryDownloadCompleted { .. } => {
-                state.complete_file("ancillary");
+                state.complete_file(&immutable_file_number);
             }
             _ => return,
         }
@@ -373,7 +363,7 @@ pub async fn download_from_mithril(
     from_chunk: u64,
     with_progress: ProgressFactory,
 ) -> Result<(), MithrilDownloadError> {
-    let observer = Arc::new(ProgressBarObserver { with_progress, state: StdMutex::default() });
+    let observer = Arc::new(ProgressBarObserver { with_progress, state: Mutex::default() });
     download_from_mithril_with_chunk_range(network, target_dir, from_chunk, None, None, observer, (0, 0))
         .await
         .map(|_| ())
@@ -425,7 +415,9 @@ async fn download_from_mithril_with_chunk_range(
         .await
         .map_err(|source| MithrilDownloadError::Validation { source })?;
 
-    let immutable_file_range = immutable_file_range(from_chunk, requested_through_chunk);
+    let immutable_file_range = requested_through_chunk.map_or(ImmutableFileRange::From(from_chunk), |through_chunk| {
+        ImmutableFileRange::Range(from_chunk, through_chunk)
+    });
     let download_unpack_options =
         DownloadUnpackOptions { allow_override: true, include_ancillary: false, ..DownloadUnpackOptions::default() };
     let immutable_file_count = immutable_file_range.length(through_chunk) * 3;
@@ -493,12 +485,6 @@ async fn download_from_mithril_with_chunk_range(
     Ok(snapshot_list_item.hash)
 }
 
-fn immutable_file_range(from_chunk: u64, requested_through_chunk: Option<u64>) -> ImmutableFileRange {
-    requested_through_chunk.map_or(ImmutableFileRange::From(from_chunk), |through_chunk| {
-        ImmutableFileRange::Range(from_chunk, through_chunk)
-    })
-}
-
 fn cached_range_covers_snapshot(
     immutable_dir: &Path,
     from_chunk: u64,
@@ -519,14 +505,6 @@ fn cached_range_covers_snapshot(
     Ok(last_chunk == Some(through_chunk)
         && immutable_chunk_is_complete(immutable_dir, from_chunk)
             .map_err(|source| MithrilDownloadError::Download(source.into()))?)
-}
-
-fn requested_through_chunk(
-    network: NetworkName,
-    resume_chunk: u64,
-    until_slot: Option<Slot>,
-) -> anyhow::Result<Option<u64>> {
-    until_slot.map(|slot| chunk_for_slot(network, slot).map(|chunk| chunk.max(resume_chunk))).transpose()
 }
 
 fn validate_snapshot_range(
@@ -554,22 +532,27 @@ pub async fn download_from_mithril_for_range_with_observer(
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     let immutable_dir = target_dir.join("immutable");
     let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default())?;
-    let requested_through_chunk = requested_through_chunk(network, resume_chunk, until_slot)?;
+    let requested_through_chunk =
+        until_slot.map(|slot| chunk_for_slot(network, slot).map(|chunk| chunk.max(resume_chunk))).transpose()?;
     let observer = Arc::new(MonotonicDownloadObserver::new(observer));
     let mut rebuilt = false;
+    let mut repair = |source: anyhow::Error| {
+        if rebuilt {
+            return Err(MithrilDownloadError::InvalidCache {
+                source: source.context("immutable cache validation failed after rebuild"),
+            });
+        }
+        rebuild_immutable_cache(&immutable_dir, &source)?;
+        rebuilt = true;
+        Ok(())
+    };
 
     loop {
         let from_chunk = match validated_download_boundary(&immutable_dir, network, resume_point) {
             Ok(from_chunk) => from_chunk,
-            Err(error) if !rebuilt => {
-                rebuild_immutable_cache(&immutable_dir, &error)?;
-                rebuilt = true;
-                continue;
-            }
             Err(error) => {
-                return Err(MithrilDownloadError::InvalidCache {
-                    source: error.context("immutable cache validation failed after rebuild"),
-                });
+                repair(error)?;
+                continue;
             }
         };
 
@@ -593,15 +576,7 @@ pub async fn download_from_mithril_for_range_with_observer(
 
         match validate_immutable_resume_point(&immutable_dir, network, resume_point) {
             Ok(()) => return Ok(MithrilDownloadReport { immutable_dir, snapshot_hash: Some(snapshot_hash) }),
-            Err(error) if !rebuilt => {
-                rebuild_immutable_cache(&immutable_dir, &error)?;
-                rebuilt = true;
-            }
-            Err(error) => {
-                return Err(MithrilDownloadError::InvalidCache {
-                    source: error.context("immutable cache validation failed after rebuild"),
-                });
-            }
+            Err(error) => repair(error)?,
         }
     }
 }
@@ -776,28 +751,6 @@ mod tests {
                 completed_files: 2,
                 total_files: 4,
                 total_bytes: Some(200),
-            })
-        );
-    }
-
-    #[test]
-    fn unknown_download_sizes_remain_optional() {
-        let recording = Arc::new(RecordingObserver::default());
-        let receiver = CanonicalFeedbackReceiver::new(recording.clone(), 40, 1);
-        receiver.report(&CanonicalDownloadState {
-            cached_bytes: 40,
-            cached_files: 1,
-            requested_files: 2,
-            ..Default::default()
-        });
-
-        assert_eq!(
-            recording.0.lock().unwrap().last(),
-            Some(&MithrilDownloadProgress::Downloaded {
-                downloaded_bytes: 40,
-                completed_files: 1,
-                total_files: 3,
-                total_bytes: None,
             })
         );
     }

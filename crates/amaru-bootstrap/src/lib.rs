@@ -101,7 +101,7 @@
 //!
 //! Not every bootstrap-related task goes through [`bootstrap()`]:
 //!
-//! - **[`import_snapshots`] / [`import_snapshots_from_directory`]** — import
+//! - **[`import_snapshots`]** — import
 //!   already-downloaded snapshot archives into a ledger dir only
 //!   (`amaru dev ledger states import`, convert helpers). No CDN fetch.
 //! - **[`validate_publishable_snapshot_archive`]** — check an archive before
@@ -116,8 +116,6 @@
 //!
 //! - [`mod@aws`] — S3/CDN config and clients (anonymous download + authenticated upload).
 //! - [`mod@bootstrap`] — selection, download, import, and chain-store seeding.
-//! - [`mod@cardano_node`] — parsers for Haskell-node / db-analyser snapshot formats
-//!   used during import.
 //!
 //! # Tokio
 //!
@@ -127,18 +125,16 @@
 
 pub mod aws;
 pub mod bootstrap;
-pub mod cardano_node;
+mod cardano_node;
 mod progress;
 
 pub use aws::{
     ARCHIVE_EXTENSION, AnonymousS3Client, DEFAULT_BUCKET, DEFAULT_ENDPOINT, DEFAULT_PUBLIC_URL, DEFAULT_REGION,
-    S3Client, S3Config, S3Snapshot,
+    S3Client, S3Config,
 };
 pub use bootstrap::{
-    BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, BootstrapReport, ChainState, ImportError,
-    InitialNonces, bootstrap, bootstrap_epochs, bootstrap_with_observer, fetch_headers_from_points, import_headers,
-    import_packaged_blocks, import_snapshots, import_snapshots_from_directory, store_chain_state,
-    validate_publishable_snapshot_archive,
+    BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, BootstrapReport, bootstrap, bootstrap_epochs,
+    bootstrap_with_observer, fetch_headers_from_points, import_snapshots, validate_publishable_snapshot_archive,
 };
 pub use progress::{BootstrapObserver, BootstrapProgress, BootstrapStage};
 

@@ -15,49 +15,21 @@
 use std::time::Duration;
 
 use amaru_kernel::{
-    BlockHeight, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point,
+    Epoch, EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, HeaderHash, Nonce, Point,
 };
 use amaru_observability::warn;
-use amaru_ouroboros::OpcertSequenceNumbers;
-use anyhow::{Context, anyhow};
+use amaru_ouroboros::{Nonces, OpcertSequenceNumbers};
+use anyhow::anyhow;
 use minicbor::Decoder;
 
-use crate::bootstrap::{ChainState, InitialNonces};
+use crate::bootstrap::ChainState;
 
 pub(crate) mod mempack;
 pub mod tvar;
-pub struct ParsedStateSnapshot {
-    pub slot: u64,
-    pub hash: HeaderHash,
-    pub block_height: BlockHeight,
-    pub era_history: EraHistory,
-    pub ledger_data_begin: usize,
-    pub ledger_data_end: usize,
-}
-
 pub(super) struct StateSnapshotPrefix {
-    pub slot: u64,
-    pub hash: HeaderHash,
-    pub block_height: BlockHeight,
+    pub point: Point,
     pub era_history: EraHistory,
     pub ledger_data_begin: usize,
-}
-
-pub fn parse_state_snapshot(
-    d: &mut Decoder<'_>,
-    global_parameters: &GlobalParameters,
-) -> anyhow::Result<ParsedStateSnapshot> {
-    let prefix = parse_state_snapshot_prefix(d, global_parameters)?;
-    d.skip()?;
-
-    Ok(ParsedStateSnapshot {
-        slot: prefix.slot,
-        hash: prefix.hash,
-        block_height: prefix.block_height,
-        era_history: prefix.era_history,
-        ledger_data_begin: prefix.ledger_data_begin,
-        ledger_data_end: d.position(),
-    })
 }
 
 pub(super) fn parse_state_snapshot_prefix(
@@ -93,7 +65,8 @@ pub(super) fn parse_state_snapshot_prefix(
 
 pub(super) fn extract_snapshot_chain_state_after_ledger(
     d: &mut Decoder<'_>,
-    at: Point,
+    point: Point,
+    epoch: Epoch,
     tail: HeaderHash,
 ) -> anyhow::Result<ChainState> {
     d.skip()?;
@@ -143,20 +116,7 @@ pub(super) fn extract_snapshot_chain_state_after_ledger(
     d.skip()?;
     d.skip()?;
 
-    let initial_nonces = InitialNonces { at, active, evolving, candidate, tail };
-    Ok(ChainState { initial_nonces, opcert_sequence_numbers })
-}
-
-pub fn parse_state_snapshot_with_chain_state(
-    mut d: Decoder<'_>,
-    global_parameters: &GlobalParameters,
-    tail: HeaderHash,
-) -> anyhow::Result<(ParsedStateSnapshot, ChainState)> {
-    let parsed_snapshot = parse_state_snapshot(&mut d, global_parameters).context("parse state snapshot prefix")?;
-    let at = Point::Specific(parsed_snapshot.slot.into(), parsed_snapshot.hash, parsed_snapshot.block_height);
-    let chain_state = extract_snapshot_chain_state_after_ledger(&mut d, at, tail)?;
-
-    Ok((parsed_snapshot, chain_state))
+    Ok(ChainState { point, nonces: Nonces { epoch, active, evolving, candidate, tail }, opcert_sequence_numbers })
 }
 
 fn decode_current_era(
@@ -194,14 +154,14 @@ fn decode_current_era(
     d.array()?;
     d.array()?;
     let slot = d.u64()?;
-    let block_height = BlockHeight::from(d.u64()?);
+    let block_height = d.u64()?.into();
     let hash: HeaderHash = d.decode()?;
 
     let ledger_data_begin = d.position();
 
     let era_history = EraHistory::new(&eras, global_parameters.stability_window());
 
-    Ok(StateSnapshotPrefix { slot, hash, block_height, era_history, ledger_data_begin })
+    Ok(StateSnapshotPrefix { point: Point::Specific(slot.into(), hash, block_height), era_history, ledger_data_begin })
 }
 
 fn decode_partial_era_summary(d: &mut minicbor::Decoder<'_>, era_tag: u8) -> anyhow::Result<EraSummary> {
@@ -217,39 +177,4 @@ fn decode_partial_era_summary(d: &mut minicbor::Decoder<'_>, era_tag: u8) -> any
         EraParams::from_bounds(&start, &end, era_name).ok_or_else(|| anyhow!("Invalid era bounds (non-increasing)"))?;
 
     Ok(EraSummary { start, end: Some(end), params })
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{collections::BTreeMap, io::Read};
-
-    use amaru_kernel::{Hash, PoolId, cbor::lazy::LazyDecoder};
-    use amaru_ouroboros::OpcertSequenceNumbers;
-
-    struct ChunkedReader<'a> {
-        bytes: &'a [u8],
-        chunk_size: usize,
-    }
-
-    impl Read for ChunkedReader<'_> {
-        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-            let size = self.chunk_size.min(self.bytes.len()).min(buffer.len());
-            buffer[..size].copy_from_slice(&self.bytes[..size]);
-            self.bytes = &self.bytes[size..];
-            Ok(size)
-        }
-    }
-
-    #[test]
-    fn retries_chain_state_decoding_at_reader_chunk_boundaries() {
-        let pool_id = PoolId::from(Hash::new([1; 28]));
-        let expected = OpcertSequenceNumbers::from(BTreeMap::from([(pool_id, 42)]));
-        let encoded = minicbor::to_vec(expected.clone()).unwrap();
-        let mut reader = ChunkedReader { bytes: &encoded, chunk_size: 8 };
-        let mut decoder = LazyDecoder::new(&mut reader);
-
-        let actual: OpcertSequenceNumbers = decoder.with_decoder(|d| Ok(d.decode()?)).unwrap();
-
-        assert_eq!(actual, expected);
-    }
 }
