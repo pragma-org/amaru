@@ -14,6 +14,8 @@
 
 use std::{fmt, str::FromStr};
 
+use minicbor::{Decode, Encode};
+
 use crate::{AsShelley, Credential, HasOwnership, Network, RewardAccount, cbor, hash, size};
 
 pub mod byron;
@@ -31,12 +33,32 @@ pub use stake_reference::StakeReference;
 mod address_type;
 pub use address_type::AddressType;
 
+use crate::cbor::HasProtocolVersion;
+
 #[derive(Debug, Clone, PartialEq, Eq, std::hash::Hash)]
 pub enum Address {
     Byron(ByronAddress),
     Shelley(ShelleyAddress),
     // TODO: This is wrong, stake address should be a completely separate type.
     Stake(RewardAccount),
+}
+
+impl<'b, Ctx: HasProtocolVersion> Decode<'b, Ctx> for Address {
+    fn decode(d: &mut minicbor::Decoder<'_>, ctx: &mut Ctx) -> Result<Self, minicbor::decode::Error> {
+        let bytes = cbor::decode_bytes_v12(d, ctx)?;
+        Self::from_bytes(&bytes).ok_or(minicbor::decode::Error::message("Invalid address"))
+    }
+}
+
+impl<C> Encode<C> for Address {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.bytes(&self.to_vec())?;
+        Ok(())
+    }
 }
 
 impl fmt::Display for Address {

@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20261022 _[unreleased; planned for 2026-10-22]_
+
+### Fixed
+
+- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
+
 ## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
 ### Added

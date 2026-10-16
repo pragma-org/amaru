@@ -206,8 +206,8 @@ impl<'d, C: cbor::HasProtocolVersion, A: for<'a> cbor::Decode<'a, C>> cbor::Deco
         )?;
 
         // From protocol version 12 the ledger requires the policy map itself to be non-empty, not
-        // just the asset map of each policy. The check belongs here rather than in a caller: it
-        // applies to every bundle, minted assets included.
+        // just the asset map of each policy. Below that version an empty bundle is only refused
+        // where a mint carries it; see [`crate::Mint`].
         if policies.is_empty() && ctx.protocol_version() >= PROTOCOL_VERSION_12 {
             return Err(cbor::decode::Error::message("multi-asset bundle must carry at least one policy"));
         }

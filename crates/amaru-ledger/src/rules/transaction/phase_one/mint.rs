@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{MemoizedDatum, Multiasset, NonZeroInt, RedeemerTag, RequiredScript};
+use amaru_kernel::{MemoizedDatum, Mint, RedeemerTag, RequiredScript};
 
 use crate::context::{BalanceSlice, UtxoSlice, WitnessSlice};
 
-pub fn execute<C>(context: &mut C, mint: Option<&Multiasset<NonZeroInt>>)
+pub fn execute<C>(context: &mut C, mint: Option<&Mint>)
 where
     C: UtxoSlice + WitnessSlice + BalanceSlice,
 {
     if let Some(mint) = mint {
-        for (index, hash) in mint.keys().enumerate() {
+        for (index, hash) in mint.policies().enumerate() {
             context.require_script_witness(RequiredScript {
                 hash: *hash,
                 index: index as u32,

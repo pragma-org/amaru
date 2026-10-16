@@ -26,13 +26,13 @@ use amaru_kernel::{
     Lovelace, Network, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots,
     Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
     ProtocolVersion, RatificationStatus, Relay, Reward, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
-    Vote, Voter,
+    VecSet, Vote, Voter,
     cbor::{
         self, HasProtocolVersion,
         lazy::{Checkpoint, LazyDecoder},
     },
     protocol_version, size,
-    utils::cbor::{SerialisedAsArray, SerialisedAsSet},
+    utils::cbor::SerialisedAsArray,
 };
 use amaru_observability::{info, warn};
 use amaru_progress_bar::{ProgressBarExt, ProgressBarFactory};
@@ -119,7 +119,7 @@ struct InitialSnapshot {
     constitution: Constitution,
     protocol_parameters: ProtocolParameters,
     enacted_proposals: Vec<ProposalState>,
-    expired_proposals: BTreeSet<ProposalId>,
+    expired_proposals: VecSet<ProposalId>,
     donations: u64,
     delta_treasury: i64,
     delta_reserves: i64,
@@ -172,7 +172,7 @@ fn import_rewards(
     let (progress, unclaimed_rewards, size) = decoder.stream_map(
         |d| {
             let credential = d.decode()?;
-            let SerialisedAsSet(rewards): SerialisedAsSet<Vec<Reward>> = d.decode()?;
+            let rewards: VecSet<Reward> = d.decode()?;
             let amount = rewards.into_iter().fold(0, |total, reward| total + reward.amount);
             Ok((credential, amount))
         },
@@ -460,10 +460,7 @@ fn decode_initial_snapshot(
     decoder.skip()?; // Pool distr
     remaining_state_progress.increment();
 
-    let (enacted_proposals, SerialisedAsSet(expired_proposals)): (
-        Vec<ProposalState>,
-        SerialisedAsSet<BTreeSet<ProposalId>>,
-    ) = decoder
+    let (enacted_proposals, expired_proposals): (Vec<ProposalState>, VecSet<ProposalId>) = decoder
         .with_decoder(|d| {
             // Ratify state
             d.array()?;
@@ -914,7 +911,7 @@ fn import_recently_pruned_proposals(
     epoch: Epoch,
     roots: &ProposalsRoots,
     enacted: Vec<ProposalState>,
-    expired: BTreeSet<ProposalId>,
+    expired: VecSet<ProposalId>,
 ) -> anyhow::Result<()> {
     let mut pruned: BTreeMap<ProposalId, RatificationStatus> =
         expired.into_iter().map(|id| (id, RatificationStatus::NotRatified)).collect();
@@ -1324,7 +1321,7 @@ struct NodePoolParams {
     cost: Lovelace,
     margin: UnitRationalNumber,
     reward_account: RewardAccount,
-    owners: BTreeSet<Hash<{ size::KEY }>>,
+    owners: VecSet<Hash<{ size::KEY }>>,
     relays: Vec<Relay>,
     metadata: Option<PoolMetadata>,
 }
@@ -1338,7 +1335,7 @@ impl NodePoolParams {
             cost: self.cost,
             margin: self.margin,
             reward_account: self.reward_account,
-            owners: self.owners.into_iter().collect(),
+            owners: self.owners,
             relays: self.relays,
             metadata: self.metadata,
         }
@@ -1459,7 +1456,7 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolPa
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool reward account", err))?;
             reward_account.0
         };
-        let SerialisedAsSet(owners) =
+        let owners =
             d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool owners", err))?;
         let relays =
             d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool relays", err))?;
@@ -1504,7 +1501,7 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolUp
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool update reward account", err))?;
             reward_account.0
         };
-        let SerialisedAsSet(owners) = d
+        let owners = d
             .decode_with(&mut protocol_version)
             .map_err(|err| contextualize_decode_error("node pool update owners", err))?;
         let relays = d
@@ -1544,7 +1541,7 @@ impl<'b> cbor::decode::Decode<'b, (NetworkName, ProtocolVersion)> for NodePoolSt
                 d.decode_with(ctx).map_err(|err| contextualize_decode_error("node pool reward account", err))?;
             reward_account.0
         };
-        let SerialisedAsSet(owners) =
+        let owners =
             d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool owners", err))?;
         let relays =
             d.decode_with(&mut protocol_version).map_err(|err| contextualize_decode_error("node pool relays", err))?;

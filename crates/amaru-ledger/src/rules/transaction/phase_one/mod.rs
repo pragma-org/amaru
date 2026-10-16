@@ -258,7 +258,7 @@ where
 
     withdrawals::execute(
         context,
-        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
+        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.into_iter().collect()),
         network,
         is_valid,
     )?;
@@ -287,7 +287,7 @@ where
             era_history,
             guardrail_script,
             (transaction_id, pointer),
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.into_iter().collect()),
         )?;
         span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
 
@@ -306,7 +306,7 @@ where
         proposals::count_lovelace(
             context,
             protocol_parameters,
-            mem::take(&mut transaction_body.proposals).map(|xs| xs.to_vec()),
+            mem::take(&mut transaction_body.proposals).map(|xs| xs.into_iter().collect()),
         );
         span.record(PHASE_ONE::FIELD_PROPOSALS_MICROS, elapsed_and_reset(&mut meter));
     }

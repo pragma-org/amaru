@@ -21,19 +21,17 @@ use anyhow::{Context, anyhow};
 
 use crate::{Category, Corpus, TestKey, check_no_unknown_rules};
 
-/// Directory holding the canonical re-encoding of the samples it accompanies. It is not a sample category, so
-/// it is skipped when the samples of a rule are collected.
-const EXPECTED_DIR: &str = "expected";
+/// Suffix of a sample file. One recursive scan of the corpus finds every sample by this suffix alone.
+const INPUT_SUFFIX: &str = ".input.cbor";
 
-/// Directory grouping the samples that must be rejected. It holds one sub-directory per mutation severity,
-/// `zap-0` being the samples the generator produced unaltered and the decoder still rejects.
-const INVALID_DIR: &str = "invalid";
+/// Suffix of the reference re-encoding of a sample, which sits beside it under the same name.
+const EXPECTED_SUFFIX: &str = ".expected.cbor";
 
-/// Return every `.cbor` sample below a rule directory, ordered by category then file name so runs are
-/// reproducible.
+/// Return every sample below a rule directory, ordered by category then file name so runs are reproducible.
 ///
-/// A rule directory holds `valid`, `expected` and `invalid`, the last one nesting a directory per severity.
-pub fn read_test_data(corpus: Corpus, rule_dir: &Path) -> anyhow::Result<Vec<TestKey>> {
+/// A rule directory holds one directory per category: `valid`, and `invalid-zap-<n>` per mutation severity. A
+/// severity directory can be missing, which the corpus means as zero samples at that severity.
+pub fn read_test_data(rule_dir: &Path) -> anyhow::Result<Vec<TestKey>> {
     let mut out = Vec::new();
     let rule =
         rule_dir.file_name().ok_or_else(|| anyhow!("rule directory has no name"))?.to_string_lossy().into_owned();
@@ -42,48 +40,37 @@ pub fn read_test_data(corpus: Corpus, rule_dir: &Path) -> anyhow::Result<Vec<Tes
         if !dir.is_dir() {
             continue;
         }
-        match entry.file_name().to_string_lossy().as_ref() {
-            EXPECTED_DIR => continue,
-            INVALID_DIR => {
-                for severity in read_directory(&dir)? {
-                    let severity_dir = severity.path();
-                    if severity_dir.is_dir() {
-                        let name = severity.file_name().to_string_lossy().into_owned();
-                        read_samples(corpus, &rule, &name, &severity_dir, &mut out)?;
-                    }
-                }
-            }
-            name => read_samples(corpus, &rule, name, &dir, &mut out)?,
-        }
+        let category_dir = entry.file_name().to_string_lossy().into_owned();
+        read_samples(&rule, &category_dir, &dir, &mut out)?;
     }
     out.sort();
     Ok(out)
 }
 
-/// Collect the `.cbor` samples sitting directly in a category directory.
-fn read_samples(
-    corpus: Corpus,
-    rule: &str,
-    category_dir: &str,
-    dir: &Path,
-    out: &mut Vec<TestKey>,
-) -> anyhow::Result<()> {
+/// Collect the samples sitting directly in a category directory, leaving their reference re-encodings aside.
+fn read_samples(rule: &str, category_dir: &str, dir: &Path, out: &mut Vec<TestKey>) -> anyhow::Result<()> {
     let category = Category::from_dir(category_dir).context(format!("directory {}", dir.display()))?;
     for file in read_directory(dir)? {
         let path = file.path();
-        if path.extension().is_some_and(|ext| ext == "cbor") {
-            out.push(TestKey::new(corpus, rule.to_string(), category, path));
+        if sample_name(&path).is_some() {
+            out.push(TestKey::new(rule.to_string(), category, path));
         }
     }
     Ok(())
 }
 
+/// The name of a sample, carrying no suffix, or `None` when the path is not a sample.
+pub fn sample_name(path: &Path) -> Option<String> {
+    path.file_name()?.to_str()?.strip_suffix(INPUT_SUFFIX).map(|name| name.to_string())
+}
+
 /// Return the expected canonical CBOR for a given test sample, if it exists.
 ///
-/// A reference lives at `<corpus>/<rule>/expected/<sample>`, next to the categories of the rule it belongs to,
-/// and carries the same file name as the sample it is the re-encoding of.
-pub fn read_expected_canonical_cbor(corpus: Corpus, rule: &str, path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
-    let at = corpus_root(corpus).join(rule).join(EXPECTED_DIR).join(path.file_name().unwrap_or_default());
+/// A reference is the sample's own path with `.input.cbor` replaced by `.expected.cbor`, so it is derived rather
+/// than looked up in a parallel directory.
+pub fn read_expected_canonical_cbor(path: &Path) -> anyhow::Result<Option<Vec<u8>>> {
+    let name = sample_name(path).ok_or_else(|| anyhow!("{} is not a sample", path.display()))?;
+    let at = path.with_file_name(format!("{name}{EXPECTED_SUFFIX}"));
     at.is_file().then(|| read_file(&at)).transpose()
 }
 
@@ -97,7 +84,7 @@ pub fn read_corpus_root(corpus: Corpus) -> anyhow::Result<Option<PathBuf>> {
     Ok(Some(root))
 }
 
-/// Return the root of the corpus, e.g. `tests/cbor-dataset/Conway123_100`.
+/// Return the root of the corpus, e.g. `tests/data/cbor.dataset/conway`.
 pub fn corpus_root(corpus: Corpus) -> PathBuf {
     dataset_dir().join(corpus.to_string())
 }

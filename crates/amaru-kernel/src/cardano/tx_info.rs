@@ -20,8 +20,9 @@ use thiserror::Error;
 use crate::{
     BorrowedScript, Certificate, EraHistory, EraHistoryError, GlobalParameters, HasScriptHash, Hash, Lovelace,
     MemoizedTransactionOutput, OutputReference, PlutusDatums, PlutusMint, PlutusRedeemers, PlutusVotes,
-    PlutusWithdrawals, Proposal, RedeemerEntry, RedeemerKey, RequiredSigners, ScriptContext, ScriptPurpose, TimeRange,
-    TransactionBody, TransactionId, TransactionInput, Utxos, WitnessSet, size::SCRIPT,
+    PlutusWithdrawals, Proposal, RedeemerEntry, RedeemerKey, ScriptContext, ScriptPurpose, Set, TimeRange,
+    TransactionBody, TransactionId, TransactionInput, Utxos, WitnessSet,
+    size::{KEY, SCRIPT},
 };
 
 /// An opaque type that represents the `TxInfo` field used in a [`ScriptContext`].
@@ -40,7 +41,10 @@ pub struct TxInfo<'a> {
     pub certificates: Vec<&'a Certificate>,
     pub withdrawals: PlutusWithdrawals,
     pub valid_range: TimeRange,
-    pub signatories: RequiredSigners,
+    /// The public-key hashes the transaction *declares* it must be signed by, taken from its
+    /// `required_signers` field. This is the declared requirement, not the key hashes that
+    /// actually produced witnesses; phase-one validation enforces that the witness set meets it.
+    pub signatories: Set<Hash<KEY>>,
     pub redeemers: PlutusRedeemers<'a>,
     pub data: PlutusDatums<'a>,
     pub id: TransactionId,
@@ -110,7 +114,8 @@ impl<'a> TxInfo<'a> {
         let valid_range =
             TimeRange::new(tx.validity_interval_start, tx.validity_interval_end, slot, era_history, global_parameters)?;
 
-        let signatories = tx.required_signers.as_ref().map(RequiredSigners::from).unwrap_or_default();
+        let signatories =
+            tx.required_signers.as_ref().map(|hashes| hashes.iter().copied().collect()).unwrap_or_default();
 
         let proposal_procedures: Vec<_> =
             tx.proposals.as_ref().map(|proposals| proposals.iter().collect()).unwrap_or_default();

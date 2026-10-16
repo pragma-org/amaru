@@ -32,7 +32,7 @@ pub const MINIMUM_SUPPORTED: ProtocolVersion = PROTOCOL_VERSION_10;
 /// A Cardano protocol version, as committed in block headers and in protocol parameters.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProtocolVersion {
-    major: u64,
+    major: MajorProtocolVersion,
     minor: u32,
 }
 
@@ -49,11 +49,11 @@ impl ProtocolVersion {
     const MAX_MAJOR: u64 = PROTOCOL_VERSION_12.major();
 
     pub const fn new(major: u64, minor: u32) -> Self {
-        Self { major, minor }
+        Self { major: MajorProtocolVersion::new(major), minor }
     }
 
     pub const fn major(&self) -> u64 {
-        self.major
+        self.major.get()
     }
 
     pub const fn minor(&self) -> u32 {
@@ -61,8 +61,8 @@ impl ProtocolVersion {
     }
 
     pub fn can_follow(&self, other: ProtocolVersion) -> bool {
-        (self.major == other.major() + 1 && self.minor == 0)
-            || (self.major == other.major() && self.minor == other.minor() + 1)
+        (self.major() == other.major() + 1 && self.minor == 0)
+            || (self.major() == other.major() && self.minor == other.minor() + 1)
     }
 }
 
@@ -103,23 +103,61 @@ impl<C> cbor::Encode<C> for ProtocolVersion {
         _ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.u64(self.major)?;
+        e.u64(self.major())?;
         e.u32(self.minor)?;
         Ok(())
     }
 }
 
 impl<'b, C> cbor::Decode<'b, C> for ProtocolVersion {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            let major = d.u64()?;
-            if major > Self::MAX_MAJOR {
-                return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
-            }
+            let major = d.decode_with(ctx)?;
             let minor = d.u32()?;
-            Ok(Self::new(major, minor))
+            Ok(Self { major, minor })
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[repr(transparent)]
+pub struct MajorProtocolVersion(u64);
+
+impl MajorProtocolVersion {
+    pub const fn new(major: u64) -> Self {
+        Self(major)
+    }
+
+    pub const fn get(&self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for MajorProtocolVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<C> cbor::Encode<C> for MajorProtocolVersion {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.u64(self.0)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for MajorProtocolVersion {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let major = d.u64()?;
+        if major > ProtocolVersion::MAX_MAJOR {
+            return Err(cbor::decode::Error::message("invalid protocol version's major: too high"));
+        }
+        Ok(Self(major))
     }
 }
 

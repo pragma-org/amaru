@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim,
-    ProtocolVersion, RedeemerTag, RequiredScript, TransactionPointer, Voter, VotingProcedure,
-    protocol_version::PROTOCOL_VERSION_11, utils::string::display_map,
+    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, ProposalId, ProposalSlim, ProtocolVersion, RedeemerTag,
+    RequiredScript, TransactionPointer, Voter, VotingProcedures, protocol_version::PROTOCOL_VERSION_11,
+    utils::string::display_map,
 };
 use itertools::Itertools;
 use thiserror::Error;
@@ -47,7 +47,7 @@ pub(crate) fn execute<C>(
     protocol_version: ProtocolVersion,
     era_history: &EraHistory,
     pointer: TransactionPointer,
-    voting_procedures: Option<NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>,
+    voting_procedures: Option<VotingProcedures>,
 ) -> Result<(), InvalidVotingProcedures>
 where
     C: WitnessSlice + ProposalsSlice + CommitteeSlice + DRepsSlice + PoolsSlice,

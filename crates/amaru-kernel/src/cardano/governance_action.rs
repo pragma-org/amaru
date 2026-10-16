@@ -22,7 +22,7 @@ use proptest::{
 
 use crate::{
     Constitution, Credential, Epoch, Hash, KeyValuePairs, Lovelace, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-    RewardAccount, UnitRationalNumber, cbor, hash, utils::cbor::SerialisedAsSet,
+    RewardAccount, Set, UnitRationalNumber, cbor, hash,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -32,7 +32,7 @@ pub enum GovernanceAction {
     TreasuryWithdrawals(BTreeMap<RewardAccount, Lovelace>, Option<Hash<{ hash::size::SCRIPT }>>),
     NoConfidence(Option<ProposalId>),
     // TODO: align types with ConstitutionalCommitteeUpdate
-    UpdateCommittee(Option<ProposalId>, Vec<Credential>, KeyValuePairs<Credential, Epoch>, UnitRationalNumber),
+    UpdateCommittee(Option<ProposalId>, Set<Credential>, KeyValuePairs<Credential, Epoch>, UnitRationalNumber),
     NewConstitution(Option<ProposalId>, Constitution),
     Information,
 }
@@ -76,7 +76,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Governance
                 4 => {
                     assert_len(5)?;
                     let a = d.decode_with(ctx)?;
-                    let SerialisedAsSet(b) = d.decode_with(ctx)?;
+                    let b = d.decode_with(ctx)?;
                     let c = d.decode_with(ctx)?;
                     let d = d.decode_with(ctx)?;
                     Ok(Self::UpdateCommittee(a, b, c, d))
@@ -138,7 +138,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for GovernanceAction {
                 e.array(5)?;
                 e.u16(4)?;
                 e.encode_with(a, ctx)?;
-                e.encode_with(SerialisedAsSet(b), ctx)?;
+                e.encode_with(b, ctx)?;
                 e.encode_with(c, ctx)?;
                 e.encode_with(d, ctx)?;
             }

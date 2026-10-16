@@ -556,7 +556,7 @@ mod tests {
 
     use amaru_kernel::{
         BlockHeight, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash,
-        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Slot, SortedPairs,
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Proposal, RatificationStatus, SafeRatio, Set, Slot, SortedPairs,
         UnitRationalNumber, utils::tests::run_strategy,
     };
     use num::Zero;
@@ -1529,7 +1529,7 @@ mod tests {
         let proposal = Proposal {
             gov_action: GovernanceAction::UpdateCommittee(
                 None,
-                Vec::new(),
+                Set::default(),
                 vec![(candidate, Epoch::from(99))].try_into().unwrap(),
                 run_strategy(any::<UnitRationalNumber>()),
             ),

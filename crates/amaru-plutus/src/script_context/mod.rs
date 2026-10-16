@@ -273,7 +273,6 @@ pub mod test_vectors {
                     let value = value.ok_or_else(|| serde::de::Error::missing_field("value"))?;
 
                     Ok(MemoizedTransactionOutputWrapper(MemoizedTransactionOutput::new(
-                        false,
                         address.ok_or_else(|| serde::de::Error::missing_field("address"))?,
                         value,
                         datum,

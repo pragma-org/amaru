@@ -14,7 +14,9 @@
 
 use std::{borrow::Cow, fmt, fmt::Display};
 
-use amaru_kernel::{Block, Certificate, GovernanceAction, HasOwnership, Proposal, TransactionBody, Voter};
+use amaru_kernel::{
+    Block, Certificate, Certificates, GovernanceAction, HasOwnership, Proposal, Proposals, TransactionBody, Voter,
+};
 use amaru_observability::debug_span;
 pub use block::execute as validate_block;
 
@@ -51,12 +53,12 @@ pub fn prepare_transaction<'a>(context: &mut impl PreparationContext<'a>, transa
     prepare_inputs(context, transaction);
     prepare_withdrawals(context, transaction);
 
-    let certificates = transaction.certificates.as_deref().unwrap_or(&[]).iter();
+    let certificates = transaction.certificates.as_ref().map(Certificates::iter).unwrap_or_default();
     certificates.for_each(|certificate| prepare_certificate(context, certificate));
 
     prepare_votes(context, transaction);
 
-    let gov_actions = transaction.proposals.as_deref().unwrap_or(&[]).iter();
+    let gov_actions = transaction.proposals.as_ref().map(Proposals::iter).unwrap_or_default();
     gov_actions.for_each(|action| prepare_governance_action(context, action));
 }
 

@@ -14,7 +14,7 @@
 
 use crate::{Lovelace, PoolId, RewardKind, cbor};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Reward {
     pub kind: RewardKind,
     pub pool: PoolId,
