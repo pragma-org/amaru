@@ -24,7 +24,7 @@ use std::{
 };
 
 use amaru_consensus::{
-    block_validator::{LedgerThreadJoinError, LedgerThreadStop},
+    block_validator::LedgerThreadStop,
     effects::{
         ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourcePoolSummaries,
     },
@@ -69,7 +69,7 @@ const STRUCTURED_PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 /// Cooperative cancellation for [`MithrilSynchronizer::synchronize`].
 ///
 /// Cancel the token, then await synchronization completion and inspect its result.
-/// [`MithrilSyncError::WorkerShutdown`] requires a process restart before using the stores again.
+/// See [`MithrilSyncError::WorkerShutdown`] before reusing stores after a cleanup failure.
 pub type MithrilCancellation = CancellationToken;
 
 /// A high-level stage of Mithril synchronization.
@@ -460,10 +460,10 @@ pub enum MithrilSyncError {
     },
     /// Worker termination and store release were not confirmed.
     ///
-    /// Preserve this error and require a process restart. Do not reopen, recover, rebuild, or
-    /// delete these stores in this process: the worker may still own or write them. This error
-    /// takes precedence over cancellation, ingestion failure, and a rebootstrap recommendation.
-    #[error("ledger worker termination and store release were not confirmed; process restart required")]
+    /// Wait for retained cleanup with [`ShutdownError::wait_for_cleanup`] after downcasting `source`.
+    /// Store reuse is blocked until cleanup completes; unknown failures require restart.
+    /// Takes precedence over cancellation, ingestion failure, and rebootstrap recommendations.
+    #[error("store reuse blocked until retained cleanup completes; unknown cleanup failures require a process restart")]
     WorkerShutdown {
         #[source]
         source: anyhow::Error,
@@ -502,7 +502,7 @@ impl StoreRecoveryOutcome {
 ///
 /// Store operations run on a Tokio blocking task. Once started, that task retains its locks and
 /// finishes recovery even if the caller drops this future. Do not call this after
-/// [`MithrilSyncError::WorkerShutdown`] until the process has restarted.
+/// [`MithrilSyncError::WorkerShutdown`] until retained cleanup completes or the process restarts.
 ///
 /// ```no_run
 /// # async fn example() -> Result<(), amaru_node::MithrilSyncError> {
@@ -529,7 +529,7 @@ pub async fn recover_store_pair(
 }
 
 /// Recover stores and return their common tip; see [`recover_store_pair`] for the detailed outcome
-/// and the requirement to restart after [`MithrilSyncError::WorkerShutdown`].
+/// and the cleanup requirements after [`MithrilSyncError::WorkerShutdown`].
 pub async fn reconcile_mithril_stores(
     ledger_dir: impl Into<PathBuf>,
     chain_dir: impl Into<PathBuf>,
@@ -576,6 +576,7 @@ pub struct MithrilSynchronizer {
     resume_point: Option<NetworkPoint>,
     ingest_until_slot: Option<Slot>,
     ingest_maximum_blocks: Option<usize>,
+    ledger_shutdown_timeout: Duration,
 }
 
 impl MithrilSynchronizer {
@@ -593,7 +594,14 @@ impl MithrilSynchronizer {
             resume_point: None,
             ingest_until_slot: None,
             ingest_maximum_blocks: None,
+            ledger_shutdown_timeout: Duration::from_secs(60),
         }
+    }
+
+    /// Set the total budget for the ledger worker to stop and close its stores.
+    pub fn ledger_shutdown_timeout(mut self, timeout: Duration) -> Self {
+        self.ledger_shutdown_timeout = timeout;
+        self
     }
 
     /// Require synchronization to start from this ledger identity.
@@ -615,9 +623,8 @@ impl MithrilSynchronizer {
     ///
     /// To cancel, cancel the token and then await completion. Completion includes ledger worker
     /// shutdown and reconciliation of the chain store with the durable ledger tip. Inspect the
-    /// result: [`MithrilSyncError::WorkerShutdown`] means termination and store release were not
-    /// confirmed. Preserve that error and require a process restart; do not reopen, recover,
-    /// rebuild, or delete the stores in this process. It takes precedence over ingestion errors.
+    /// result: [`MithrilSyncError::WorkerShutdown`] blocks store reuse until retained cleanup completes.
+    /// Unknown cleanup failures require restart; cleanup failures take precedence over ingestion errors.
     ///
     /// Dropping or aborting this future requests cancellation of an owned synchronization task.
     /// That task retains the stores and synchronization locks until cleanup finishes. Keep the
@@ -802,7 +809,7 @@ impl MithrilSynchronizer {
             Ok(processed)
         };
         let cleanup = async {
-            let stage_report = shutdown_replay(running, ledger_thread, performance, Duration::from_secs(10))
+            let stage_report = shutdown_replay(running, ledger_thread, performance, self.ledger_shutdown_timeout)
                 .await
                 .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?;
 
@@ -869,15 +876,8 @@ async fn shutdown_replay(
         tokio::task::spawn_blocking(move || (ledger_thread.join_timeout(timeout), performance()))
             .await
             .map_err(|error| ShutdownError::JoinTask { reason: error.to_string() })?;
-    let performance = performance.err().map(|_| ComponentFailure::Performance("worker panicked".into()));
-    let ledger = match ledger {
-        Ok(()) => None,
-        Err(LedgerThreadJoinError::Panicked(message)) => Some(ComponentFailure::Ledger(message)),
-        Err(LedgerThreadJoinError::Timeout { timeout }) => return Err(ShutdownError::LedgerTimeout { timeout }),
-    };
-
-    unexpected_exits.extend([ledger, performance].into_iter().flatten());
-    Ok(ShutdownReport { unexpected_exits })
+    unexpected_exits.extend(performance.err().map(|_| ComponentFailure::Performance("worker panicked".into())));
+    ShutdownReport { unexpected_exits }.with_ledger(ledger)
 }
 
 /// Drop the ingestion future before joining the worker, even on panic.
@@ -1368,13 +1368,14 @@ mod tests {
             let running = TokioBuilder::default().run(tokio::runtime::Handle::current());
             let retained = validator.clone();
             let mut reconciled = false;
+            let fail_join = || panic!("shutdown join failed");
             let result = complete_ingestion(
                 async move {
                     drop(validator);
                     Err::<u64, _>(ingestion_error)
                 },
                 async {
-                    let report = shutdown_replay(running, ledger_thread, || Ok(()), Duration::ZERO)
+                    let report = shutdown_replay(running, ledger_thread, fail_join, Duration::from_secs(5))
                         .await
                         .map_err(|source| MithrilSyncError::WorkerShutdown { source: source.into() })?;
                     assert!(report.is_clean());
@@ -1395,7 +1396,7 @@ mod tests {
             assert!(!reconciled);
             assert!(matches!(result, Err(MithrilSyncError::WorkerShutdown { source })
                     if matches!(source.downcast_ref::<crate::ShutdownError>(),
-                        Some(crate::ShutdownError::LedgerTimeout { .. }))));
+                        Some(crate::ShutdownError::JoinTask { .. }))));
         }
     }
 
