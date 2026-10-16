@@ -3142,6 +3142,13 @@ define_schemas! {
                 public event TERMINATION_SIGNAL {
                     levels: warn
                 }
+                /// Ledger cleanup is still running after the soft shutdown timeout
+                public event LEDGER_STILL_CLOSING {
+                    levels: warn
+                    required status: String
+                    /// Current worker activity, including rewards joining and store release
+                    required phase: String
+                }
                 /// The consensus pipeline stopped while the node was still running
                 public event CONSENSUS_DIED {
                     levels: error

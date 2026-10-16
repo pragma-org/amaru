@@ -10021,6 +10021,31 @@
         "error"
       ]
     },
+    "amaru::setup::lifecycle::LEDGER_STILL_CLOSING": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "phase"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "ledger_still_closing",
+      "kind": "event",
+      "target": "amaru::setup::lifecycle",
+      "description": "Ledger cleanup is still running after the soft shutdown timeout",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
     "amaru::setup::lifecycle::TERMINATION_SIGNAL": {
       "type": "object",
       "properties": {},
