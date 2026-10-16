@@ -477,7 +477,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Result<()> {
     let _pid = optional_pid_file(args.pid_export.clone());
 
-    let mut config = parse_args(args)?;
+    let mut config = parse_args(args, &shutdown)?;
     let trace_dump_path = config.trace_dump_path.clone();
     let submit_api_address = config.submit_api_address()?;
     pre_flight_checks()?;
@@ -606,7 +606,7 @@ fn parse_trace_buffer_limits(s: &str) -> anyhow::Result<(usize, usize)> {
 }
 
 #[allow(clippy::expect_used)]
-fn parse_args(args: Args) -> anyhow::Result<Config> {
+fn parse_args(args: Args, shutdown: &ShutdownHandle) -> anyhow::Result<Config> {
     let network = NetworkName::from(args.network);
 
     let era_history = match network.as_era_history().cloned() {
@@ -625,7 +625,14 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         args.operator_kes.as_deref(),
         args.operator_vrf.as_deref(),
         args.operator_cert.as_deref(),
-    )?;
+    )?
+    .map(|credentials| {
+        shutdown.register_abort(credentials.shutdown_callback());
+        if shutdown.is_cancelled() {
+            credentials.shutdown_callback()();
+        }
+        Arc::new(credentials) as Arc<dyn amaru_ouroboros::ForgingCredentials>
+    });
 
     let db_ledger = args.db_ledger.into_path_buf(network);
     if !std::fs::metadata(&db_ledger)
@@ -756,8 +763,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         peer_mix: args.peers_mix.parse().context("invalid --peers-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
-        forging_credentials: forging_credentials
-            .map(|credentials| Arc::new(credentials) as Arc<dyn amaru_ouroboros::ForgingCredentials>),
+        forging_credentials,
         ..Config::default()
     })
 }

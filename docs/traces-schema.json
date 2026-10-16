@@ -5187,7 +5187,7 @@
       "name": "forge_failed",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "Forging the header or storing it failed. Signing failures miss the slot; validation and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "description": "Forging the header or storing it failed. Signing failures miss the slot; missing credentials, validation failures, and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}.",
       "public": true,
       "levels": [
         "error"

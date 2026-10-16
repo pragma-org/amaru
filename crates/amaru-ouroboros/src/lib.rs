@@ -24,6 +24,6 @@ mod serde_util;
 pub mod vrf;
 
 pub use amaru_ouroboros_traits::*;
-pub use credentials::{ensure_operational_certificate_accepted, forging_credentials_from_files};
+pub use credentials::ensure_operational_certificate_accepted;
 pub use mempool::*;
 pub use process_credentials::process_forging_credentials_from_files;

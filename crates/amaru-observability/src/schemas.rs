@@ -727,7 +727,7 @@ define_schemas! {
                     required reason: String
                 }
                 /// Forging the header or storing it failed. Signing failures miss the slot;
-                /// validation and storage failures shut down the node.
+                /// missing credentials, validation failures, and storage failures shut down the node.
                 /// Step ∈ {sign_header, validate_header, store_header, store_block}.
                 public event FORGE_FAILED {
                     levels: error

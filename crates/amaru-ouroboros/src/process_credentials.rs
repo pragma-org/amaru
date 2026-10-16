@@ -14,43 +14,44 @@
 
 //! Forging credentials whose KES signing key is held by a separate signer executable.
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::{
     io::{self, BufRead, BufReader, BufWriter, Write},
-    path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    path::Path,
+    process::{Child, Command, Stdio},
     sync::{
-        Mutex,
+        Arc, Mutex,
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use amaru_kernel::{KesPeriod, KesSignature, NetworkName, VerificationKey, cardano::text_envelope};
+use amaru_kernel::{KesPeriod, KesSignature, NetworkName, VerificationKey};
 use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError, IssuerFields};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
-    credentials::{CredentialsError, OperationalCertificateFile, cold_verifying_key},
-    kes,
-    praos::header::AssertOperationalCertificateError,
-    vrf,
+    credentials::{CredentialsError, load_operational_certificate, validate_operational_certificate},
+    kes, vrf,
 };
 
 const RESTART_INTERVAL: Duration = Duration::from_secs(1);
-const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const SIGNER_STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
 const SIGN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The node's public and VRF credentials, with KES signing delegated to a child.
 ///
 /// The KES path is passed to the child unopened. No KES secret is decoded in this process.
+/// Both processes run as the same user, so the parent retains access to the signing-key file.
+/// A compromised parent can still read the key from that path.
 pub struct ProcessCredentials {
     vrf: vrf::SecretKey,
     issuer: IssuerFields,
-    max_kes_evolutions: u64,
-    signer: Sender<SignRequest>,
+    signer: Arc<Mutex<Option<SignerProcess>>>,
+    stop: Sender<()>,
+    supervisor: Option<thread::JoinHandle<()>>,
     last_logged_period: Mutex<KesPeriod>,
 }
 
@@ -61,32 +62,32 @@ impl ProcessCredentials {
         vrf_path: impl AsRef<Path>,
         certificate_path: impl AsRef<Path>,
         max_kes_evolutions: u64,
-    ) -> Result<Self, ProcessCredentialsError> {
-        let vrf: vrf::SecretKey = text_envelope::read(vrf_path).map_err(CredentialsError::Vrf)?;
-        let OperationalCertificateFile { certificate: operational_cert, cold } =
-            text_envelope::read(certificate_path).map_err(CredentialsError::Certificate)?;
-        let issuer = cold_verifying_key(&cold).ok_or(CredentialsError::ColdKey)?;
-        AssertOperationalCertificateError::new(
-            &operational_cert,
-            &issuer,
-            Some(operational_cert.operational_cert_sequence_number),
-        )
-        .map_err(|error| CredentialsError::Signature(error.to_string()))?;
+    ) -> Result<Self, CredentialsError> {
+        let vrf = vrf::SecretKey::from_file(vrf_path)?;
+        let (operational_cert, cold) = load_operational_certificate(certificate_path)?;
+        validate_operational_certificate(&operational_cert, &cold)?;
 
         let start_period = operational_cert.operational_cert_kes_period;
-        let config = SignerConfig {
-            executable: std::env::current_exe()?
-                .with_file_name(format!("amaru-kes-signer{}", std::env::consts::EXE_SUFFIX)),
-            key_path: kes_path.as_ref().to_path_buf(),
-            start_period,
-            max_kes_evolutions,
-            expected_key: operational_cert.operational_cert_hot_verification_key,
-        };
-        let process = SignerProcess::spawn(&config).map_err(ProcessCredentialsError::Signer)?;
-        let (signer, requests) = mpsc::channel();
-        thread::Builder::new()
+        let expected_key = operational_cert.operational_cert_hot_verification_key;
+        let mut command = Command::new(
+            std::env::current_exe()?.with_file_name(format!("amaru-kes-signer{}", std::env::consts::EXE_SUFFIX)),
+        );
+        command
+            .arg(kes_path.as_ref())
+            .arg(u64::from(start_period).to_string())
+            .arg(max_kes_evolutions.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        #[cfg(unix)]
+        command.process_group(0);
+        let signer = Arc::new(Mutex::new(Some(
+            SignerProcess::spawn(&mut command, expected_key).map_err(CredentialsError::Signer)?,
+        )));
+        let (stop, shutdown) = mpsc::channel();
+        let supervised = Arc::clone(&signer);
+        let supervisor = thread::Builder::new()
             .name("amaru-kes-signer".into())
-            .spawn(move || supervise_signer(requests, process, config, SIGN_RESPONSE_TIMEOUT))?;
+            .spawn(move || supervise_signer(supervised, command, expected_key, shutdown))?;
 
         Ok(Self {
             issuer: IssuerFields {
@@ -95,10 +96,29 @@ impl ProcessCredentials {
                 operational_cert,
             },
             vrf,
-            max_kes_evolutions,
             signer,
+            stop,
+            supervisor: Some(supervisor),
             last_logged_period: Mutex::new(start_period),
         })
+    }
+
+    /// Return a non-blocking callback that stops restarts and requests signer termination.
+    /// Dropping the credentials waits for the supervisor to kill and reap the child.
+    pub fn shutdown_callback(&self) -> impl Fn() + Send + Sync + 'static {
+        let stop = self.stop.clone();
+        move || {
+            let _ = stop.send(());
+        }
+    }
+}
+
+impl Drop for ProcessCredentials {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(supervisor) = self.supervisor.take() {
+            let _ = supervisor.join();
+        }
     }
 }
 
@@ -116,15 +136,15 @@ impl ForgingCredentials for ProcessCredentials {
     }
 
     fn sign(&self, period: KesPeriod, message: &[u8]) -> Result<KesSignature, ForgingCredentialsError> {
-        period.evolutions_since(self.issuer.operational_cert.operational_cert_kes_period, self.max_kes_evolutions)?;
-        let (reply, response) = mpsc::channel();
-        self.signer
-            .send(SignRequest { period, message: message.to_vec(), reply })
-            .map_err(|_| ForgingCredentialsError::Kes("KES signer supervisor stopped".into()))?;
-        let signature = response
-            .recv_timeout(SIGN_RESPONSE_TIMEOUT)
-            .map_err(|error| ForgingCredentialsError::Kes(format!("KES signer unavailable: {error}")))?
-            .map_err(ForgingCredentialsError::Kes)?;
+        let mut signer = self.signer.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let result = signer
+            .as_ref()
+            .ok_or_else(|| ForgingCredentialsError::Kes("KES signer unavailable".into()))
+            .and_then(|signer| signer.sign(WireRequest { period, message: message.to_vec() }));
+        if matches!(result, Err(ForgingCredentialsError::Kes(_) | ForgingCredentialsError::EvolvedPast(_))) {
+            *signer = None;
+        }
+        let signature = result?;
         let mut logged = self.last_logged_period.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if *logged != period {
             *logged = period;
@@ -141,31 +161,15 @@ pub fn process_forging_credentials_from_files(
     kes_path: Option<&Path>,
     vrf_path: Option<&Path>,
     certificate_path: Option<&Path>,
-) -> Result<Option<ProcessCredentials>, ProcessCredentialsError> {
+) -> Result<Option<ProcessCredentials>, CredentialsError> {
     match (network, kes_path, vrf_path, certificate_path) {
         (_, None, None, None) => Ok(None),
-        (NetworkName::Mainnet, _, _, _) => Err(CredentialsError::Mainnet.into()),
+        (NetworkName::Mainnet, _, _, _) => Err(CredentialsError::Mainnet),
         (_, Some(kes), Some(vrf), Some(certificate)) => {
             Ok(Some(ProcessCredentials::from_files(kes, vrf, certificate, max_kes_evolutions)?))
         }
-        _ => Err(CredentialsError::PartialFlags.into()),
+        _ => Err(CredentialsError::PartialFlags),
     }
-}
-
-#[derive(Debug, Error)]
-pub enum ProcessCredentialsError {
-    #[error(transparent)]
-    Credentials(#[from] CredentialsError),
-    #[error("could not start KES signer: {0}")]
-    Io(#[from] io::Error),
-    #[error("KES signer: {0}")]
-    Signer(String),
-}
-
-struct SignRequest {
-    period: KesPeriod,
-    message: Vec<u8>,
-    reply: Sender<Result<KesSignature, String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -174,134 +178,57 @@ struct WireRequest {
     message: Vec<u8>,
 }
 
-enum SignerRequestError {
-    Rejected(String),
-    Transport(String),
-}
-
-impl SignerRequestError {
-    fn into_message(self) -> String {
-        match self {
-            Self::Rejected(message) | Self::Transport(message) => message,
-        }
-    }
-}
-
 struct SignerProcess {
     child: Child,
-    io: Option<SignerIo>,
-}
-
-struct SignerIo {
-    input: BufWriter<ChildStdin>,
-    output: BufReader<ChildStdout>,
-}
-
-struct SignerConfig {
-    executable: PathBuf,
-    key_path: PathBuf,
-    start_period: KesPeriod,
-    max_kes_evolutions: u64,
-    expected_key: VerificationKey,
+    requests: Sender<String>,
+    responses: Receiver<io::Result<String>>,
 }
 
 impl SignerProcess {
-    fn spawn(config: &SignerConfig) -> Result<Self, String> {
-        let mut child = Command::new(&config.executable)
-            .arg(&config.key_path)
-            .arg(u64::from(config.start_period).to_string())
-            .arg(config.max_kes_evolutions.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        let (input, output) = read_signer_handshake(&mut child, config.expected_key, SIGNER_STARTUP_TIMEOUT)?;
-        Ok(Self { child, io: Some(SignerIo { input, output }) })
-    }
-
-    fn sign(
-        &mut self,
-        period: KesPeriod,
-        message: &[u8],
-        timeout: Duration,
-    ) -> Result<KesSignature, SignerRequestError> {
-        let mut io = self.io.take().ok_or_else(|| SignerRequestError::Transport("KES signer unavailable".into()))?;
-        let message = message.to_vec();
-        let (reply, response) = mpsc::sync_channel(1);
+    fn spawn(command: &mut Command, expected_key: VerificationKey) -> Result<Self, String> {
+        let (requests, incoming) = mpsc::channel::<String>();
+        let (reply, responses) = mpsc::channel();
+        let mut signer = Self { child: command.spawn().map_err(|error| error.to_string())?, requests, responses };
+        let mut input = BufWriter::new(signer.child.stdin.take().ok_or("KES signer stdin unavailable")?);
+        let output = BufReader::new(signer.child.stdout.take().ok_or("KES signer stdout unavailable")?);
         thread::Builder::new()
-            .name("amaru-kes-signer-request".into())
+            .name("amaru-kes-signer-io".into())
             .spawn(move || {
-                let result = io.sign(period, &message);
-                let _ = reply.send((io, result));
-            })
-            .map_err(|error| SignerRequestError::Transport(error.to_string()))?;
-        let (io, result) = response.recv_timeout(timeout).map_err(|error| match error {
-            RecvTimeoutError::Timeout => {
-                SignerRequestError::Transport(format!("KES signer request timed out after {timeout:?}"))
-            }
-            RecvTimeoutError::Disconnected => SignerRequestError::Transport("KES signer request worker stopped".into()),
-        })?;
-        self.io = Some(io);
-        result
-    }
-}
-
-impl SignerIo {
-    fn sign(&mut self, period: KesPeriod, message: &[u8]) -> Result<KesSignature, SignerRequestError> {
-        let request = WireRequest { period, message: message.to_vec() };
-        serde_json::to_writer(&mut self.input, &request)
-            .map_err(|error| SignerRequestError::Transport(error.to_string()))?;
-        self.input.write_all(b"\n").map_err(|error| SignerRequestError::Transport(error.to_string()))?;
-        self.input.flush().map_err(|error| SignerRequestError::Transport(error.to_string()))?;
-        let mut line = String::new();
-        if self.output.read_line(&mut line).map_err(|error| SignerRequestError::Transport(error.to_string()))? == 0 {
-            return Err(SignerRequestError::Transport("KES signer closed its output".into()));
-        }
-        let response: Result<KesSignature, String> =
-            serde_json::from_str(&line).map_err(|error| SignerRequestError::Transport(error.to_string()))?;
-        response.map_err(SignerRequestError::Rejected)
-    }
-}
-
-fn read_signer_handshake(
-    child: &mut Child,
-    expected_key: VerificationKey,
-    timeout: Duration,
-) -> Result<(BufWriter<ChildStdin>, BufReader<ChildStdout>), String> {
-    let deadline = Instant::now() + timeout;
-    let handshake = (|| {
-        let input = BufWriter::new(child.stdin.take().ok_or("KES signer stdin unavailable")?);
-        let output = child.stdout.take().ok_or("KES signer stdout unavailable")?;
-        let (reply, response) = mpsc::sync_channel(1);
-        thread::Builder::new()
-            .name("amaru-kes-signer-handshake".into())
-            .spawn(move || {
-                let mut output = BufReader::new(output);
-                let mut line = String::new();
-                let result = output.read_line(&mut line);
-                let _ = reply.send((output, line, result));
+                for line in output.lines() {
+                    if reply.send(line).is_err() {
+                        break;
+                    }
+                    let Ok(request) = incoming.recv() else { break };
+                    if let Err(error) = writeln!(input, "{request}").and_then(|()| input.flush()) {
+                        let _ = reply.send(Err(error));
+                        break;
+                    }
+                }
             })
             .map_err(|error| error.to_string())?;
-        let (output, line, result) =
-            response.recv_timeout(deadline.saturating_duration_since(Instant::now())).map_err(|error| match error {
-                RecvTimeoutError::Timeout => format!("KES signer handshake timed out after {timeout:?}"),
-                RecvTimeoutError::Disconnected => "KES signer handshake reader stopped".into(),
-            })?;
-        if result.map_err(|error| error.to_string())? == 0 {
-            return Err("KES signer closed its output before the handshake".into());
-        }
-        let public_key: VerificationKey =
-            serde_json::from_str(&line).map_err(|error| format!("KES signer handshake: {error}"))?;
-        if public_key != expected_key {
+        if signer.receive::<VerificationKey>(SIGNER_STARTUP_TIMEOUT)? != expected_key {
             return Err("KES verification key does not match the operational certificate hot key".into());
         }
-        Ok((input, output))
-    })();
-    if handshake.is_err() {
-        let _ = child.kill();
-        let _ = child.wait();
+        Ok(signer)
     }
-    handshake
+
+    fn receive<T: DeserializeOwned>(&self, timeout: Duration) -> Result<T, String> {
+        let line = self
+            .responses
+            .recv_timeout(timeout)
+            .map_err(|error| format!("KES signer response: {error}"))?
+            .map_err(|error| error.to_string())?;
+        serde_json::from_str(&line).map_err(|error| error.to_string())
+    }
+
+    fn sign(&self, request: WireRequest) -> Result<KesSignature, ForgingCredentialsError> {
+        let request =
+            serde_json::to_string(&request).map_err(|error| ForgingCredentialsError::Kes(error.to_string()))?;
+        self.requests
+            .send(request)
+            .map_err(|_| ForgingCredentialsError::Kes("KES signer I/O worker stopped".into()))?;
+        self.receive(SIGN_RESPONSE_TIMEOUT).map_err(ForgingCredentialsError::Kes)?
+    }
 }
 
 impl Drop for SignerProcess {
@@ -312,32 +239,25 @@ impl Drop for SignerProcess {
 }
 
 fn supervise_signer(
-    requests: Receiver<SignRequest>,
-    first: SignerProcess,
-    config: SignerConfig,
-    request_timeout: Duration,
+    signer: Arc<Mutex<Option<SignerProcess>>>,
+    mut command: Command,
+    expected_key: VerificationKey,
+    stop: Receiver<()>,
 ) {
-    let mut process = Some(first);
-    let mut last_attempt = Instant::now();
-    loop {
-        if let Some(signer) = process.as_mut() {
-            match signer.child.try_wait() {
-                Ok(Some(_)) | Err(_) => {
-                    process = None;
-                    amaru_observability::warn!(
-                        consensus::forge::SIGNER_STATUS,
-                        status = "exited",
-                        detail = "restarting"
-                    );
-                }
-                Ok(None) => {}
-            }
+    while matches!(stop.recv_timeout(RESTART_INTERVAL), Err(RecvTimeoutError::Timeout)) {
+        let mut process = signer.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if stop.try_recv().is_ok() {
+            break;
         }
-        if process.is_none() && last_attempt.elapsed() >= RESTART_INTERVAL {
-            last_attempt = Instant::now();
-            match SignerProcess::spawn(&config) {
-                Ok(signer) => {
-                    process = Some(signer);
+        if process.as_mut().is_some_and(|signer| !matches!(signer.child.try_wait(), Ok(None))) {
+            *process = None;
+            amaru_observability::warn!(consensus::forge::SIGNER_STATUS, status = "exited", detail = "restarting");
+        }
+        if process.is_none() {
+            drop(process);
+            match SignerProcess::spawn(&mut command, expected_key) {
+                Ok(restarted) => {
+                    *signer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(restarted);
                     amaru_observability::info!(consensus::forge::SIGNER_STATUS, status = "ready", detail = "restarted");
                 }
                 Err(error) => {
@@ -345,21 +265,8 @@ fn supervise_signer(
                 }
             }
         }
-        match requests.recv_timeout(SUPERVISOR_POLL_INTERVAL) {
-            Ok(request) => {
-                let result = match process.as_mut() {
-                    Some(signer) => signer.sign(request.period, &request.message, request_timeout),
-                    None => Err(SignerRequestError::Transport("KES signer unavailable".into())),
-                };
-                if matches!(result, Err(SignerRequestError::Transport(_))) {
-                    process = None;
-                }
-                let _ = request.reply.send(result.map_err(SignerRequestError::into_message));
-            }
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
     }
+    signer.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
 }
 
 /// Run the private-key holder in the child process. Standard output is reserved for IPC.
@@ -370,27 +277,86 @@ pub fn run_kes_signer(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut key = kes::SecretKey::from_file(key_path)?;
     let public_key = VerificationKey::from(*kes::PublicKey::from(&mut key));
-    let input = io::stdin();
-    let mut input = input.lock();
-    let output = io::stdout();
-    let mut output = output.lock();
+    let mut output = io::stdout().lock();
     serde_json::to_writer(&mut output, &public_key)?;
     output.write_all(b"\n")?;
     output.flush()?;
 
-    let mut line = String::new();
-    while input.read_line(&mut line)? != 0 {
-        let response = (|| -> Result<KesSignature, String> {
-            let request: WireRequest = serde_json::from_str(&line).map_err(|error| error.to_string())?;
-            let evolution =
-                request.period.evolutions_since(start_period, max_kes_evolutions).map_err(|error| error.to_string())?;
-            key.evolve_to(evolution).map_err(|error| error.to_string())?;
+    for line in io::stdin().lock().lines() {
+        let line = line?;
+        let response = (|| -> Result<KesSignature, ForgingCredentialsError> {
+            let request: WireRequest =
+                serde_json::from_str(&line).map_err(|error| ForgingCredentialsError::Kes(error.to_string()))?;
+            let evolution = request.period.evolutions_since(start_period, max_kes_evolutions)?;
+            key.evolve_to(evolution).map_err(|error| {
+                if matches!(error, kes::KesError::CannotEvolveBackwards { .. }) {
+                    ForgingCredentialsError::EvolvedPast(error.to_string())
+                } else {
+                    ForgingCredentialsError::Kes(error.to_string())
+                }
+            })?;
             Ok(KesSignature::from(<[u8; kes::Signature::SIZE]>::from(&key.sign(&request.message))))
         })();
         serde_json::to_writer(&mut output, &response)?;
         output.write_all(b"\n")?;
         output.flush()?;
-        line.clear();
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    #[test]
+    fn signer_rejects_mismatched_keys_and_times_out() {
+        let key = VerificationKey::zeroes();
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", r#"printf '%s\n' "$KEY"; read -r request; read -r request"#])
+            .env("KEY", serde_json::to_string(&key).unwrap())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        assert!(SignerProcess::spawn(&mut command, VerificationKey::from([1; 32])).is_err());
+        let signer = SignerProcess::spawn(&mut command, key).unwrap();
+        let error = signer.sign(WireRequest { period: 0.into(), message: vec![] }).unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        assert!(
+            SignerProcess::spawn(
+                Command::new("sh").args(["-c", "read -r request"]).stdin(Stdio::piped()).stdout(Stdio::piped()),
+                key
+            )
+            .err()
+            .unwrap()
+            .contains("timed out")
+        );
+    }
+
+    #[test]
+    fn supervisor_restarts_an_exited_signer_and_stops_on_shutdown() {
+        let key = VerificationKey::zeroes();
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", r#"printf '%s\n' "$KEY"; read -r request"#])
+            .env("KEY", serde_json::to_string(&key).unwrap())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut first = SignerProcess::spawn(&mut command, key).unwrap();
+        let pid = first.child.id();
+        first.child.kill().unwrap();
+        let signer = Arc::new(Mutex::new(Some(first)));
+        let supervised = Arc::clone(&signer);
+        let (stop, shutdown) = mpsc::channel();
+        let supervisor = thread::spawn(move || supervise_signer(supervised, command, key, shutdown));
+        let deadline = Instant::now() + SIGNER_STARTUP_TIMEOUT;
+        while signer.lock().unwrap().as_ref().is_none_or(|signer| signer.child.id() == pid) {
+            assert!(Instant::now() < deadline, "signer was not restarted");
+            thread::sleep(Duration::from_millis(10));
+        }
+        stop.send(()).unwrap();
+        supervisor.join().unwrap();
+        assert!(signer.lock().unwrap().is_none());
+    }
 }

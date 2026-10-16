@@ -1633,7 +1633,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `forge_failed` | `event` | error | public | Forging the header or storing it failed. Signing failures miss the slot; validation and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
+| `forge_failed` | `event` | error | public | Forging the header or storing it failed. Signing failures miss the slot; missing credentials, validation failures, and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
 | `forged` | `event` | info | public | A block was forged and stored, and its tip sent to chain selection. | slot, header_hash, parent |  |
 | `kes_period` | `event` | info | public | The KES key used for signing moved to a new period. | period |  |
 | `missed_slot` | `event` | warn | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}. | slot, reason |  |

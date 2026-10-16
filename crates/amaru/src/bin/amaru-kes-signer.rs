@@ -12,28 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::Path, process::ExitCode};
+use std::path::Path;
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 
-fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("amaru KES signer: {error:#}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let path = args.next().ok_or_else(|| anyhow!("missing KES key path"))?;
-    let start = args.next().ok_or_else(|| anyhow!("missing KES start period"))?;
-    let max = args.next().ok_or_else(|| anyhow!("missing KES evolution limit"))?;
+    let path = args.next().context("missing KES key path")?;
+    let start = args.next().context("missing KES start period")?;
+    let max = args.next().context("missing KES evolution limit")?;
     anyhow::ensure!(args.next().is_none(), "unexpected KES signer argument");
     let start = start.to_string_lossy().parse::<u64>().context("invalid KES start period")?;
     let max = max.to_string_lossy().parse::<u64>().context("invalid KES evolution limit")?;
     amaru_ouroboros::process_credentials::run_kes_signer(Path::new(&path), start.into(), max)
-        .map_err(|error| anyhow!(error.to_string()))
+        .map_err(anyhow::Error::from_boxed)
 }

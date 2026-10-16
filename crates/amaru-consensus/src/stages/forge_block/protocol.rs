@@ -108,7 +108,7 @@ on_receive!(Idle as IdleIn {
 on_receive!(Window, Proceed =>
     External<TakeForForgeEffect>,
     External<SignHeaderEffect>,
-    Repeat<Terminate> // KES signing failed
+    Repeat<Terminate> // Forging credentials are missing.
     => Signing
     | Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
 );
