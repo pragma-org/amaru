@@ -133,6 +133,7 @@ class Amaru < Formula
     odie "expected extracted Amaru archive contents" if root.nil?
 
     bin.install root/"bin/amaru"
+    bin.install root/"bin/amaru-kes-signer"
     man1.install root/"share/man/man1/amaru.1"
     bash_completion.install root/"share/bash-completion/completions/amaru"
     zsh_completion.install root/"share/zsh/site-functions/_amaru"

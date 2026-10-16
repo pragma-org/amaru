@@ -206,6 +206,31 @@ fn lead_slot_forges_a_signed_header() {
 }
 
 #[test]
+fn signing_failure_misses_the_slot_and_arms_the_following_slot() {
+    let mut prep = test_prep();
+    let slot = simulation_slot();
+    let period = prep.state.data.consensus_parameters.slot_to_kes_period(slot);
+    use_certificate_starting(&mut prep, period);
+    prep.credentials.as_ref().unwrap().sign(KesPeriod::from(u64::from(period) + 1), b"evolve the key").unwrap();
+    prep.state.data.schedule = ready_schedule(start_in_era().epoch, slot..slot + 2);
+    prep.state.data.adopted_tip = Point::Specific(Slot::from(u64::from(slot) - 1), ORIGIN_HASH, 1.into());
+    let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
+    let (running, _guards, mut logs, stage) = setup_until_sleeping(&prep, msg);
+
+    logs.assert_and_remove(Level::ERROR, &["sign_header", "cannot be evolved back"]).assert_no_remaining_at([
+        Level::INFO,
+        Level::WARN,
+        Level::ERROR,
+    ]);
+    assert!(prep.store.load_headers().next().is_none());
+    let state = running.get_state(&stage).cloned().unwrap().data;
+    assert!(state.schedule.lead_at(slot).is_none());
+    assert!(state.schedule.lead_at(slot + 1).is_some());
+    assert!(state.next_lead.is_some());
+    assert_eq!(state.schedule_generation, 1);
+}
+
+#[test]
 fn lead_slot_without_credentials_terminates() {
     let mut prep = test_prep();
     prep.credentials = None;
