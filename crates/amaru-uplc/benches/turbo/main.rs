@@ -126,7 +126,6 @@ fn collect_scripts(files: &[(Epoch, PathBuf)]) -> Vec<(String, Vec<u8>, PlutusVe
 
 #[derive(Debug, Copy, Clone)]
 struct Measurement {
-    flat_us: u64,
     cpu_us: u64,
     mem_bytes: u64,
     budget: ExBudget,
@@ -140,12 +139,10 @@ impl Measurement {
         protocol_version: ProtocolVersion,
         costs: CostModel,
     ) -> Self {
-        let mut meter = Instant::now();
-
         let (program, _) =
             flat::decode::<DeBruijn>(arena, flat, plutus_version, protocol_version).expect("Failed to decode");
 
-        let flat_us = duration::elapsed_and_reset(&mut meter);
+        let mut meter = Instant::now();
 
         let arena_before_eval = arena.used_bytes();
         let result = program.eval(arena, costs, ExBudget::max());
@@ -154,10 +151,9 @@ impl Measurement {
         let _term = result.term.expect("failed to evaluate");
 
         let mem_bytes = arena.used_bytes().saturating_sub(arena_before_eval) as u64;
-
         let cpu_us = duration::elapsed_and_reset(&mut meter);
 
-        Self { flat_us, cpu_us, mem_bytes, budget }
+        Self { cpu_us, mem_bytes, budget }
     }
 }
 
@@ -189,9 +185,7 @@ fn main() {
                 "budget_cpu": measurements[0].budget.cpu,
                 "budget_mem": measurements[0].budget.mem,
                 "cpu_us": mean(measurements.iter().map(|m| m.cpu_us).collect()),
-                "flat_us": mean(measurements.iter().map(|m| m.flat_us).collect()),
                 "mem_bytes": mean(measurements.iter().map(|m| m.mem_bytes).collect()),
-                "size_bytes": flat_bytes.len(),
             })
         })
         .collect::<Vec<_>>();

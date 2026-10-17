@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    PROTOCOL_VERSION_9, PlutusVersion, ProtocolVersion, cbor,
-    protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
-};
+use amaru_kernel::{PROTOCOL_VERSION_9, PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;

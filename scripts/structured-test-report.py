@@ -69,7 +69,9 @@ def load_events(path):
                 detail = json.loads(line.removeprefix("UPLC_CONFORMANCE_RESULT "))
             except json.JSONDecodeError:
                 continue
-            details[detail["name"]] = detail
+            detail_id = detail.get("id") or detail.get("name")
+            if detail_id is not None:
+                details.setdefault(detail_id, []).append(detail)
             continue
         try:
             event = json.loads(line)
@@ -78,6 +80,21 @@ def load_events(path):
         if event.get("type") == "test" and event.get("event") in {"ok", "failed", "ignored", "timeout"}:
             events.append(event)
     return events, details
+
+
+def detail_for_event(event_name, details):
+    """Match a report detail to its protocol-qualified libtest function name."""
+    direct = details.get(event_name)
+    if direct:
+        return direct[0]
+
+    match = re.match(r"^(.*)_protocol_version_(\d+)$", event_name)
+    if match is None:
+        return None
+
+    candidates = details.get(match.group(1), [])
+    protocol_version = f"{match.group(2)}.0"
+    return next((detail for detail in candidates if detail.get("protocol_version") == protocol_version), None)
 
 
 def fallback_outcomes(status):
@@ -133,17 +150,19 @@ def scenario(suite, event, scenario_name, fixtures, detail=None):
         plutus_version = None
         protocol_version = None
         if detail is not None:
+            scenario_id = detail.get("id") or detail.get("name") or scenario_id
             evaluation = detail.get("evaluation", evaluation)
             budget = detail.get("budget", budget)
             group = detail.get("group")
             plutus_version = detail.get("plutus_version")
             protocol_version = detail.get("protocol_version")
-            title = title_without_group(name, group)
+            title = title_without_group(scenario_id, group)
             item["title"] = title
-            if isinstance(evaluation, dict):
+            if isinstance(evaluation, dict) and "actual" in evaluation:
                 evaluation = evaluation.get("actual")
-            if isinstance(budget, dict):
+            if isinstance(budget, dict) and "actual" in budget:
                 budget = budget.get("actual")
+        item["id"] = scenario_id
         item.update({
             "group": group or "other",
             "plutus_version": plutus_version,
@@ -169,9 +188,14 @@ def main():
     for suite, raw_path in args.input:
         events, details = load_events(Path(raw_path))
         for event in events:
-            item = scenario(suite, event, args.scenario, fixtures, details.get(event["name"]))
-            detail = details.get(event["name"])
-            cases[item["id"]] = item
+            detail = detail_for_event(event["name"], details)
+            item = scenario(suite, event, args.scenario, fixtures, detail)
+            key = (
+                item["id"],
+                item.get("plutus_version"),
+                item.get("protocol_version"),
+            ) if args.scenario == "uplc-conformance" else item["id"]
+            cases[key] = item
 
     scenarios = sorted(cases.values(), key=lambda item: item["id"])
     if args.scenario == "ledger-rules":
