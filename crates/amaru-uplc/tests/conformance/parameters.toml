@@ -1,0 +1,167 @@
+[parameters]
+# Protocol versions are selected by the directory containing each scenario.
+
+[parameters."builtin/semantics/appendString/v3-ascii-pv10/v3-ascii-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/appendString/v3-multibyte-pv10/v3-multibyte-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/consByteString/v2-negative-wraps/v2-negative-wraps.uplc"]
+plutus_versions = ["V2"]
+
+[parameters."builtin/semantics/constrData/v3-negative-tag/v3-negative-tag.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/constrData/v3-tag-above-word64/v3-tag-above-word64.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/divideInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/divideInteger/v3-diagonal-c11/v3-diagonal-c11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/dropList/v3-count-beyond-u64/v3-count-beyond-u64.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/dropList/v3-negative-count-beyond-u64/v3-negative-count-beyond-u64.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/encodeUtf8/v3-ascii-pv10/v3-ascii-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/encodeUtf8/v3-multibyte-pv10/v3-multibyte-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/encodeUtf8/v3-multibyte-pv11/v3-multibyte-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/equalsByteString/v3-off-diagonal-intercept/v3-off-diagonal-intercept.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/equalsString/v3-ascii-pv10/v3-ascii-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/equalsString/v3-multibyte-pv10/v3-multibyte-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexArray/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexArray/v3-index-beyond-i128/v3-index-beyond-i128.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexArray/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexByteString/v3-index-2pow64-plus-one/v3-index-2pow64-plus-one.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexByteString/v3-index-beyond-i128/v3-index-beyond-i128.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/indexByteString/v3-negative-index-beyond-i128/v3-negative-index-beyond-i128.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/listToArray/v3-data-elements/v3-data-elements.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/listToArray/v3-large-bytestring-elements/v3-large-bytestring-elements.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/listToArray/v3-large-integer-elements/v3-large-integer-elements.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/listToArray/v3-nested-list-elements/v3-nested-list-elements.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/listToArray/v3-string-elements/v3-string-elements.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/modInteger/v3-below-diagonal-constant/v3-below-diagonal-constant.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/rotateByteString/v3-negative-rotate-beyond-int64-pv10/v3-negative-rotate-beyond-int64-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv10/v3-rotate-beyond-int64-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/rotateByteString/v3-rotate-beyond-int64-pv11/v3-rotate-beyond-int64-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/shiftByteString/v3-left-shift-whole-byte/v3-left-shift-whole-byte.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/shiftByteString/v3-negative-shift-beyond-int64-pv10/v3-negative-shift-beyond-int64-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv10/v3-shift-beyond-int64-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/shiftByteString/v3-shift-beyond-int64-pv11/v3-shift-beyond-int64-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/verifySignature/legacy-alias-test-vector-25/legacy-alias-test-vector-25.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-index-2pow64/v3-index-2pow64.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-input-4096-bytes-pv11/v3-input-4096-bytes-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-input-4097-bytes-empty-indices-pv11/v3-input-4097-bytes-empty-indices-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-input-4097-bytes-pv10/v3-input-4097-bytes-pv10.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-input-4097-bytes-pv11/v3-input-4097-bytes-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."builtin/semantics/writeBits/v3-multiple-indices/v3-multiple-indices.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."program/version/v1-1-1-0-before-pv11/v1-1-1-0-before-pv11.uplc"]
+plutus_versions = ["V1", "V2"]
+
+[parameters."program/version/v1-1-1-0-from-pv11/v1-1-1-0-from-pv11.uplc"]
+plutus_versions = ["V1", "V2"]
+
+[parameters."program/version/v1-2-0-0/v1-2-0-0.uplc"]
+plutus_versions = ["V1"]
+
+[parameters."program/version/v3-1-0-1/v3-1-0-1.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."program/version/v3-1-1-0/v3-1-1-0.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."program/version/v3-1-2-0/v3-1-2-0.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."program/version/v3-2-0-0/v3-2-0-0.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/bool-before-pv11/bool-before-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/bool-from-pv11/bool-from-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/data-from-pv11/data-from-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/integer-before-pv11/integer-before-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/integer-from-pv11/integer-from-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/list-before-pv11/list-before-pv11.uplc"]
+plutus_versions = ["V3"]
+
+[parameters."term/case/list-from-pv11/list-from-pv11.uplc"]
+plutus_versions = ["V3"]
