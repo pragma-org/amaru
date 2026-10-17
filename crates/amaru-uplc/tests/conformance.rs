@@ -37,9 +37,6 @@ pub fn budget(cpu: i64, mem: i64) -> String {
     format!("({{cpu: {cpu}\n| mem: {mem}}})")
 }
 
-#[path = "conformance_report.rs"]
-mod conformance_report;
-
 const EVALUATION_FAILURE: &str = "evaluation failure";
 const OUT_OF_BUDGET: &str = "out of budget";
 const PARSE_ERROR: &str = "parse error";
@@ -129,14 +126,17 @@ fn run_conformance(
     let expected = parse_program(&arena, &expected_output_text, protocol_version).into_result().unwrap();
     pretty_assertions::assert_eq!(expected.term, term);
 
-    let actual_budget = conformance_report::budget(info.consumed_budget.cpu, info.consumed_budget.mem);
-    conformance_report::emit(
+    let actual_budget = json!({
+        "cpu": info.consumed_budget.cpu,
+        "mem": info.consumed_budget.mem,
+    });
+    report(
         test_name,
         group,
         &plutus_version.to_string(),
         &protocol_version.to_string(),
         expected_output_text.trim(),
-        Some(&actual_budget),
+        Some(actual_budget),
     );
 
     if let (Some(expected_output_flat), Some(Some(_))) = (expected_output_flat, program_flat.as_ref()) {
@@ -168,7 +168,7 @@ pub fn report(
     plutus_version: &str,
     protocol_version: &str,
     evaluation_actual: &str,
-    actual_budget: Option<&str>,
+    actual_budget: Option<serde_json::Value>,
 ) {
     let Some(path) = std::env::var_os("UPLC_CONFORMANCE_REPORT") else {
         return;
@@ -176,7 +176,7 @@ pub fn report(
 
     let _guard = OUTPUT_LOCK.get_or_init(|| Mutex::new(())).lock().expect("report output lock poisoned");
     let record = json!({
-        "name": name,
+        "id": name,
         "group": group,
         "plutus_version": plutus_version,
         "protocol_version": protocol_version,

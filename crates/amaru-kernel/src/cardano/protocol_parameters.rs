@@ -13,11 +13,11 @@
 // limitations under the License.
 
 #[cfg(any(test, feature = "test-utils"))]
-use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{
-    cbor, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParamUpdate,
-    ProtocolVersion, RationalNumber, UnitRationalNumber,
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds, ProtocolParamUpdate,
+    ProtocolVersion, RationalNumber, UnitRationalNumber, cbor,
 };
 
 mod default;
@@ -577,7 +577,7 @@ impl Arbitrary for ProtocolParameters {
 
 #[cfg(all(test, not(target_os = "windows")))]
 mod tests {
-    use crate::{prop_cbor_roundtrip, ProtocolParameters};
+    use crate::{ProtocolParameters, prop_cbor_roundtrip};
 
     prop_cbor_roundtrip!(ProtocolParameters);
 }

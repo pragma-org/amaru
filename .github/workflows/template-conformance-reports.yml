@@ -91,7 +91,7 @@ jobs:
         id: conformance
         env:
           UPLC_CONFORMANCE_REPORT: /tmp/uplc-conformance-details.jsonl
-        run: cargo test --locked -p amaru-uplc --test conformance --test conformance_extra -- --format json -Z unstable-options --nocapture > /tmp/uplc-conformance.jsonl 2>&1
+        run: cargo test --locked -p amaru-uplc --test conformance -- --format json -Z unstable-options --nocapture > /tmp/uplc-conformance.jsonl 2>&1
 
       - name: Build report
         run: |

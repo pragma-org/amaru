@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{TestConfiguration, TestKey, TestResults};
 
@@ -205,6 +208,21 @@ fn report_json(test_configuration: &TestConfiguration, test_results: &TestResult
             (format!("{}.input.cbor", key.key()), outcome)
         })
         .collect::<serde_json::Map<_, _>>();
+
+    let report = serde_json::json!({
+        "schema_version": "1",
+        "scenario": "cbor-decoding",
+        "generated_at": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is before Unix epoch")
+            .as_millis() as u64,
+        "implementation": { "name": "amaru" },
+        "corpus": test_configuration.corpus().to_string(),
+        "protocol_version": test_configuration.protocol_version().to_string(),
+        "successful": test_results.is_successful(),
+        "totals": test_results.totals(),
+        "rules": test_results.per_rule
+    });
 
     std::fs::create_dir_all(directory)?;
     std::fs::write(directory.join(REPORT_FILE), serde_json::to_string_pretty(&results)?)?;

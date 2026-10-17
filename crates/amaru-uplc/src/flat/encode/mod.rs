@@ -132,9 +132,7 @@ fn encode_constant<'a>(e: &mut Encoder, constant: &'a Constant<'a>) -> Result<()
         Constant::Data(data) => {
             e.list_with(&[tag::DATA], encode_constant_tag)?;
 
-            let data = minicbor::to_vec(*data)?;
-
-            e.bytes(&data)?;
+            encode_data_constant(e, data)?;
         }
         Constant::ProtoList(typ, list) => {
             let mut type_encodings = vec![tag::PROTO_LIST_ONE, tag::PROTO_LIST_TWO];
@@ -249,8 +247,7 @@ fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<()
             encode_constant_value(e, b)?;
         }
         Constant::Data(data) => {
-            let data = minicbor::to_vec(*data)?;
-            e.bytes(&data)?;
+            encode_data_constant(e, data)?;
         }
         Constant::Value(v) => {
             encode_value(e, v)?;
@@ -259,6 +256,19 @@ fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<()
             return Err(FlatEncodeError::BlsElementNotSupported);
         }
     }
+
+    Ok(())
+}
+
+/// Encode the CBOR payload carried by a Flat `Data` constant.
+///
+/// The outer `Encoder::bytes` is Flat's byte-array encoding. The nested CBOR
+/// encoder is responsible for applying Plutus' 64-byte chunking rule to Data
+/// leaves; ordinary UPLC byte-string constants must not be chunked this way.
+fn encode_data_constant(e: &mut Encoder, data: &crate::data::PlutusData<'_>) -> Result<(), FlatEncodeError> {
+    let mut cbor = Vec::new();
+    minicbor::encode(data, &mut cbor)?;
+    e.bytes(&cbor)?;
 
     Ok(())
 }
@@ -300,7 +310,10 @@ mod tests {
     use amaru_kernel::{PlutusVersion, protocol_version::PROTOCOL_VERSION_10};
 
     use super::*;
-    use crate::{arena::Arena, binder::DeBruijn, flat::decode};
+    use crate::{
+        arena::Arena, binder::DeBruijn, constant::Constant, data::PlutusData, flat::decode, machine::MachineVersion,
+        program::Program, term::Term, typ::Type,
+    };
 
     #[test]
     fn roundtrip_program_big_constr_tag() {
@@ -419,5 +432,22 @@ mod tests {
                 panic!("{}", e);
             }
         }
+    }
+
+    #[test]
+    fn encode_constant_value_chunks_large_data_bytestring() {
+        let arena = Arena::new();
+        let bytes: &[u8] = arena.alloc([0_u8; 69]);
+        let data = PlutusData::byte_string(&arena, bytes);
+        let data_constant = Constant::data(&arena, data);
+        let values: &[&Constant<'_>] = arena.alloc([data_constant]);
+        let constant = Constant::proto_list(&arena, Type::data(&arena), values);
+        let term = Term::<DeBruijn>::constant(&arena, constant);
+        let program = Program::new(&arena, MachineVersion::V1_1_0, term);
+        let encoded = encode(program).expect("encoding should succeed");
+
+        let decoded_arena = Arena::new();
+        decode::<DeBruijn>(&decoded_arena, &encoded, PlutusVersion::V3, PROTOCOL_VERSION_10)
+            .expect("strict decoding should accept chunked Data bytestrings");
     }
 }

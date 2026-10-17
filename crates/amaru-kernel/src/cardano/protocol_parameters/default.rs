@@ -15,8 +15,8 @@
 use std::sync::LazyLock;
 
 use crate::{
-    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PoolVotingThresholds, ProtocolParameters, RationalNumber,
-    UnitRationalNumber, PROTOCOL_VERSION_10,
+    CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PROTOCOL_VERSION_10, PoolVotingThresholds,
+    ProtocolParameters, RationalNumber, UnitRationalNumber,
 };
 
 // Cost-model vectors are defined in `cost_model.rs` and selected by protocol era.

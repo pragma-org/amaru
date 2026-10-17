@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    PlutusVersion, ProtocolVersion,
+    PROTOCOL_VERSION_9, PlutusVersion, ProtocolVersion, cbor,
     protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
 };
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
@@ -41,10 +41,14 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     /// Returns true when constr/case terms are allowed.
     ///
-    /// Both the protocol version (>= 9, i.e. Conway) and the program version
-    /// (>= 1.1.0) must permit them.
+    /// This has been introduced with the machine version 1.1.0 which landed at different moment for
+    /// different Plutus versions. Plutus V3 has it since PV 9 whereas Plutus V1 and Plutus
+    /// V2 got it only after PV 11.
     pub fn is_constr_case_available(&self) -> bool {
-        let protocol_ok = self.protocol_version >= PROTOCOL_VERSION_10;
+        let protocol_ok = match self.plutus_version {
+            PlutusVersion::V1 | PlutusVersion::V2 => self.protocol_version >= PROTOCOL_VERSION_11,
+            PlutusVersion::V3 => self.protocol_version >= PROTOCOL_VERSION_9,
+        };
         let machine_ok = self.machine_version.is_constr_case_available();
         protocol_ok && machine_ok
     }

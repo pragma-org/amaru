@@ -6,7 +6,6 @@ set -euo pipefail
 # consumed by node-diversity-conformance.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PARAMETERS="$SCRIPT_DIR/parameters.toml"
 UPLC_BIN="${UPLC_BIN:-uplc}"
 IMPLEMENTATION_NAME="${IMPLEMENTATION_NAME:-cardano-node}"
 CORPUS="${CORPUS:-amaru-uplc/conformance}"
@@ -57,23 +56,12 @@ scenario_title() {
 
 plutus_versions() {
     local key="$1"
-    local line
-
-    line="$(awk -v section="[parameters.\"$key\"]" '
-        $0 == section { found = 1; next }
-        found && /^\[/ { exit }
-        found && /^plutus_versions[[:space:]]*=/ { print; exit }
-    ' "$PARAMETERS")"
-
-    if [[ -z "$line" ]]; then
-        printf 'V3\n'
-        return
-    fi
-
-    printf '%s\n' "$line" \
-        | sed -E 's/.*\[(.*)\].*/\1/' \
-        | tr ',' '\n' \
-        | tr -d ' "'
+    case "$key" in
+        program/version/v1-1-1-0-*) printf 'V1\nV2\n' ;;
+        */v1-*) printf 'V1\n' ;;
+        */v2-*) printf 'V2\n' ;;
+        *) printf 'V3\n' ;;
+    esac
 }
 
 semantics_variant() {
@@ -145,14 +133,12 @@ evaluate_case() {
 
 append_result() {
     local source="$1"
-    local relative="$2"
-    local major="$3"
-    local plutus="$4"
-    local scenario="$5"
-    local group="$6"
-    local id="$7"
-    local title="$8"
-    local version="$9"
+    local major="$2"
+    local plutus="$3"
+    local group="$4"
+    local id="$5"
+    local title="$6"
+    local version="$7"
     local evaluation budget cpu mem
 
     if evaluate_case "$source"; then
@@ -160,8 +146,7 @@ append_result() {
         cpu="$(sed -n 's/^CPU budget:[[:space:]]*//p' "$EVALUATION_STDOUT")"
         mem="$(sed -n 's/^Memory budget:[[:space:]]*//p' "$EVALUATION_STDOUT")"
         evaluation="(program $version $evaluation)"
-        budget="({cpu: $cpu
-| mem: $mem})"
+        budget="$(jq -cn --arg cpu "$cpu" --arg mem "$mem" '{cpu: ($cpu | tonumber), mem: ($mem | tonumber)}')"
     else
         evaluation="$(expected_marker "$source" || true)"
         evaluation="${evaluation:-evaluation failure}"
@@ -175,7 +160,7 @@ append_result() {
         --arg plutus_version "$plutus" \
         --arg protocol_version "$major.0" \
         --arg evaluation "$evaluation" \
-        --arg budget "$budget" \
+        --argjson budget "$budget" \
         '({
             id: $id,
             title: $title,
@@ -183,7 +168,7 @@ append_result() {
             plutus_version: $plutus_version,
             protocol_version: $protocol_version,
             evaluation: $evaluation,
-            budget: (if $budget == "null" then null else $budget end)
+            budget: $budget
         })' >>"$RECORDS"
 }
 
@@ -206,8 +191,8 @@ while IFS= read -r source; do
     while IFS= read -r plutus; do
         [[ -n "$plutus" ]] || continue
         SEMANTICS="$(semantics_variant "$major" "$plutus")"
-        id="${id_base}_$(printf '%s' "$plutus" | tr '[:upper:]' '[:lower:]')_protocol_version_${major}"
-        append_result "$source" "$relative" "$major" "$plutus" "$scenario_path_value" "$group" "$id" "$title" "$version"
+        id="${id_base}_$(printf '%s' "$plutus" | tr '[:upper:]' '[:lower:]')"
+        append_result "$source" "$major" "$plutus" "$group" "$id" "$title" "$version"
         count=$((count + 1))
     done < <(plutus_versions "$scenario_path_value")
 done < <(find "$SCRIPT_DIR/protocol-version-10" "$SCRIPT_DIR/protocol-version-11" -type f -name '*.uplc' | sort)

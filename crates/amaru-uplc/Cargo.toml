@@ -72,5 +72,9 @@ harness = false
 name = "turbo"
 harness = false
 
+[[bin]]
+name = "generate-conformance-flats"
+path = "src/bin/generate_conformance_flats.rs"
+
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

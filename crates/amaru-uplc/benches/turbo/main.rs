@@ -30,7 +30,7 @@ use amaru_uplc::{
     arena::Arena,
     arena_pool::ArenaPool,
     binder::DeBruijn,
-    flat::{self, DataDecoding},
+    flat,
     machine::{CostModel, ExBudget},
 };
 use itertools::Itertools;
@@ -142,14 +142,8 @@ impl Measurement {
     ) -> Self {
         let mut meter = Instant::now();
 
-        let (program, _) = flat::decode_with_data_decoding::<DeBruijn>(
-            arena,
-            flat,
-            plutus_version,
-            protocol_version,
-            DataDecoding::Unbounded,
-        )
-        .expect("Failed to decode");
+        let (program, _) =
+            flat::decode::<DeBruijn>(arena, flat, plutus_version, protocol_version).expect("Failed to decode");
 
         let flat_us = duration::elapsed_and_reset(&mut meter);
 
@@ -177,6 +171,8 @@ fn main() {
         .iter()
         .enumerate()
         .map(|(ix, (id, flat_bytes, plutus_version, protocol_version))| {
+            eprintln!("[{ix}/{} {id}", scripts.len());
+
             let costs = cost_model(*plutus_version, *protocol_version);
 
             let measurements: Vec<Measurement> = (0..SAMPLE_COUNT)
@@ -185,8 +181,6 @@ fn main() {
                     Measurement::new(&arenas.acquire(), flat_bytes, *plutus_version, *protocol_version, costs.clone())
                 })
                 .collect();
-
-            eprintln!("[{ix}/{} {id}", scripts.len());
 
             json!({
                 "bench": id,
