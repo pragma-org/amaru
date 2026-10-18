@@ -85,7 +85,7 @@ expected_marker() {
 
     if [[ -f "$expected" ]]; then
         case "$(tr -d '\r' < "$expected" | tr -d '\n')" in
-            "parse error"|"evaluation failure"|"out of budget")
+            "parse error"|"parse/decode error"|"evaluation failure"|"out of budget")
                 tr -d '\r' < "$expected" | tr -d '\n'
                 ;;
         esac
@@ -205,6 +205,6 @@ jq -s \
         generated_at: $generated_at,
         implementation: {name: $implementation},
         scenarios: .
-    }' "$RECORDS"
+    }' "$RECORDS" > cardano-node.json
 
 echo "generated $count Haskell UPLC conformance results" >&2

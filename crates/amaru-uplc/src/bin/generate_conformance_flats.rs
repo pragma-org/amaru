@@ -24,7 +24,7 @@ use amaru_kernel::{
     protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
 };
 use amaru_uplc::{arena::Arena, flat, syn::parse_program};
-const FAILURE_MARKERS: [&str; 3] = ["parse error", "evaluation failure", "out of budget"];
+const FAILURE_MARKERS: [&str; 4] = ["parse error", "parse/decode error", "evaluation failure", "out of budget"];
 
 /// Generate flat-encoded files from textual UPLC representations for the conformance tests.
 #[expect(clippy::unwrap_used)]

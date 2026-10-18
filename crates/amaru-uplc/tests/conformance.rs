@@ -39,7 +39,8 @@ pub fn budget(cpu: i64, mem: i64) -> String {
 
 const EVALUATION_FAILURE: &str = "evaluation failure";
 const OUT_OF_BUDGET: &str = "out of budget";
-const PARSE_ERROR: &str = "parse error";
+const PARSE_ERROR: &str = "parse/decode error";
+const LEGACY_PARSE_ERROR: &str = "parse error";
 
 fn run_conformance(
     test_name: &str,
@@ -61,8 +62,8 @@ fn run_conformance(
     let arena = Arena::new();
     let Ok(program) = parse_program(&arena, &program_text, protocol_version).into_result() else {
         report(test_name, title, group, &plutus_version.to_string(), &protocol_version.to_string(), PARSE_ERROR, None);
-        pretty_assertions::assert_eq!(PARSE_ERROR, expected_output_text.trim());
-        pretty_assertions::assert_eq!(PARSE_ERROR, expected_budget.trim());
+        assert_parse_error(expected_output_text.trim());
+        assert_parse_error(expected_budget.trim());
         return;
     };
 
@@ -161,6 +162,10 @@ fn run_conformance(
 
     let consumed_budget = format!("({{cpu: {}\n| mem: {}}})", info.consumed_budget.cpu, info.consumed_budget.mem);
     pretty_assertions::assert_eq!(consumed_budget, expected_budget.trim());
+}
+
+fn assert_parse_error(actual: &str) {
+    assert!(matches!(actual, PARSE_ERROR | LEGACY_PARSE_ERROR), "expected a parse/decode error marker, got {actual:?}");
 }
 
 #[expect(clippy::expect_used)]

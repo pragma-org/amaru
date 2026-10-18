@@ -1,1 +1,1 @@
-(program 1.0.0 (delay (lam z-0 (lam f-1 z-0))))
+(program 1.0.0 (delay (lam i-0 (lam i-1 i-0))))

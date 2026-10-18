@@ -27,7 +27,7 @@ use crate::{
     bls::Compressable,
     constant::{self, Constant, Integer},
     data::PlutusData,
-    ledger_value::LedgerValue,
+    ledger_value::{CurrencyEntry, LedgerValue, TokenEntry},
     typ::Type,
 };
 
@@ -123,7 +123,7 @@ fn check_type<'a>(arena: &'a Arena, con: TempConstant<'a>, expected_type: &'a Ty
             Constant::g2(arena, element)
         }
 
-        (TempConstant::ProtoList(list), Type::Value) => match parse_and_normalize_value(arena, list) {
+        (TempConstant::ProtoList(list), Type::Value) => match parse_value(arena, list) {
             Some(v) => Constant::ledger_value(arena, v),
             None => return (Constant::unit(arena), false),
         },
@@ -133,16 +133,11 @@ fn check_type<'a>(arena: &'a Arena, con: TempConstant<'a>, expected_type: &'a Ty
     (constant, true)
 }
 
-fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstant<'a>>) -> Option<&'a LedgerValue<'a>> {
+fn parse_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstant<'a>>) -> Option<&'a LedgerValue<'a>> {
     use crate::ledger_value::check_quantity_range;
 
-    struct RawToken<'a> {
-        currency: &'a [u8],
-        name: &'a [u8],
-        quantity: &'a Integer,
-    }
-
-    let mut raw_tokens: Vec<RawToken<'a>> = Vec::new();
+    let mut currencies = BumpVec::new_in(arena.as_bump());
+    let mut previous_currency = None;
 
     for item in list {
         let TempConstant::ProtoPair(fst, snd) = item else {
@@ -157,9 +152,21 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
             return None;
         }
 
+        if previous_currency.is_some_and(|previous| previous >= ccy) {
+            return None;
+        }
+        previous_currency = Some(ccy);
+
         let TempConstant::ProtoList(inner_list) = *snd else {
             return None;
         };
+
+        if inner_list.is_empty() {
+            return None;
+        }
+
+        let mut tokens = BumpVec::new_in(arena.as_bump());
+        let mut previous_token = None;
 
         for inner_item in inner_list {
             let TempConstant::ProtoPair(tok_fst, tok_snd) = inner_item else {
@@ -174,34 +181,33 @@ fn parse_and_normalize_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstan
                 return None;
             }
 
+            if previous_token.is_some_and(|previous| previous >= tok_name) {
+                return None;
+            }
+            previous_token = Some(tok_name);
+
             let TempConstant::Integer(qty) = *tok_snd else {
                 return None;
             };
+
+            if qty.is_zero() {
+                return None;
+            }
 
             if check_quantity_range(qty).is_err() {
                 return None;
             }
 
-            raw_tokens.push(RawToken { currency: ccy, name: tok_name, quantity: qty });
-        }
-    }
-
-    let mut result = LedgerValue::empty(arena);
-
-    for rt in raw_tokens {
-        let existing = result.lookup_coin(arena, rt.currency, rt.name);
-        let sum = existing + rt.quantity;
-
-        if check_quantity_range(&sum).is_err() {
-            return None;
+            tokens.push(TokenEntry { name: tok_name, quantity: qty });
         }
 
-        let qty = if sum.is_zero() { arena.alloc_integer(Integer::from(0)) } else { arena.alloc_integer(sum) };
-
-        result = LedgerValue::insert_coin(arena, rt.currency, rt.name, qty, result);
+        let tokens: &'a [TokenEntry<'a>] = arena.alloc(tokens);
+        currencies.push(CurrencyEntry { currency: ccy, tokens });
     }
 
-    Some(result)
+    let entries: &'a [CurrencyEntry<'a>] = arena.alloc(currencies);
+    let (size, negative_count) = crate::ledger_value::count_stats(entries);
+    Some(arena.alloc(LedgerValue { entries, size, negative_count }))
 }
 
 #[derive(Debug, PartialEq)]
