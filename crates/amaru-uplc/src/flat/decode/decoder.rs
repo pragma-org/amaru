@@ -16,7 +16,13 @@ use amaru_kernel::{PROTOCOL_VERSION_9, PlutusVersion, ProtocolVersion, protocol_
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;
-use crate::{arena::Arena, builtin::DefaultFunction, constant::Integer, flat::zigzag::ZigZag, machine::MachineVersion};
+use crate::{
+    arena::Arena,
+    builtin::DefaultFunction,
+    constant::Integer,
+    flat::zigzag::ZigZag,
+    machine::{MachineVersion, Semantics},
+};
 
 pub struct Decoder<'b> {
     pub buffer: &'b [u8],
@@ -36,6 +42,17 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Returns whether the program version is supported by the ledger semantics selected for this
+    /// Plutus language and protocol version.
+    pub fn is_program_version_available(&self) -> bool {
+        match Semantics::new(self.plutus_version, self.protocol_version) {
+            Semantics::A | Semantics::B => self.machine_version == MachineVersion::V1_0_0,
+            Semantics::C | Semantics::D | Semantics::E => {
+                matches!(self.machine_version, MachineVersion::V1_0_0 | MachineVersion::V1_1_0)
+            }
+        }
+    }
+
     /// Returns true when constr/case terms are allowed.
     ///
     /// This has been introduced with the machine version 1.1.0 which landed at different moment for

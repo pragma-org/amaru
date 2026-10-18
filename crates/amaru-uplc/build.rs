@@ -73,7 +73,7 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
         }
 
         let relative_path = path.strip_prefix(dir_path).unwrap();
-        let (protocol_version, scenario_path) = protocol_version(relative_path);
+        let (protocol_version, plutus_versions, scenario_path) = test_metadata(relative_path);
         let scenario_name = scenario_path
             .parent()
             .unwrap()
@@ -124,7 +124,8 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
         let budget_path = path.with_extension("budget");
         let budget_path_string = budget_path.to_str().unwrap().replace('\\', "/");
         let budget = format!("include_str!(\"{budget_path_string}\")");
-        let configurations = test_parameters(scenario_path, protocol_version);
+        let configurations =
+            plutus_versions.iter().map(|&plutus_version| TestParameters { plutus_version, protocol_version });
 
         for TestParameters { plutus_version, protocol_version } in configurations {
             let scenario_id = format!("{scenario_name}_{plutus_version}").to_lowercase();
@@ -155,28 +156,27 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
     tests
 }
 
-fn test_parameters(scenario_path: &Path, protocol_version: &'static str) -> Vec<TestParameters> {
-    let scenario = scenario_path.parent().unwrap().to_string_lossy();
-    let plutus_versions: &[&str] = match scenario.as_ref() {
-        // The same 1.1.0 program-version fixture is intentionally exercised as both V1 and V2.
-        path if path.starts_with("program/version/v1-1-1-0-") => &["V1", "V2"],
-        path if path.rsplit('/').next().is_some_and(|name| name.starts_with("v1-")) => &["V1"],
-        path if path.rsplit('/').next().is_some_and(|name| name.starts_with("v2-")) => &["V2"],
-        _ => &["V3"],
-    };
+fn test_metadata(path: &Path) -> (&'static str, &'static [&'static str], &Path) {
+    let mut components = path.components();
+    let protocol_component =
+        components.next().unwrap_or_else(|| panic!("missing protocol-version directory in {}", path.display()));
+    let plutus_component =
+        components.next().unwrap_or_else(|| panic!("missing Plutus version directory in {}", path.display()));
 
-    plutus_versions.iter().map(|&plutus_version| TestParameters { plutus_version, protocol_version }).collect()
-}
-
-fn protocol_version(path: &Path) -> (&'static str, &Path) {
-    let component =
-        path.components().next().unwrap_or_else(|| panic!("missing protocol-version directory in {}", path.display()));
-    let protocol_directory = component.as_os_str().to_string_lossy();
-    let protocol_version = match protocol_directory.as_ref() {
+    let protocol_version = match protocol_component.as_os_str().to_string_lossy().as_ref() {
         "protocol-version-10" => "PROTOCOL_VERSION_10",
         "protocol-version-11" => "PROTOCOL_VERSION_11",
         other => panic!("unsupported conformance protocol directory: {other}"),
     };
-    let scenario_path = path.strip_prefix(Path::new(component.as_os_str())).unwrap();
-    (protocol_version, scenario_path)
+    let plutus_versions = match plutus_component.as_os_str().to_string_lossy().as_ref() {
+        "v1" => &["V1"][..],
+        "v2" => &["V2"][..],
+        "v3" => &["V3"][..],
+        "all" => &["V1", "V2", "V3"][..],
+        other => panic!("unsupported conformance Plutus version directory: {other}"),
+    };
+
+    let protocol_path = path.strip_prefix(Path::new(protocol_component.as_os_str())).unwrap();
+    let scenario_path = protocol_path.strip_prefix(Path::new(plutus_component.as_os_str())).unwrap();
+    (protocol_version, plutus_versions, scenario_path)
 }
