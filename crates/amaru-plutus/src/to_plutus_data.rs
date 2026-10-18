@@ -17,7 +17,7 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 use amaru_kernel::{
     Address, AssetName, BorrowedScript, Bytes, Credential, CurrencySymbol, EMPTY_ASSET_NAME, Epoch, HasScriptHash,
     Hash, Int, KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData,
-    ProtocolVersion, RequiredSigners, StakeReference, TimeRange, TransactionId, Value, plutus_data::BigInt,
+    ProtocolVersion, Set, StakeReference, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
 
@@ -134,15 +134,6 @@ where
             MemoizedDatum::Hash(hash) => constr!(1, [hash]),
             MemoizedDatum::Inline(data) => constr!(2, [data.as_ref().data()]),
         }
-    }
-}
-
-impl<const V: u8> ToPlutusData<V> for RequiredSigners
-where
-    PlutusVersion<V>: IsKnownPlutusVersion,
-{
-    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        self.0.iter().collect::<Vec<_>>().to_plutus_data()
     }
 }
 
@@ -385,6 +376,16 @@ impl<const V: u8, T> ToPlutusData<V> for Vec<T>
 where
     PlutusVersion<V>: IsKnownPlutusVersion,
     T: ToPlutusData<V>,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        Ok(PlutusData::array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<Vec<_>, _>>()?))
+    }
+}
+
+impl<const V: u8, T> ToPlutusData<V> for Set<T>
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+    T: Ord + ToPlutusData<V>,
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         Ok(PlutusData::array(self.iter().map(|a| a.to_plutus_data()).collect::<Result<Vec<_>, _>>()?))

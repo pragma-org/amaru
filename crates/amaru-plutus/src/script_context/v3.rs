@@ -503,7 +503,8 @@ mod tests {
     use std::ops::Deref;
 
     use amaru_kernel::{
-        KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, UnitRationalNumber, cbor, to_cbor,
+        KeyValuePairs, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Set, Transaction, UnitRationalNumber, cbor,
+        to_cbor,
     };
     use test_case::test_case;
 
@@ -571,7 +572,7 @@ mod tests {
     fn governance_quorum_uses_constr_encoding() {
         let action = GovernanceAction::UpdateCommittee(
             None,
-            vec![],
+            Set::default(),
             KeyValuePairs::default(),
             UnitRationalNumber::new(2, 4).expect("valid ratio"),
         );

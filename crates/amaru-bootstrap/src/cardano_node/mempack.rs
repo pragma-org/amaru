@@ -43,7 +43,7 @@ pub fn decode_transaction_output(bytes: &[u8]) -> anyhow::Result<MemoizedTransac
         _ => MemoizedDatum::None,
     };
     let script = (tag == 5).then(|| decode_script(&mut decoder)).transpose()?;
-    Ok(MemoizedTransactionOutput::new(tag < 4, address, value, datum, script))
+    Ok(MemoizedTransactionOutput::new(address, value, datum, script))
 }
 
 struct Decoder<'a> {
@@ -301,7 +301,11 @@ mod tests {
     fn decodes_legacy_and_modern_outputs() {
         let address = Address::from_hex("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335").unwrap();
         let address_bytes = address.to_vec();
-        for (tag, suffix) in [(0, vec![]), (1, vec![3; 32]), (4, vec![1, 0]), (5, vec![0, 1, 2, 1, 42])] {
+        // A legacy output is written as an array of its fields, a modern one as a map of the fields it
+        // carries; both in the definite-length form the ledger uses.
+        for (tag, suffix, head) in
+            [(0, vec![], 0x82), (1, vec![3; 32], 0x83), (4, vec![1, 0], 0xa3), (5, vec![0, 1, 2, 1, 42], 0xa3)]
+        {
             let mut bytes = vec![tag, address_bytes.len() as u8];
             bytes.extend_from_slice(&address_bytes);
             bytes.extend_from_slice(&[0, 42]);
@@ -320,8 +324,7 @@ mod tests {
             } else {
                 assert!(output.script.is_none());
             }
-            assert_eq!(output.is_legacy, tag < 4);
-            assert_eq!(cbor::to_vec(output).unwrap()[0], if tag < 4 { 0x9f } else { 0xbf });
+            assert_eq!(cbor::to_vec(output).unwrap()[0], head);
         }
     }
 

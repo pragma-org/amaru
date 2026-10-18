@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, fmt};
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 use thiserror::Error;
 
-use crate::{Address, AsHash, Credential, Lovelace, Network, NonEmptyKeyValuePairs, bech32, cbor};
+use crate::{Address, AsHash, Credential, Lovelace, Network, Withdrawals, bech32, cbor};
 
 /// The account rewards are paid to, often called a StakeAddress.
 ///
@@ -173,8 +173,8 @@ impl PlutusWithdrawals {
     }
 }
 
-impl From<&NonEmptyKeyValuePairs<RewardAccount, Lovelace>> for PlutusWithdrawals {
-    fn from(value: &NonEmptyKeyValuePairs<RewardAccount, Lovelace>) -> Self {
+impl From<&Withdrawals> for PlutusWithdrawals {
+    fn from(value: &Withdrawals) -> Self {
         Self(value.iter().map(|(account, coin)| (*account, *coin)).collect())
     }
 }

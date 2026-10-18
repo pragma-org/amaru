@@ -502,6 +502,8 @@ normalizePoolFailure = \case
         "StakePoolCostTooLowPOOL"
     WrongNetworkPOOL{} ->
         "WrongNetworkPOOL"
+    PoolMedataHashTooBig{} ->
+        "PoolMedataHashTooBig"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 

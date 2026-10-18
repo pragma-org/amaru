@@ -136,7 +136,7 @@ mod tests {
     fn output_with(value: Value) -> MemoizedTransactionOutput {
         let address = Address::from_bech32("addr_test1vp0ksclfnd0zjtfu70npnccut6sjex8w9k0h246xrsl089qnvvmuc")
             .expect("valid address");
-        MemoizedTransactionOutput::new(false, address, value, MemoizedDatum::None, None)
+        MemoizedTransactionOutput::new(address, value, MemoizedDatum::None, None)
     }
 
     fn protocol_parameters_with_max_size(max_value_size: u32) -> ProtocolParameters {

@@ -8,59 +8,38 @@ over time without re-running the suite.
 AMARU_TEST_REPORT_DIRECTORY=tests/results cargo test -p amaru-kernel --test test_cbor_dataset -- --nocapture
 ```
 
-The file is named `amaru-decoding-conformance_<corpus>_<protocol_version>.json`, for example
-`amaru-decoding-conformance_conway-123-100_10.0.json`. Its content is one pretty-printed JSON object.
+The file is named `amaru-latest.json`, the name the corpus gives an implementation's own report, and the site that
+aggregates reports across implementations reads it under that name.
 
-## Top level
+## Shape
 
-| key                | type                | meaning                                                             |
-|--------------------|---------------------|---------------------------------------------------------------------|
-| `corpus`           | string              | the dataset that was run, e.g. `conway-123-100`                      |
-| `protocol_version` | string              | the protocol version decoded against, e.g. `10.0`                    |
-| `successful`       | bool                | true when the run had no failure at all; acknowledgements do not make it true |
-| `totals`           | outcome             | the per-rule outcomes summed                                         |
-| `rules`            | map rule → outcome  | one outcome per CDDL rule, keyed by rule name, sorted                |
-| `failures`         | array of failures   | one entry per failing sample                                         |
+One JSON object, one entry per sample, with no enclosing metadata. The corpus and protocol version a run decoded
+against are properties of the run, not of the file.
 
-## Outcome
+| part  | value                                                                                              |
+|-------|----------------------------------------------------------------------------------------------------|
+| key   | the sample's path inside the corpus: `<rule>/<category>/<name>.input.cbor`                         |
+| value | `true` when the sample met its expectation, otherwise a string saying why it did not               |
 
-The shape used by `totals` and by every value of `rules`. Every field counts samples.
-
-| field                                  | meaning                                                                         |
-|----------------------------------------|---------------------------------------------------------------------------------|
-| `generated_total`                      | samples generated from the CDDL for this rule                                    |
-| `generated_decoded_reencoded_expected` | of those, the ones that must decode, re-encode, and match the reference bytes    |
-| `generated_decoded_reencoded_actual`   | the ones that did                                                                |
-| `generated_must_be_rejected_expected`  | generated samples that must be rejected, even though they satisfy the CDDL       |
-| `generated_must_be_rejected_actual`    | the ones that were                                                               |
-| `zap_must_be_rejected_expected`        | malformed mutations that must be rejected                                        |
-| `zap_must_be_rejected_actual`          | the ones that were                                                               |
-
-A rule is clean when each `_actual` equals its `_expected`. For every rule,
-`generated_total` = `generated_decoded_reencoded_expected` + `generated_must_be_rejected_expected`.
-
-## Failure
-
-| field    | meaning                                                                                               |
-|----------|--------------------------------------------------------------------------------------------------------|
-| `sample` | `<rule>/<category>/<file stem>`, where `<category>` is `valid` or `invalid/zap-<n>` for severity `n`   |
-| `rule`   | the CDDL rule the sample belongs to                                                                      |
-| `class`  | `reason` collapsed into a stable label: first line only, byte offset dropped, long digit runs replaced by `N`, truncated at 96 characters |
-| `reason` | the full error text, which may span several lines and embed hex dumps                                    |
+`<category>` is `valid`, `invalid-zap-<n>`, `manual-valid` or `manual-invalid`.
 
 ```json
 {
-  "sample": "auxiliary_data/valid/00003-2f2bacfd41c291d4",
-  "rule": "auxiliary_data",
-  "class": "re-encoding differs from the cbor reference",
-  "reason": "re-encoding differs from the cbor reference\n\nexpected\n\nd90103a400a11be2de…"
+  "block/valid/00001-3d1d6d4d1c7eb48a.input.cbor": true,
+  "gov_action/manual-invalid/committee-removed-repeated.input.cbor": "decode: succeeded when expected to fail",
+  "metadata/manual-valid/label-max-at-0.input.cbor": "encode: reserialization differs from the expected output"
 }
 ```
 
-## Reading a report
+## Failure strings
 
-`(rule, class)` is the grouping key of the whole report, and it is also exactly what an entry of
-`acknowledged-failures.toml` names. A new `(rule, class)` pair is a new defect; a pair that disappears is progress.
+A failure is reported as `<phase>: <message>`, where the phase is `decode` for anything that went wrong when decoding the
+sample and `encode` for anything that went wrong when encoding it back:
 
-`successful: false` does not fail the test run. The suite fails on failures that are *not* declared in
-`acknowledged-failures.toml`, so the report describes conformance while the acknowledgement file is what gates CI.
+| string                                                     | meaning                                                              |
+|------------------------------------------------------------|----------------------------------------------------------------------|
+| `decode: succeeded when expected to fail`                  | the corpus expects this sample to be rejected, and it decoded        |
+| `encode: reserialization differs from the expected output` | it decoded, but came back as bytes the reference does not agree with |
+| `decode: <first line of the decoder's error>`              | it failed to decode when it should have succeeded                    |
+
+The third form keeps only the first line of the error, so a decoder error carrying a hex dump stays one line in the report.

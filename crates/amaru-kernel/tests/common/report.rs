@@ -146,65 +146,82 @@ fn print_summary(test_configuration: &TestConfiguration, test_results: &TestResu
     eprintln!("BY RULE ");
     eprintln!("----------------------------------------------------------------------------");
     eprintln!();
-    eprintln!("  rule                          decoded and      generated         zapped");
-    eprintln!("                               re-encoded ok    rejected ok      rejected ok");
+    let rule_column =
+        test_results.per_rule.keys().map(|rule| rule.chars().count()).max().unwrap_or(0).max(RULE_HEADER.len());
+    eprintln!(
+        "{RULE_HEADER:<rule_column$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}",
+        "decoded and", "generated", "zapped"
+    );
+    eprintln!(
+        "{:<rule_column$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}  {:^COUNT_COLUMN$}",
+        "", "re-encoded ok", "rejected ok", "rejected ok"
+    );
     eprintln!();
     for (rule, t) in &test_results.per_rule {
-        let check_decoded_reencoded =
-            check(t.generated_decoded_reencoded_actual, t.generated_decoded_reencoded_expected);
-        let check_generated_rejected =
-            check(t.generated_must_be_rejected_actual, t.generated_must_be_rejected_expected);
-        let check_zapped_rejected = check(t.zap_must_be_rejected_actual, t.zap_must_be_rejected_expected);
         eprintln!(
-            "{rule:<30} {:>3}/{:<3} {}        {:>3}/{:<3} {}      {:>3}/{:<3} {}",
-            t.generated_decoded_reencoded_actual,
-            t.generated_decoded_reencoded_expected,
-            check_decoded_reencoded,
-            t.generated_must_be_rejected_actual,
-            t.generated_must_be_rejected_expected,
-            check_generated_rejected,
-            t.zap_must_be_rejected_actual,
-            t.zap_must_be_rejected_expected,
-            check_zapped_rejected
+            "{rule:<rule_column$}  {}  {}  {}",
+            counts(t.generated_decoded_reencoded_actual, t.generated_decoded_reencoded_expected),
+            counts(t.generated_must_be_rejected_actual, t.generated_must_be_rejected_expected),
+            counts(t.zap_must_be_rejected_actual, t.zap_must_be_rejected_expected)
         );
     }
 }
 
-/// Write the run's counters and failures as JSON, so another tool can diff runs or track progress.
+/// Heading of the column naming the rule, and the narrowest that column is ever printed.
+const RULE_HEADER: &str = "rule";
+
+/// Display width of a count column. One wider than the string `counts` builds, because the check mark
+/// is a single character that the terminal gives two columns to.
+const COUNT_COLUMN: usize = 14;
+
+/// One `actual/expected ✅` cell of the by-rule table, padded so that every cell is the same width.
+fn counts(actual: usize, expected: usize) -> String {
+    format!("{actual:>5}/{expected:<5} {}", check(actual, expected))
+}
+
+/// The file the run writes its results to, named the way the dataset names a report of its own.
+const REPORT_FILE: &str = "amaru-latest.json";
+
+/// Recorded when a sample the corpus expects to be rejected decodes anyway.
+const DECODED_WHEN_IT_SHOULD_NOT: &str = "decode: succeeded when expected to fail";
+
+/// Recorded when a sample decodes but comes back as bytes the reference does not agree with.
+const RE_ENCODING_DIFFERS: &str = "encode: reserialization differs from the expected output";
+
+/// Write the run's result for every sample, in the shape the dataset publishes and a consuming site
+/// aggregates: one entry per sample, keyed by its path inside the corpus, holding `true` when the sample met
+/// its expectation and otherwise the reason it did not.
 fn report_json(test_configuration: &TestConfiguration, test_results: &TestResults) -> anyhow::Result<()> {
     let Some(directory) = test_configuration.report_directory() else { return Ok(()) };
 
-    let failures = test_results
-        .failures
+    let results = test_results
+        .samples
         .iter()
-        .map(|(key, reason)| {
-            serde_json::json!({
-                "sample": key.key(),
-                "rule": key.rule(),
-                "class": error_class(reason),
-                "reason": reason,
-            })
+        .map(|key| {
+            let outcome = match test_results.failures.get(key) {
+                None => serde_json::Value::Bool(true),
+                Some(reason) => serde_json::Value::String(report_error(reason)),
+            };
+            (format!("{}.input.cbor", key.key()), outcome)
         })
-        .collect::<Vec<_>>();
-
-    let report = serde_json::json!({
-        "corpus": test_configuration.corpus().to_string(),
-        "protocol_version": test_configuration.protocol_version().to_string(),
-        "successful": test_results.is_successful(),
-        "totals": test_results.totals(),
-        "rules": test_results.per_rule,
-        "failures": failures,
-    });
+        .collect::<serde_json::Map<_, _>>();
 
     std::fs::create_dir_all(directory)?;
-    let file_name = format!(
-        "amaru-decoding-conformance_{}_{}.json",
-        test_configuration.corpus(),
-        test_configuration.protocol_version()
-    );
-    let file = directory.join(file_name);
-    std::fs::write(file, serde_json::to_string_pretty(&report)?)?;
+    std::fs::write(directory.join(REPORT_FILE), serde_json::to_string_pretty(&results)?)?;
     Ok(())
+}
+
+/// Classify a failure the way the dataset's reports do: `<category>: <message>`, where the category is
+/// `decode` for anything that went wrong reading the sample and `encode` for anything that went wrong writing
+/// it back.
+fn report_error(reason: &str) -> String {
+    if reason.starts_with("decoded successfully") {
+        DECODED_WHEN_IT_SHOULD_NOT.to_string()
+    } else if reason.starts_with("re-encoding differs") {
+        RE_ENCODING_DIFFERS.to_string()
+    } else {
+        format!("decode: {}", reason.lines().next().unwrap_or(reason))
+    }
 }
 
 /// Print a checkmark if the actual count matches the expected count, otherwise print a cross.
