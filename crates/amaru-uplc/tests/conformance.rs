@@ -43,6 +43,7 @@ const PARSE_ERROR: &str = "parse error";
 
 fn run_conformance(
     test_name: &str,
+    title: &str,
     group: &str,
     plutus_version: PlutusVersion,
     protocol_version: ProtocolVersion,
@@ -59,7 +60,7 @@ fn run_conformance(
 
     let arena = Arena::new();
     let Ok(program) = parse_program(&arena, &program_text, protocol_version).into_result() else {
-        report(test_name, group, &plutus_version.to_string(), &protocol_version.to_string(), PARSE_ERROR, None);
+        report(test_name, title, group, &plutus_version.to_string(), &protocol_version.to_string(), PARSE_ERROR, None);
         pretty_assertions::assert_eq!(PARSE_ERROR, expected_output_text.trim());
         pretty_assertions::assert_eq!(PARSE_ERROR, expected_budget.trim());
         return;
@@ -107,7 +108,7 @@ fn run_conformance(
         Err(error) => {
             let actual =
                 if matches!(error, MachineError::OutOfExError(_)) { OUT_OF_BUDGET } else { EVALUATION_FAILURE };
-            report(test_name, group, &plutus_version.to_string(), &protocol_version.to_string(), actual, None);
+            report(test_name, title, group, &plutus_version.to_string(), &protocol_version.to_string(), actual, None);
             assert!(
                 expected_output_text.trim() == EVALUATION_FAILURE
                     || (actual == OUT_OF_BUDGET && expected_output_text.trim() == OUT_OF_BUDGET),
@@ -132,6 +133,7 @@ fn run_conformance(
     });
     report(
         test_name,
+        title,
         group,
         &plutus_version.to_string(),
         &protocol_version.to_string(),
@@ -164,6 +166,7 @@ fn run_conformance(
 #[expect(clippy::expect_used)]
 pub fn report(
     name: &str,
+    title: &str,
     group: &str,
     plutus_version: &str,
     protocol_version: &str,
@@ -177,6 +180,7 @@ pub fn report(
     let _guard = OUTPUT_LOCK.get_or_init(|| Mutex::new(())).lock().expect("report output lock poisoned");
     let record = json!({
         "id": name,
+        "title": title,
         "group": group,
         "plutus_version": plutus_version,
         "protocol_version": protocol_version,
@@ -184,7 +188,7 @@ pub fn report(
         "budget": actual_budget,
     });
     let mut output = OpenOptions::new().create(true).append(true).open(path).expect("open report output");
-    writeln!(output, "UPLC_CONFORMANCE_RESULT {record}").expect("write report output");
+    writeln!(output, "{record}").expect("write report output");
 }
 
 include!(concat!(env!("OUT_DIR"), "/generated_tests.rs"));

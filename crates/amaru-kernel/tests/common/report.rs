@@ -210,7 +210,7 @@ fn report_json(test_configuration: &TestConfiguration, test_results: &TestResult
         .collect::<serde_json::Map<_, _>>();
 
     let report = serde_json::json!({
-        "schema_version": "1",
+        "version": "1",
         "scenario": "cbor-decoding",
         "generated_at": SystemTime::now()
             .duration_since(UNIX_EPOCH)

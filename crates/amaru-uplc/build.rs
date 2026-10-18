@@ -87,6 +87,13 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
             .unwrap_or_else(|| scenario_path.parent().unwrap())
             .to_string_lossy()
             .replace('\\', "/");
+        let title = scenario_path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(OsStr::to_str)
+            .unwrap()
+            .replace('-', " ")
+            .replace('_', " ");
 
         let text_path = path.to_str().unwrap().replace('\\', "/");
         let text = format!("include_str!(\"{text_path}\")");
@@ -130,6 +137,7 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
                 fn {test_name}() {{
                     run_conformance(
                         "{scenario_id}",
+                        "{title}",
                         "{group}",
                         PlutusVersion::{plutus_version},
                         protocol_version::{protocol_version},

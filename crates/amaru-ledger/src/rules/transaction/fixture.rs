@@ -241,7 +241,7 @@ impl<'de> Deserialize<'de> for Expected {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
 pub(super) enum TagMismatchDescription {
     /// The transaction claims to be invalid, yet every script it runs passes. A transaction
     /// carrying no Plutus script at all lands here too: an empty script set trivially passes.
@@ -250,7 +250,7 @@ pub(super) enum TagMismatchDescription {
     FailedUnexpectedly,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(tag = "predicate")]
 pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,

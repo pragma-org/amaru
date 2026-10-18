@@ -70,9 +70,8 @@ jobs:
           tar --zstd -xf uplc-benchmarks-turbo.tar.zst -C crates/amaru-uplc/benches/turbo/samples
 
       - name: Generate report
-        env:
-          UPLC_TURBO_REPORT: uplc-turbo.json
-        run: cargo bench --locked -p amaru-uplc --bench turbo
+        run: |
+          make conformance-uplc-turbo > uplc-turbo.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
@@ -89,19 +88,8 @@ jobs:
 
       - name: Run conformance tests
         id: conformance
-        env:
-          UPLC_CONFORMANCE_REPORT: /tmp/uplc-conformance-details.jsonl
-        run: cargo test --locked -p amaru-uplc --test conformance -- --format json -Z unstable-options --nocapture > /tmp/uplc-conformance.jsonl 2>&1
-
-      - name: Build report
         run: |
-          cat /tmp/uplc-conformance-details.jsonl >> /tmp/uplc-conformance.jsonl
-          python3 scripts/structured-test-report.py \
-            --scenario uplc-conformance \
-            --implementation amaru \
-            --corpus amaru-uplc/conformance \
-            --input auto /tmp/uplc-conformance.jsonl \
-            --output uplc-conformance.json
+          make conformance-uplc > uplc-conformance.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
@@ -122,17 +110,8 @@ jobs:
 
       - name: Run ledger transaction scenarios
         id: ledger
-        run: cargo test --locked -p amaru-ledger --lib rules::transaction::tests::conformance -- --format json -Z unstable-options > /tmp/ledger-rules.jsonl 2>&1
-
-      - name: Build report
         run: |
-          python3 scripts/structured-test-report.py \
-            --scenario ledger-rules \
-            --implementation amaru \
-            --corpus amaru-ledger/tests/data/transaction/scenarios \
-            --scenario-root crates/amaru-ledger/tests/data/transaction/scenarios \
-            --input amaru /tmp/ledger-rules.jsonl \
-            --output ledger-rules.json
+          make conformance-ledger-rules > ledger-rules.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:

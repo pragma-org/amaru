@@ -149,7 +149,7 @@ run Options{target, jsonReport} =
 runSingleTestCase :: FilePath -> Maybe FilePath -> ExceptT Error IO ()
 runSingleTestCase testCasePath jsonReport = do
     result <- liftIO (runExceptT (validateTestCaseAt testCasePath))
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath testCasePath [(testCasePath, result)])
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath [(testCasePath, result)])
     case result of
         Right (label, validationLabel) -> liftIO (putTextLn (label <> ": " <> validationLabel))
         Left validationError -> ExceptT (pure (Left validationError))
@@ -161,28 +161,22 @@ runTestCaseDirectory directory jsonReport = do
         result <- runExceptT (validateTestCaseAt testCasePath)
         putLBSLn (encode (testCaseResult testCasePath result))
         pure (testCasePath, result)
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath directory results)
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath results)
     liftIO (Text.IO.hPutStr stderr (renderRunSummary directory results))
     when (any (isLeft . snd) results) (liftIO exitFailure)
 
-writeReport :: FilePath -> FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
-writeReport reportPath corpus results = do
+writeReport :: FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
+writeReport reportPath results = do
     generatedAt <- getCurrentTime
-    LazyByteString.writeFile reportPath (encode (report generatedAt corpus results))
+    LazyByteString.writeFile reportPath (encode (report generatedAt results))
 
-report :: UTCTime -> FilePath -> [(FilePath, Either Error (Text, Text))] -> Value
-report generatedAt corpus results =
+report :: UTCTime -> [(FilePath, Either Error (Text, Text))] -> Value
+report generatedAt results =
     object
-        [ "schema_version" .= ("1" :: Text)
+        [ "version" .= ("1" :: Text)
         , "scenario" .= ("ledger-rules" :: Text)
         , "generated_at" .= generatedAt
         , "implementation" .= object ["name" .= ("cardano-node" :: Text)]
-        , "corpus" .= corpus
-        , "totals" .= object
-            [ "passed" .= length [() | (_, Right _) <- results]
-            , "failed" .= length [() | (_, Left _) <- results]
-            , "total" .= length results
-            ]
         , "scenarios" .= map scenarioResult results
         ]
 

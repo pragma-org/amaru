@@ -38,7 +38,7 @@ use rayon::prelude::*;
 use serde_json::json;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
-const TURBO_REPORT_DIR: &str = "benches/turbo";
+const TURBO_REPORT: &str = "benches/turbo/uplc-turbo.json";
 const TURBO_DATA_DIR: &str = "benches/turbo/samples";
 const TURBO_ARCHIVE_URL: &str = "https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.zst";
 
@@ -190,10 +190,12 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    eprintln!("Writing report to {}...", TURBO_REPORT_DIR);
+    let out = PathBuf::from(std::env::var("UPLC_TURBO_REPORT").unwrap_or_else(|_| TURBO_REPORT.to_string()));
+
+    eprintln!("Writing report to {out:?}...");
 
     let report = json!({
-        "schema_version": "1",
+        "version": "1",
         "scenario": "uplc-turbo",
         "generated_at": duration::since_unix_epoch(),
         "implementation": { "name": "amaru" },
@@ -201,11 +203,8 @@ fn main() {
         "benchmarks": benchmarks,
     });
 
-    fs::write(
-        PathBuf::from(TURBO_REPORT_DIR).join("results.json"),
-        serde_json::to_vec_pretty(&report).expect("serialize UPLC turbo report"),
-    )
-    .unwrap_or_else(|error| panic!("failed to write {TURBO_REPORT_DIR}: {error}"));
+    fs::write(&out, serde_json::to_vec_pretty(&report).expect("serialize UPLC turbo report"))
+        .unwrap_or_else(|error| panic!("failed to write {out:?}: {error}"));
 }
 
 // -------------------------------------------------------------------------------------------------

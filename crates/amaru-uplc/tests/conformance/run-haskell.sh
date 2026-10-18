@@ -8,7 +8,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 UPLC_BIN="${UPLC_BIN:-uplc}"
 IMPLEMENTATION_NAME="${IMPLEMENTATION_NAME:-cardano-node}"
-CORPUS="${CORPUS:-amaru-uplc/conformance}"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/amaru-uplc-conformance.XXXXXX")"
 RECORDS="$TMP_DIR/records.jsonl"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -200,13 +199,11 @@ done < <(find "$SCRIPT_DIR/protocol-version-10" "$SCRIPT_DIR/protocol-version-11
 jq -s \
     --arg generated_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
     --arg implementation "$IMPLEMENTATION_NAME" \
-    --arg corpus "$CORPUS" \
     '{
-        schema_version: "1",
+        version: "1",
         scenario: "uplc-conformance",
         generated_at: $generated_at,
         implementation: {name: $implementation},
-        corpus: $corpus,
         scenarios: .
     }' "$RECORDS"
 
