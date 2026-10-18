@@ -1,1 +1,10 @@
-parse error
+(program
+  1.0.0
+  (con
+    value
+    [ ( #
+    , [ (#, 456)
+      , ( #aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      , 123 ) ] ) ]
+  )
+)
