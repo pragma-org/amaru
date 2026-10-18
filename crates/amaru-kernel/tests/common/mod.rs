@@ -30,8 +30,14 @@ pub use corpus::*;
 mod normalize;
 pub use normalize::*;
 
+mod metadata_order;
+pub use metadata_order::*;
+
 mod report;
 pub use report::*;
+
+mod set_tag;
+pub use set_tag::*;
 
 mod test_outcome;
 pub use test_outcome::*;
@@ -44,3 +50,6 @@ pub use test_key::*;
 
 mod test_configuration;
 pub use test_configuration::*;
+
+mod round_trip;
+pub use round_trip::*;

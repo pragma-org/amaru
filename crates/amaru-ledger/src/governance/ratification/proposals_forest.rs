@@ -745,7 +745,7 @@ mod tests {
         Anchor, Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, GovernanceAction, Hash, KeyValuePairs,
         Lovelace, MaxString128, Network, OrphanProposal, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PROTOCOL_VERSION_10,
         Proposal, ProposalEnum, ProposalId, ProposalPointer, ProposalsRootsRc, ProtocolParamUpdate, ProtocolParameters,
-        ProtocolVersion, RatificationStatus, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
+        ProtocolVersion, RatificationStatus, RewardAccount, Set, Slot, TransactionPointer, UnitRationalNumber,
         utils::tests::{assert_strategy_sometimes_fails, assert_strategy_sometimes_panics},
     };
     use proptest::{collection, prelude::*, test_runner::RngSeed};
@@ -869,7 +869,7 @@ mod tests {
                 },
                 GovernanceAction::UpdateCommittee(
                     None,
-                    vec![],
+                    Set::default(),
                     KeyValuePairs::default(),
                     UnitRationalNumber::new(0, 1).unwrap(),
                 ),
@@ -1231,7 +1231,7 @@ mod tests {
                     ConstitutionalCommitteeUpdate::ChangeMembers { threshold, added, removed } => {
                         GovernanceAction::UpdateCommittee(
                             parent,
-                            removed.into_iter().collect::<Vec<_>>(),
+                            removed.into_iter().collect::<Set<_>>(),
                             KeyValuePairs::from(added.into_iter().collect::<BTreeMap<_, _>>()),
                             #[expect(clippy::unwrap_used)]
                             UnitRationalNumber::new(

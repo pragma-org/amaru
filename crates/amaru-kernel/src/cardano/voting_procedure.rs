@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{Anchor, NonEmptyKeyValuePairs, ProposalId, Vote, Voter, cbor};
+use crate::{Anchor, ProposalId, Vote, Voter, VotingProcedures, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VotingProcedure {
@@ -53,12 +53,8 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for VotingProcedure {
 #[derive(Debug, Default)]
 pub struct PlutusVotes<'a>(pub BTreeMap<&'a Voter, BTreeMap<ProposalId, &'a Vote>>);
 
-impl<'a> From<&'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>>
-    for PlutusVotes<'a>
-{
-    fn from(
-        voting_procedures: &'a NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>>,
-    ) -> Self {
+impl<'a> From<&'a VotingProcedures> for PlutusVotes<'a> {
+    fn from(voting_procedures: &'a VotingProcedures) -> Self {
         Self(
             voting_procedures
                 .iter()

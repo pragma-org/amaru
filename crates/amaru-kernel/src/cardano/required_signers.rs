@@ -12,20 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
+use crate::{Hash, data_structures::non_empty_vec_set::non_empty_vec_set, size::KEY};
 
-use crate::{Hash, NonEmptySet, size::KEY};
-
-/// The public-key hashes a transaction declares it must be signed by.
-///
-/// Taken from the transaction's `required_signers` field and exposed in the [`TxInfo`](super::tx_info::TxInfo).
-/// Importantly, this is the *declared* requirement, not the key hashes that actually produced witnesses.
-/// Phase-one validation enforces that the witness set satisfies it.
-#[derive(Debug, Default)]
-pub struct RequiredSigners(pub BTreeSet<Hash<KEY>>);
-
-impl<'a> From<&'a NonEmptySet<Hash<KEY>>> for RequiredSigners {
-    fn from(value: &'a NonEmptySet<Hash<KEY>>) -> Self {
-        Self(value.iter().copied().collect())
-    }
+non_empty_vec_set! {
+    /// The public-key hashes a transaction declares it must be signed by.
+    ///
+    /// The ledger holds this field in a `Set`, so its elements reach the wire in ascending order
+    /// however they arrived.
+    RequiredSigners(Hash<{ KEY }>)
 }

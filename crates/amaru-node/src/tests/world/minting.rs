@@ -310,7 +310,7 @@ fn write_ledger(network: &MintNetwork, dir: &Path, pools: &[Arc<TestCredentials>
                     cost: 0,
                     margin: UnitRationalNumber::zero(),
                     reward_account: reward,
-                    owners: Vec::new(),
+                    owners: Default::default(),
                     relays: Vec::new(),
                     metadata: None,
                 },

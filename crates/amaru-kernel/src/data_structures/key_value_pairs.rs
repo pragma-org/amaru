@@ -17,11 +17,6 @@ use std::{collections::BTreeMap, ops::Deref};
 use crate::cbor;
 
 /// A key-value map with no duplicate keys.
-///
-/// Note: we use an underlying `Vec` to:
-///
-/// - keep the order of elements unchanged from original values;
-/// - lower requirements on `K` & `V`;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub struct KeyValuePairs<K: Eq, V>(Vec<(K, V)>);
 
@@ -31,29 +26,17 @@ impl<K: Eq, V> Default for KeyValuePairs<K, V> {
     }
 }
 
-impl<K: Eq, V> From<KeyValuePairs<K, V>> for Vec<(K, V)> {
-    fn from(pairs: KeyValuePairs<K, V>) -> Self {
-        pairs.0
-    }
-}
-
-impl<K: Ord, V> From<KeyValuePairs<K, V>> for BTreeMap<K, V> {
-    fn from(set: KeyValuePairs<K, V>) -> Self {
-        BTreeMap::from_iter(Vec::from(set))
-    }
-}
-
 impl<K: Eq, V> From<BTreeMap<K, V>> for KeyValuePairs<K, V> {
     fn from(entries: BTreeMap<K, V>) -> Self {
         Self(entries.into_iter().collect::<Vec<_>>())
     }
 }
 
-impl<K: Eq, V> TryFrom<Vec<(K, V)>> for KeyValuePairs<K, V> {
+impl<K: Ord, V> TryFrom<Vec<(K, V)>> for KeyValuePairs<K, V> {
     type Error = IntoKeyValuePairsError;
 
     fn try_from(vec: Vec<(K, V)>) -> Result<Self, Self::Error> {
-        if vec.len() > 1 && has_duplicate(vec.as_slice()) {
+        if has_duplicate(vec.as_slice()) {
             return Err(Self::Error::HasDuplicate);
         }
 
@@ -110,30 +93,11 @@ where
 
 impl<'b, C, K, V> cbor::Decode<'b, C> for KeyValuePairs<K, V>
 where
-    K: for<'k> cbor::Decode<'k, C> + Eq,
+    K: for<'k> cbor::Decode<'k, C> + Ord,
     V: for<'v> cbor::Decode<'v, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let mut inner = Vec::new();
-
-        cbor::heterogeneous_map_with(
-            d,
-            ctx,
-            &mut inner,
-            |d, ctx| d.decode_with::<C, K>(ctx),
-            |d, ctx, st, k| {
-                for (j, _) in st.iter() {
-                    if j == &k {
-                        return Err(cbor::decode::Error::message(IntoKeyValuePairsError::HasDuplicate));
-                    }
-                }
-                let v = d.decode_with(ctx)?;
-                st.push((k, v));
-                Ok(())
-            },
-        )?;
-
-        Ok(Self(inner))
+        Ok(Self(decode_entries(d, ctx, &IntoKeyValuePairsError::HasDuplicate)?))
     }
 }
 
@@ -151,28 +115,43 @@ pub enum IntoKeyValuePairsError {
 // Internals
 // ----------------------------------------------------------------------------
 
-/// Check whether a slice contains duplicate relying only on the `Eq` instance and minimizing
-/// allocation. The check is still in O(n*log(n)).
+/// Decode the entries of a CBOR map.
 ///
-/// We do not use HashMap or BTreeMap for mainly two reasons:
-///
-/// 1. They introduce additional requirements on `K` (Hash in one case, and Ord on the other).
-/// 2. We want to preserve the underlying order when possible;
-///
-/// Pre-condition: the slice is NOT empty.
-pub(crate) fn has_duplicate<K: Eq, V>(kvs: &[(K, V)]) -> bool {
-    let last = kvs.len() - 1;
-
-    for i in 0..last {
-        let (k1, _) = &kvs[i];
-        for (k2, _) in kvs.iter().take(last + 1).skip(i + 1) {
-            if k1 == k2 {
-                return true;
+/// Raise an error if a key that was already read.
+pub(crate) fn decode_entries<'b, C, K, V>(
+    d: &mut cbor::Decoder<'b>,
+    ctx: &mut C,
+    duplicate: &dyn std::fmt::Display,
+) -> Result<Vec<(K, V)>, cbor::decode::Error>
+where
+    K: for<'k> cbor::Decode<'k, C> + Ord,
+    V: for<'v> cbor::Decode<'v, C>,
+{
+    let entries = cbor::heterogeneous_map_with(
+        d,
+        ctx,
+        BTreeMap::<K, V>::new(),
+        |d, ctx| d.decode_with::<C, K>(ctx),
+        |d, ctx, entries, key| {
+            if entries.contains_key(&key) {
+                return Err(cbor::decode::Error::message(duplicate));
             }
-        }
-    }
 
-    false
+            let value = d.decode_with(ctx)?;
+            entries.insert(key, value);
+
+            Ok(())
+        },
+    )?;
+
+    Ok(entries.into_iter().collect())
+}
+
+/// Whether two entries carry the same key.
+pub(crate) fn has_duplicate<K: Ord, V>(kvs: &[(K, V)]) -> bool {
+    let mut keys = kvs.iter().map(|(key, _)| key).collect::<Vec<_>>();
+    keys.sort_unstable();
+    keys.windows(2).any(|pair| pair[0] == pair[1])
 }
 
 #[cfg(test)]
@@ -187,13 +166,8 @@ mod tests {
 
     #[test]
     fn has_duplicate_empty() {
-        assert!(matches!(
-            std::panic::catch_unwind(|| {
-                let slice: &[(u8, ())] = &[];
-                has_duplicate(slice)
-            }),
-            Err(..)
-        ))
+        let slice: &[(u8, ())] = &[];
+        assert!(!has_duplicate(slice))
     }
 
     #[test_case(&[1], false)]
@@ -222,7 +196,7 @@ mod tests {
     #[test_case("A0", &[], true; "empty map")]
     #[test_case("A1016161", &[(1, "a")], true; "singleton")]
     #[test_case("BF016161026162036161FF", &[(1, "a"), (2, "b"), (3, "a")], false; "indef map")]
-    #[test_case("A3046162016163026161", &[(4, "b"), (1, "c"), (2, "a")], true; "def map")]
+    #[test_case("A3046162016163026161", &[(1, "c"), (2, "a"), (4, "b")], false; "def map, keys out of order")]
     fn from_cbor_success(s: &str, expected: &[(u8, &str)], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<KeyValuePairs<u8, String>>(original_bytes.as_slice()) {

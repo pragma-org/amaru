@@ -80,10 +80,7 @@ pub mod tests {
             option::of(any_memoized_plutus_script()),
         )
             .prop_map(|(address, value, datum_opt, script)| {
-                let datum = datum_opt.unwrap_or(MemoizedDatum::None);
-
-                let is_legacy = matches!(datum, MemoizedDatum::None) && script.is_none();
-                MemoizedTransactionOutput::new(is_legacy, address, value, datum, script)
+                MemoizedTransactionOutput::new(address, value, datum_opt.unwrap_or(MemoizedDatum::None), script)
             })
     }
 }

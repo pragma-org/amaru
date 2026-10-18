@@ -20,7 +20,7 @@ use std::{
 };
 
 use crate::{
-    AssetName, Hash, Lovelace, Multiasset, NonZeroInt, PositiveCoin, cbor,
+    AssetName, Assets, Hash, Lovelace, Multiasset, NonZeroInt, PositiveCoin, cbor,
     size::{CREDENTIAL, SCRIPT},
 };
 
@@ -111,8 +111,47 @@ pub enum CurrencySymbol {
 #[derive(Debug, Default)]
 pub struct PlutusMint<'a>(pub BTreeMap<Hash<CREDENTIAL>, BTreeMap<Cow<'a, AssetName>, i64>>);
 
-/// Signed multi-asset bundle as it appears on `TransactionBody.mint`
-pub type Mint = Multiasset<NonZeroInt>;
+/// Signed multi-asset bundle used in the transaction body.
+///
+/// It is its own type, rather than a plain [`Multiasset`], because a mint may not be empty while a
+/// bundle carried by a [`Value`] may.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Mint(Multiasset<NonZeroInt>);
+
+impl Mint {
+    /// Iterate the policies and their assets, in policy order.
+    pub fn iter(&self) -> impl Iterator<Item = (&Hash<{ SCRIPT }>, &Assets<NonZeroInt>)> {
+        self.0.iter()
+    }
+
+    /// The policies of the bundle, in the order a redeemer indexes them by.
+    pub fn policies(&self) -> impl Iterator<Item = &Hash<{ SCRIPT }>> {
+        self.0.keys()
+    }
+}
+
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for Mint {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        self.0.encode(e, ctx)
+    }
+}
+
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for Mint {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let position = d.position();
+        let policies: Multiasset<NonZeroInt> = d.decode_with(ctx)?;
+
+        if policies.is_empty() {
+            return Err(cbor::decode::Error::message("a mint must carry at least one policy").at(position));
+        }
+
+        Ok(Self(policies))
+    }
+}
 
 impl<'a> From<&'a Mint> for PlutusMint<'a> {
     fn from(value: &'a Mint) -> Self {

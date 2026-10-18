@@ -37,16 +37,16 @@ pub fn collect_from_read_store(db: &impl ReadStore) -> Result<BTreeSet<PeerCandi
 fn push_relay_candidates(relay: &Relay, set: &mut BTreeSet<PeerCandidate>) {
     match relay {
         Relay::SingleHostAddr(port, ipv4, ipv6) => {
-            let Some(port) = nullable_to_port(port) else {
+            let Some(port) = port else {
                 return;
             };
-            push_socket(ipv4.as_ref().map(nullable_ipv4_to_ip), port, set);
-            push_socket(ipv6.as_ref().map(nullable_ipv6_to_ip), port, set);
+            push_socket(ipv4.as_ref().map(nullable_ipv4_to_ip), *port, set);
+            push_socket(ipv6.as_ref().map(nullable_ipv6_to_ip), *port, set);
         }
-        Relay::SingleHostName(port, dns) => match nullable_to_port(port) {
+        Relay::SingleHostName(port, dns) => match port {
             Some(port) => {
                 if let Ok(host) = DnsName::new(dns.as_ref()) {
-                    set.insert(PeerCandidate::host(host, port));
+                    set.insert(PeerCandidate::host(host, *port));
                 }
             }
             None => push_srv(dns.as_ref(), set),
@@ -81,10 +81,6 @@ fn push_socket(ip: Option<IpAddr>, port: u16, set: &mut BTreeSet<PeerCandidate>)
             );
         }
     }
-}
-
-fn nullable_to_port(port: &Option<u32>) -> Option<u16> {
-    port.and_then(|p| u16::try_from(p).ok())
 }
 
 // NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.

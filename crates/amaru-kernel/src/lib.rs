@@ -46,11 +46,13 @@ pub use data_structures::{
     legacy::Legacy,
     non_empty_bytes::{EmptyBytesError, NonEmptyBytes},
     non_empty_key_value_pairs::{IntoNonEmptyKeyValuePairsError, NonEmptyKeyValuePairs},
-    non_empty_set::{IntoNonEmptySetError, NonEmptySet},
+    non_empty_unique_vec::{IntoNonEmptyUniqueVecError, NonEmptyUniqueVec},
     non_empty_vec::{IntoNonEmptyVecError, NonEmptyVec},
+    non_empty_vec_set::{IntoNonEmptyVecSetError, NonEmptyVecSet},
     non_zero_duration::{NonZeroDuration, ZeroDurationError},
     set::{IntoSetError, Set},
     sorted_pairs::SortedPairs,
+    vec_set::{IntoVecSetError, VecSet},
 };
 
 pub mod cbor {
@@ -87,7 +89,9 @@ pub use cardano::{
     bytes::{self, Bytes},
     certificate::Certificate,
     certificate_pointer::CertificatePointer,
+    certificates::Certificates,
     chain_code::{CHAIN_CODE_SIZE, ChainCode},
+    collateral::Collateral,
     consensus_parameters::ConsensusParameters,
     constitution::Constitution,
     constitutional_committee::ConstitutionalCommittee,
@@ -126,7 +130,7 @@ pub use cardano::{
     lovelace::Lovelace,
     max_string::MaxString128,
     memoized::{
-        self, BorrowedScript, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, deserialize_script,
+        self, BorrowedScript, InlineData, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, deserialize_script,
         serialize_memoized_script, serialize_script,
     },
     metadatum::Metadatum,
@@ -158,13 +162,14 @@ pub use cardano::{
     proposal_pointer::ProposalPointer,
     proposal_slim::{self, ProposalSlim},
     proposal_state::ProposalState,
+    proposals::Proposals,
     proposals_roots::{self, ProposalsRoots, ProposalsRootsRc},
     protocol_parameters::{
         self, MAINNET_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
         PREVIEW_DEFAULT_PROTOCOL_PARAMETERS, ProtocolParameters,
     },
     protocol_parameters_update::{self, ProtocolParamUpdate, display_protocol_parameters_update},
-    protocol_version::{self, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
+    protocol_version::{self, MajorProtocolVersion, PROTOCOL_VERSION_10, ProtocolVersion, ProtocolVersionTooOld},
     ratification_status::{self, RatificationStatus},
     rational_number::{self, RationalNumber, SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
     raw_block::{RawBlock, extract_block_header_cbor},
@@ -173,6 +178,7 @@ pub use cardano::{
     redeemer_tag::{self, RedeemerTag},
     redeemer_value::RedeemerValue,
     redeemers::{PlutusRedeemers, RedeemerEntry, Redeemers},
+    reference_inputs::ReferenceInputs,
     relay::{self, Relay},
     required_script::RequiredScript,
     required_signers::RequiredSigners,
@@ -203,7 +209,9 @@ pub use cardano::{
     voter::Voter,
     voter_kind::VoterKind,
     voting_procedure::{PlutusVotes, VotingProcedure},
+    voting_procedures::VotingProcedures,
     vrf_cert::VrfCert,
+    withdrawals::Withdrawals,
     witness_set::WitnessSet,
 };
 #[cfg(any(test, feature = "test-utils"))]

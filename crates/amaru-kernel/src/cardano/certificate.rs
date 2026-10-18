@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::PoolParams;
 pub use crate::{
     Anchor, Credential, DRep, Epoch, Hash, Lovelace, PoolId, PoolMetadata, RationalNumber, Relay, RewardAccount, cbor,
     size::{KEY, VRF_KEY},
 };
-use crate::{PoolParams, utils::cbor::SerialisedAsSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Certificate {
@@ -78,7 +78,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for Certificate {
                 e.encode_with(cost, ctx)?;
                 e.encode_with(margin, ctx)?;
                 e.encode_with(reward_account, ctx)?;
-                e.encode_with(SerialisedAsSet(owners), ctx)?;
+                e.encode_with(owners, ctx)?;
                 e.encode_with(relays, ctx)?;
                 e.encode_with(metadata, ctx)?;
             }
@@ -219,7 +219,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Certificat
                     let cost = d.decode_with(ctx)?;
                     let margin = d.decode_with(ctx)?;
                     let reward_account = d.decode_with(ctx)?;
-                    let SerialisedAsSet(owners) = d.decode_with(ctx)?;
+                    let owners = d.decode_with(ctx)?;
                     let relays = d.decode_with(ctx)?;
                     let metadata = d.decode_with(ctx)?;
 

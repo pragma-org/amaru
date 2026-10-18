@@ -12,19 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
-use crate::{
-    Anchor, Credential, Epoch, Lovelace, cbor,
-    utils::cbor::{SerialisedAsArray, SerialisedAsSet},
-};
+use crate::{Anchor, Credential, Epoch, Lovelace, VecSet, cbor, utils::cbor::SerialisedAsArray};
 
 #[derive(Debug)]
 pub struct DRepState {
     pub expiry: Epoch,
     pub anchor: Option<Box<Anchor>>,
     pub deposit: Lovelace,
-    pub delegators: BTreeSet<Credential>,
+    pub delegators: VecSet<Credential>,
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRepState {
@@ -34,7 +29,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRepState 
             expiry: d.decode_with(ctx)?,
             anchor: d.decode_with::<_, SerialisedAsArray<_>>(ctx)?.0,
             deposit: d.decode_with(ctx)?,
-            delegators: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
+            delegators: d.decode_with(ctx)?,
         })
     }
 }

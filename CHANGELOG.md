@@ -37,6 +37,12 @@ Other guiding principles:
 
 ## v10.11.20261022 _[unreleased; planned for 2026-10-22]_
 
+### Fixed
+
+- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
+
+## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
+
 ### Added
 
 - **amaru-tui**: double-click a value to copy it, or drag across a row to copy those characters. A peer address copies as `ip:port`. The screen stays still during the drag. On this Mac the text goes to the clipboard. Over tmux it also goes to the tmux paste buffer.

@@ -84,6 +84,39 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct InlineData(pub MemoizedPlutusData);
+
+impl From<InlineData> for MemoizedDatum {
+    fn from(InlineData(data): InlineData) -> Self {
+        Self::from(data)
+    }
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for InlineData {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        if d.tag()? != IanaTag::Cbor.tag() {
+            return Err(cbor::decode::Error::message("unknown tag for a cbor-in-cbor payload"));
+        }
+
+        let payload = cbor::decode_bytes_v12(d, ctx)?;
+        Ok(Self(cbor::from_cbor_no_leftovers_with(&payload, ctx)?))
+    }
+}
+
+impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for InlineData {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.tag(IanaTag::Cbor)?;
+        e.bytes(self.0.original_bytes())?;
+        Ok(())
+    }
+}
+
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::heterogeneous_array(d, |d, assert_len| {
@@ -94,14 +127,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedDatum {
                     let Legacy(datum) = d.decode_with(ctx)?;
                     Ok(datum)
                 }
-                1 => {
-                    if d.tag()? != IanaTag::Cbor.tag() {
-                        return Err(cbor::decode::Error::message("unknown tag for datum tag"));
-                    }
-                    let plutus_data: MemoizedPlutusData =
-                        cbor::from_cbor_no_leftovers_with(&cbor::decode_bytes_v12(d, ctx)?, ctx)?;
-                    Ok(MemoizedDatum::from(plutus_data))
-                }
+                1 => Ok(MemoizedDatum::from(d.decode_with::<C, InlineData>(ctx)?)),
                 _ => Err(cbor::decode::Error::message(format!("unknown datum option: {}", datum_option))),
             }
         })
