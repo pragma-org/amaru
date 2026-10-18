@@ -92,8 +92,7 @@ fn generate_conformance_tests(dir_path: &Path) -> String {
             .and_then(|parent| parent.file_name())
             .and_then(OsStr::to_str)
             .unwrap()
-            .replace('-', " ")
-            .replace('_', " ");
+            .replace(['-', '_'], " ");
 
         let text_path = path.to_str().unwrap().replace('\\', "/");
         let text = format!("include_str!(\"{text_path}\")");

@@ -194,6 +194,7 @@ const RE_ENCODING_DIFFERS: &str = "encode: reserialization differs from the expe
 /// Write the run's result for every sample, in the shape the dataset publishes and a consuming site
 /// aggregates: one entry per sample, keyed by its path inside the corpus, holding `true` when the sample met
 /// its expectation and otherwise the reason it did not.
+#[expect(clippy::expect_used)]
 fn report_json(test_configuration: &TestConfiguration, test_results: &TestResults) -> anyhow::Result<()> {
     let Some(directory) = test_configuration.report_directory() else { return Ok(()) };
 
