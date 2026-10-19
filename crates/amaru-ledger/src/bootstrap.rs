@@ -14,7 +14,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::Read,
     iter,
     rc::Rc,
     sync::{Arc, LazyLock},
@@ -24,9 +23,8 @@ use amaru_kernel::{
     Ballot, BallotId, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommittee,
     ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, DRepState, Epoch, EraHistory, Hash,
     Lovelace, Network, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, PoolMetadata, PoolParams, Pots,
-    Proposal, ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters,
-    ProtocolVersion, RatificationStatus, Relay, Reward, RewardAccount, Slot, TransactionPointer, UnitRationalNumber,
-    VecSet, Vote, Voter,
+    ProposalId, ProposalPointer, ProposalState, ProposalsRoots, ProposalsRootsRc, ProtocolParameters, ProtocolVersion,
+    RatificationStatus, Relay, Reward, RewardAccount, Slot, TransactionPointer, UnitRationalNumber, VecSet, Voter,
     cbor::{
         self, HasProtocolVersion,
         lazy::{Checkpoint, LazyDecoder},
@@ -563,29 +561,6 @@ fn decode_initial_snapshot(
         unclaimed_rewards,
         delta_fees,
     })
-}
-
-/// Bootstrap Amaru's initial state from a cardano-node `NewEpochState` payload.
-#[allow(clippy::too_many_arguments)]
-pub fn import_initial_snapshot(
-    db: &impl Store,
-    reader: &mut dyn Read,
-    previous_accounts: BTreeSet<Credential>,
-    point: &Point,
-    era_history: &EraHistory,
-    network: NetworkName,
-    with_progress: impl ProgressBarFactory,
-) -> anyhow::Result<Epoch> {
-    let mut decoder = LazyDecoder::new(reader);
-    import_initial_snapshot_with_decoder(
-        db,
-        &mut decoder,
-        previous_accounts,
-        point,
-        era_history,
-        network,
-        &with_progress,
-    )
 }
 
 /// Bootstrap Amaru's initial state from a decoder positioned at a cardano-node
@@ -1212,36 +1187,6 @@ fn import_votes(
     transaction.commit()?;
 
     Ok(())
-}
-
-// TODO: Move to Pallas
-#[derive(Debug)]
-#[expect(dead_code)]
-struct GovActionState {
-    id: ProposalId,
-    committee_votes: BTreeMap<Credential, Vote>,
-    dreps_votes: BTreeMap<Credential, Vote>,
-    pools_votes: BTreeMap<PoolId, Vote>,
-    proposal: Proposal,
-    proposed_in: Epoch,
-    expires_after: Epoch,
-}
-
-impl<'d, C: HasProtocolVersion> cbor::decode::Decode<'d, C> for GovActionState {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        cbor::heterogeneous_array(d, |d, assert_len| {
-            assert_len(7)?;
-            Ok(GovActionState {
-                id: d.decode_with(ctx)?,
-                committee_votes: d.decode_with(ctx)?,
-                dreps_votes: d.decode_with(ctx)?,
-                pools_votes: d.decode_with(ctx)?,
-                proposal: d.decode_with(ctx)?,
-                proposed_in: d.decode_with(ctx)?,
-                expires_after: d.decode_with(ctx)?,
-            })
-        })
-    }
 }
 
 pub fn decode_node_pool_state(

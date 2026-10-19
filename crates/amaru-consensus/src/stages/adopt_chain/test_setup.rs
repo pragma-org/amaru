@@ -57,7 +57,6 @@ pub struct HeaderTree {
     pub h3a: Header,
 }
 
-#[allow(dead_code)]
 impl HeaderTree {
     pub fn new() -> Self {
         let era = EraHistory::default();
@@ -74,10 +73,6 @@ impl HeaderTree {
 
     pub fn main_chain(&self) -> [&Header; 5] {
         [&self.h0, &self.h1, &self.h2, &self.h3, &self.h4]
-    }
-
-    pub fn fork_chain(&self) -> [&Header; 3] {
-        [&self.h0, &self.h1, &self.h2a]
     }
 
     pub fn all(&self) -> [&Header; 7] {

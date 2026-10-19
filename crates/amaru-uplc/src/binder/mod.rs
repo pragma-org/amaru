@@ -14,11 +14,9 @@
 
 mod debruijn;
 mod name;
-mod named_debruijn;
 
 pub use debruijn::*;
 pub use name::*;
-pub use named_debruijn::*;
 
 use crate::{arena::Arena, flat};
 

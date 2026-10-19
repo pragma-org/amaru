@@ -21,13 +21,6 @@ use crate::{VecSet, cbor};
 #[serde(try_from = "Vec<T>")]
 pub struct NonEmptyVecSet<T: Ord>(VecSet<T>);
 
-impl<T: Ord> NonEmptyVecSet<T> {
-    /// Whether the set holds `element`, found by bisecting the elements rather than walking them.
-    pub fn contains(&self, element: &T) -> bool {
-        self.0.contains(element)
-    }
-}
-
 impl<T: Ord> TryFrom<Vec<T>> for NonEmptyVecSet<T> {
     type Error = IntoNonEmptyVecSetError;
 
@@ -37,32 +30,6 @@ impl<T: Ord> TryFrom<Vec<T>> for NonEmptyVecSet<T> {
         }
 
         Ok(Self(VecSet::try_from(vec)?))
-    }
-}
-
-impl<T: Ord> From<NonEmptyVecSet<T>> for Vec<T> {
-    fn from(set: NonEmptyVecSet<T>) -> Self {
-        set.0.into()
-    }
-}
-
-impl<T: Ord> IntoIterator for NonEmptyVecSet<T> {
-    type Item = T;
-    type IntoIter = std::vec::IntoIter<T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-/// Hand out the elements in ascending order. Borrowing iteration goes through the `Deref` to a
-/// slice below.
-impl<'a, T: Ord> IntoIterator for &'a NonEmptyVecSet<T> {
-    type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
     }
 }
 

@@ -15,8 +15,8 @@
 use std::fmt::Display;
 
 use amaru_kernel::{
-    EraName, NonEmptyBytes, Transaction, TransactionId, cbor, cbor::WithOriginalBytes, from_cbor_no_leftovers_with,
-    to_cbor, utils::string::display_collection,
+    EraName, Transaction, TransactionId, cbor, cbor::WithOriginalBytes, from_cbor_no_leftovers_with, to_cbor,
+    utils::string::display_collection,
 };
 
 use crate::tx_submission::Blocking;
@@ -360,13 +360,6 @@ impl Display for Message {
             Message::Done => write!(f, "Done"),
         }
     }
-}
-
-/// Messages coming directly from the muxer.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub enum TxSubmissionMessage {
-    Registered,
-    FromNetwork(NonEmptyBytes),
 }
 
 /// Roundtrip property tests for txsubmission messages.

@@ -46,11 +46,6 @@ impl Category {
                 .ok_or_else(|| anyhow::anyhow!("unknown category type `{name}`")),
         }
     }
-
-    /// Whether the decoder is expected to reject the sample.
-    pub fn must_be_rejected(&self) -> bool {
-        !matches!(self, Category::Valid | Category::ManualValid)
-    }
 }
 
 /// Displays as the path of the category inside its rule directory, which is also how the conformance report

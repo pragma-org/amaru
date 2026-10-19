@@ -18,17 +18,6 @@ use amaru_pure_stage::Instant;
 use rand::{Rng, prelude::StdRng};
 use rand_distr::{Distribution, LogNormal};
 
-/// Given a generator for type `A`, produce a generator for `Vec<A>` of a given size.
-pub fn generate_vec<A>(generator: impl Fn(&mut StdRng) -> A) -> impl Fn(usize, &mut StdRng) -> Vec<A> {
-    move |size, rng| {
-        let mut result = Vec::<A>::with_capacity(size);
-        for _ in 0..size {
-            result.push(generator(rng));
-        }
-        result
-    }
-}
-
 /// Generate a u8 in the range [low, high], then pass it to the `then` function to produce a value of type A.
 pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn(&mut StdRng) -> A {
     move |rng| {
@@ -40,23 +29,6 @@ pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn
 /// Generate a u8 in the range [low, high].
 pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
     generate_u8_then(low, high, |x| x)
-}
-
-/// Given two generators for vectors of values and a function f
-/// generate 2 vectors and combine them using f.
-/// The two vectors are generated with the same length.
-pub fn generate_zip_with<A: Copy, B: Copy, C>(
-    size: usize,
-    generator1: impl Fn(usize, &mut StdRng) -> Vec<A>,
-    generator2: impl Fn(usize, &mut StdRng) -> Vec<B>,
-    f: impl Fn(A, B) -> C,
-) -> impl Fn(&mut StdRng) -> Vec<C> {
-    move |rng| {
-        let xs = generator1(size, rng);
-        let ys = generator2(size, rng);
-        assert_eq!(xs.len(), ys.len());
-        xs.into_iter().zip(ys).map(|(x, y)| f(x, y)).collect()
-    }
 }
 
 /// Generate a sequence of arrival times starting from `start_time`

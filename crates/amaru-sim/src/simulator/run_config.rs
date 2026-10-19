@@ -79,33 +79,13 @@ impl RunConfig {
             test_data_dir: Path::new(&args.test_data_dir).to_path_buf(),
         }
     }
-    pub fn with_number_of_tests(mut self, n: u32) -> Self {
-        self.number_of_tests = n;
-        self
-    }
-
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
         self
     }
 
-    pub fn with_number_of_nodes(mut self, n: u8) -> Self {
-        self.number_of_upstream_peers = n;
-        self
-    }
-
-    pub fn disable_shrinking(mut self) -> Self {
-        self.enable_shrinking = false;
-        self
-    }
-
     pub fn persist_on_success(mut self, persist: bool) -> Self {
         self.persist_on_success = persist;
-        self
-    }
-
-    pub fn persist_directory(mut self, directory: PathBuf) -> Self {
-        self.test_data_dir = directory;
         self
     }
 

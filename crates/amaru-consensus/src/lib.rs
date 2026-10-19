@@ -25,7 +25,6 @@ pub mod effects;
 pub mod errors;
 pub mod events;
 pub mod performance;
-pub mod span;
 pub mod stages;
 pub mod store;
 pub mod validate_header;
