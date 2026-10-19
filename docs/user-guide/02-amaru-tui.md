@@ -16,7 +16,7 @@ The dashboard starts by default when Amaru runs in an interactive terminal on Li
 - JSON traces are enabled
 - Environment variable `TERM` is set to `dumb`
 
-When the TUI is disabled, logs go to standard output. That mode is recommended when running with system or Docker.
+When the TUI is disabled, logs go to standard output. That mode is recommended when running with systemd or Docker.
 
 | Flag | Environment variable | Default | Purpose |
 |---|---|---|---|
@@ -110,11 +110,11 @@ Each row is one peer.
 |---|---|
 | up | How we use this peer. `●` means diffusion, `○` maintenance, `-` unused. |
 | dn | How this peer uses us, with the same symbols. |
-| in/out | `in` if the peer dialled us and `out` if we dialled it. A trailing `+` marks a full-duplex connection, which both sides use at once. |
+| in/out | `in` if the peer dialled us and `out` if we dialled it. A trailing `+` marks a full-duplex connection, which both sides may use at once. |
 | Peer | Socket address. A peer resolved from a bootstrap host name or SRV record shows that name in parentheses. |
 | ChainSync | Height of the latest header this peer sent, minus our adopted height. Positive means the peer is ahead. |
 | Adopted | Height of the tip this peer advertises, minus our adopted height. |
-| RTT | Last measured round-trip time. |
+| RTT | Currently measured round-trip time. |
 | Score | Points for announcing new headers early. Faster upstreams score higher. |
 | Observe | Average time from slot start until this peer delivered the header. Blank while catching up, since old blocks have no meaningful slot start. |
 | Select | Average wait between accepting the header and requesting its body. |
