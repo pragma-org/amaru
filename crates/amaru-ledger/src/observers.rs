@@ -166,16 +166,6 @@ impl LedgerObservers {
         self
     }
 
-    /// Convenience: handle only undos (ignores adopts).
-    pub fn on_undone_block(mut self, handler: impl Fn(UndoneBlock<'_>) + Send + Sync + 'static) -> Self {
-        self.on_block = Some(Arc::new(move |event| {
-            if let LedgerBlockEvent::Undone(block) = event {
-                handler(block);
-            }
-        }));
-        self
-    }
-
     pub fn on_ledger_snapshot(mut self, handler: impl Fn(&LedgerStateSnapshot) + Send + Sync + 'static) -> Self {
         self.on_ledger_snapshot = Some(Arc::new(handler));
         self

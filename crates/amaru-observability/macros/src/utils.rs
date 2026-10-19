@@ -189,15 +189,6 @@ pub fn make_module_validator_name(categories: &[String]) -> String {
     }
 }
 
-/// Generate a schema validation registry constant name.
-///
-/// Convention: `_SCHEMA_{CATEGORIES}__{SCHEMA_NAME}`
-#[allow(dead_code)]
-pub fn make_registry_const_name(categories: &[String], schema_name: &str) -> String {
-    let namespace = make_macro_namespace(categories);
-    format!("_SCHEMA_{namespace}{schema_name}")
-}
-
 /// Generate a schema instrument helper macro name.
 ///
 /// Convention: `__{CATEGORIES}__{SCHEMA_NAME}_INSTRUMENT`

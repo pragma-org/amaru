@@ -224,18 +224,6 @@ pub fn te_clock_read(at_stage: impl AsRef<str>) -> TraceEntry {
     TraceEntry::suspend(Effect::clock(at_stage))
 }
 
-pub fn te_record_consensus_metrics(
-    at_stage: impl AsRef<str>,
-    metrics: amaru_metrics::consensus::ConsensusMetrics,
-) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(
-        at_stage.as_ref(),
-        Box::new(amaru_protocols::metrics_effects::RecordMetricsEffect::new(
-            amaru_metrics::MetricsEvent::ConsensusMetrics(metrics),
-        )),
-    ))
-}
-
 pub fn te_terminated(at_stage: impl AsRef<str>, reason: TerminationReason) -> TraceEntry {
     TraceEntry::Terminated { stage: Name::from(at_stage.as_ref()), reason }
 }

@@ -22,7 +22,6 @@ use crate::machine::{
 pub mod builtin_costs;
 pub mod machine_costs;
 
-pub mod cost_map;
 pub mod costing;
 pub mod ex_budget;
 

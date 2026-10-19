@@ -26,7 +26,7 @@ use rand::{Rng, SeedableRng, prelude::SmallRng};
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
-use super::{GeneratedTree, Tree, any_tree_of_headers, shrink::Shrinkable};
+use super::{GeneratedTree, Tree, shrink::Shrinkable};
 
 /// Generate a random list of Actions for a given peer on a given tree of headers.
 pub fn random_walk<R: Rng>(
@@ -290,13 +290,6 @@ impl GeneratedActionsStatistics {
         result.push(format!("Number of forks: {}", self.number_of_fork_nodes));
         result
     }
-}
-
-/// Generate a random list of actions, for a number of peers.
-pub fn any_select_chains(depth: usize, peers: &[Peer]) -> impl Strategy<Value = GeneratedActions> {
-    any_tree_of_headers(depth).prop_flat_map(move |generated_tree| {
-        (1..u64::MAX).prop_map(move |seed| generate_random_walks(seed, &generated_tree, peers))
-    })
 }
 
 /// Generate a random list of actions, for a fixed number of peers, with a given tree of headers.

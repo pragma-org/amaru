@@ -22,43 +22,19 @@ use crate::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMe
 /// Optional method overrides for [`OverridingMempool`].
 /// Each override receives a reference to the underlying mempool and the method arguments.
 /// Overrides are stored in a mutex because they use `FnMut`.
-#[allow(clippy::type_complexity)]
 struct Overrides<Tx: Send + Sync + 'static> {
     insert: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, Tx, TxOrigin) -> TxInsertResult + Send>>,
-    get_tx: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> Option<Tx> + Send>>,
     contains: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> bool + Send>>,
-    tx_ids_since: Option<
-        Box<
-            dyn FnMut(&dyn TxSubmissionMempool<Tx>, MempoolSeqNo, u16) -> Vec<(TransactionId, u32, MempoolSeqNo)>
-                + Send,
-        >,
-    >,
-    get_txs_for_ids: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Vec<Tx> + Send>>,
-    mempool_txs: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> Vec<Tx> + Send>>,
-    remove_txs: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) + Send>>,
-    last_seq_no: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolSeqNo + Send>>,
     is_near_capacity: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>, u64) -> bool + Send>>,
-    state: Option<Box<dyn FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolState + Send>>,
 }
 
 impl<Tx: Send + Sync + 'static> Default for Overrides<Tx> {
     fn default() -> Self {
-        Self {
-            insert: None,
-            get_tx: None,
-            contains: None,
-            tx_ids_since: None,
-            get_txs_for_ids: None,
-            mempool_txs: None,
-            remove_txs: None,
-            last_seq_no: None,
-            is_near_capacity: None,
-            state: None,
-        }
+        Self { insert: None, contains: None, is_near_capacity: None }
     }
 }
 
-/// A mempool that wraps a `dyn TxSubmissionMempool<Tx>` and allows overriding any method
+/// A mempool that wraps a `dyn TxSubmissionMempool<Tx>` and allows overriding selected methods
 /// with a supplied function. When an override is installed, it receives a reference to the
 /// underlying mempool, all method arguments, and computes the return value. Non-overridden
 /// methods delegate to the underlying mempool.
@@ -91,14 +67,6 @@ impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
         self
     }
 
-    pub fn with_get_tx<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> Option<Tx> + Send + 'static,
-    {
-        self.overrides.get_tx = Some(Box::new(f));
-        self
-    }
-
     pub fn with_contains<F>(mut self, f: F) -> Self
     where
         F: FnMut(&dyn TxSubmissionMempool<Tx>, &TransactionId) -> bool + Send + 'static,
@@ -107,61 +75,11 @@ impl<Tx: Send + Sync + 'static> OverridingMempoolBuilder<Tx> {
         self
     }
 
-    pub fn with_tx_ids_since<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, MempoolSeqNo, u16) -> Vec<(TransactionId, u32, MempoolSeqNo)>
-            + Send
-            + 'static,
-    {
-        self.overrides.tx_ids_since = Some(Box::new(f));
-        self
-    }
-
-    pub fn with_get_txs_for_ids<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) -> Vec<Tx> + Send + 'static,
-    {
-        self.overrides.get_txs_for_ids = Some(Box::new(f));
-        self
-    }
-
-    pub fn with_mempool_txs<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>) -> Vec<Tx> + Send + 'static,
-    {
-        self.overrides.mempool_txs = Some(Box::new(f));
-        self
-    }
-
-    pub fn with_remove_txs<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>, &[TransactionId]) + Send + 'static,
-    {
-        self.overrides.remove_txs = Some(Box::new(f));
-        self
-    }
-
-    pub fn with_last_seq_no<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolSeqNo + Send + 'static,
-    {
-        self.overrides.last_seq_no = Some(Box::new(f));
-        self
-    }
-
     pub fn with_is_near_capacity<F>(mut self, f: F) -> Self
     where
         F: FnMut(&dyn TxSubmissionMempool<Tx>, u64) -> bool + Send + 'static,
     {
         self.overrides.is_near_capacity = Some(Box::new(f));
-        self
-    }
-
-    pub fn with_state<F>(mut self, f: F) -> Self
-    where
-        F: FnMut(&dyn TxSubmissionMempool<Tx>) -> MempoolState + Send + 'static,
-    {
-        self.overrides.state = Some(Box::new(f));
         self
     }
 
@@ -180,11 +98,7 @@ impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx
     }
 
     fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.get_tx {
-            Some(f) => f(self.inner.as_ref(), tx_id),
-            None => self.inner.get_tx(tx_id),
-        }
+        self.inner.get_tx(tx_id)
     }
 
     fn contains(&self, tx_id: &TransactionId) -> bool {
@@ -196,43 +110,23 @@ impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx
     }
 
     fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.tx_ids_since {
-            Some(f) => f(self.inner.as_ref(), from_seq, limit),
-            None => self.inner.tx_ids_since(from_seq, limit),
-        }
+        self.inner.tx_ids_since(from_seq, limit)
     }
 
     fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx> {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.get_txs_for_ids {
-            Some(f) => f(self.inner.as_ref(), ids),
-            None => self.inner.get_txs_for_ids(ids),
-        }
+        self.inner.get_txs_for_ids(ids)
     }
 
     fn mempool_txs(&self) -> Vec<Tx> {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.mempool_txs {
-            Some(f) => f(self.inner.as_ref()),
-            None => self.inner.mempool_txs(),
-        }
+        self.inner.mempool_txs()
     }
 
     fn remove_txs(&self, ids: &[TransactionId]) {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.remove_txs {
-            Some(f) => f(self.inner.as_ref(), ids),
-            None => self.inner.remove_txs(ids),
-        }
+        self.inner.remove_txs(ids)
     }
 
     fn last_seq_no(&self) -> MempoolSeqNo {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.last_seq_no {
-            Some(f) => f(self.inner.as_ref()),
-            None => self.inner.last_seq_no(),
-        }
+        self.inner.last_seq_no()
     }
 
     fn is_near_capacity(&self, additional_bytes: u64) -> bool {
@@ -244,10 +138,6 @@ impl<Tx: Send + Sync + 'static> TxSubmissionMempool<Tx> for OverridingMempool<Tx
     }
 
     fn state(&self) -> MempoolState {
-        let mut overrides = self.overrides.lock();
-        match &mut overrides.state {
-            Some(f) => f(self.inner.as_ref()),
-            None => self.inner.state(),
-        }
+        self.inner.state()
     }
 }

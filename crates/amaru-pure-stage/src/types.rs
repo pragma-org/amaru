@@ -307,42 +307,6 @@ impl<T> DerefMut for MpscSender<T> {
     }
 }
 
-#[expect(dead_code)]
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct MpscReceiver<T> {
-    #[serde(skip, default = "dummy_receiver")]
-    pub receiver: mpsc::Receiver<T>,
-}
-
-fn dummy_receiver<T>() -> mpsc::Receiver<T> {
-    mpsc::channel(1).1
-}
-
-impl<T: Any> fmt::Debug for MpscReceiver<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("MpscReceiver").field(&std::any::type_name::<T>()).finish()
-    }
-}
-
-impl<T: SendData> PartialEq for MpscReceiver<T> {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl<T> Deref for MpscReceiver<T> {
-    type Target = mpsc::Receiver<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.receiver
-    }
-}
-impl<T> DerefMut for MpscReceiver<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.receiver
-    }
-}
-
 /// An extension trait that allows termination or early return within a stage.
 pub trait TryInStage {
     /// The successful result of this container type.

@@ -69,19 +69,6 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn from_configs(run_config: &RunConfig, node_config: &NodeTestConfig) -> Self {
-        Self {
-            number_of_tests: run_config.number_of_tests,
-            number_of_upstream_peers: run_config.number_of_upstream_peers,
-            number_of_downstream_peers: run_config.number_of_downstream_peers,
-            generated_chain_depth: node_config.chain_length,
-            enable_shrinking: run_config.enable_shrinking,
-            seed: Some(run_config.seed),
-            persist_on_success: run_config.persist_on_success,
-            test_data_dir: run_config.test_data_dir.to_string_lossy().into(),
-        }
-    }
-
     pub fn seed(&self) -> u64 {
         self.seed.unwrap_or_else(|| rand::rng().random::<u64>())
     }
