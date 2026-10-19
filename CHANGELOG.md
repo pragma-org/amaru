@@ -44,6 +44,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
+- **amaru-pure-stage**: the node detects a cycle of stages deadlocked sending to each other, logs an error naming the stages and their blocked messages, and shuts down instead of hanging. ([#1480][])
 
 ### Fixed
 
@@ -692,3 +693,4 @@ Other guiding principles:
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
 [#1453]: https://github.com/pragma-org/amaru/issues/1453
+[#1480]: https://github.com/pragma-org/amaru/issues/1480

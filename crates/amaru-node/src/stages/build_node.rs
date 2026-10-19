@@ -189,6 +189,8 @@ pub enum ComponentFailure {
     NetworkListener(String),
     Ledger(String),
     Performance(String),
+    /// The stage graph aborted itself after confirming a cycle of stages blocked sending to each other.
+    Deadlock(String),
 }
 
 /// Shutdown stopped without proving that every owned resource was released.
@@ -365,7 +367,10 @@ impl NodeRunning {
         drop(mempool_sender);
         let mut unexpected_exits = match tokio_running.join().await {
             Ok(report) => {
-                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+                let mut exits: Vec<_> =
+                    report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect();
+                exits.extend(report.deadlock.map(|deadlock| ComponentFailure::Deadlock(deadlock.description)));
+                exits
             }
             Err(error) => vec![ComponentFailure::Stage(error.to_string())],
         };

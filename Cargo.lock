@@ -655,6 +655,7 @@ dependencies = [
  "amaru-deps",
  "anyhow",
  "cbor4ii",
+ "criterion",
  "either",
  "erased-serde",
  "futures-util",

@@ -23,14 +23,15 @@
 use std::{panic::AssertUnwindSafe, time::Duration};
 
 use amaru_pure_stage::{
-    CallAdmission, Receiver, Sender, StageGraph, StageRef, TrySend, assert_trace_contains,
-    simulation::{Run, SimulationBuilder},
+    CallAdmission, Effects, Receiver, Sender, StageGraph, StageRef, TrySend, assert_trace_contains,
+    simulation::{Blocked, Run, SimulationBuilder},
     tm_call, tm_resume_try_send, tm_try_send,
     tokio::TokioBuilder,
     trace_buffer::TraceBuffer,
 };
 
 const CALL_TIMEOUT: Duration = Duration::from_millis(100);
+const SLOW_HOLD: Duration = Duration::from_secs(3);
 const HOLD: Duration = Duration::from_secs(1);
 const REPLY_TIMEOUT: Duration = Duration::from_millis(200);
 const SLOT_WAIT: Duration = Duration::from_millis(40);
@@ -2326,4 +2327,160 @@ fn cleared_sibling_timeout_is_not_delivered_simulation() {
 #[test]
 fn cleared_sibling_timeout_is_not_delivered_tokio() {
     cleared_sibling_timeout_is_not_delivered(Runtime::Tokio);
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum Knot {
+    Boot,
+    Filler,
+    Ping,
+}
+
+async fn bounce(peer: StageRef<Knot>, msg: Knot, eff: Effects<Knot>) -> StageRef<Knot> {
+    if matches!(msg, Knot::Boot) {
+        eff.wait(HOLD).await;
+        eff.send(&peer, Knot::Ping).await;
+    }
+    peer
+}
+
+fn install_knots<const N: usize>(graph: &mut impl StageGraph, names: [&str; N]) -> Vec<Sender<Knot>> {
+    let stages = names.map(|name| graph.stage(name, bounce));
+    let refs = stages.each_ref().map(|stage| stage.sender());
+    let mut inputs = Vec::new();
+    for (index, stage) in stages.into_iter().enumerate() {
+        graph.wire_up(stage, refs[(index + 1) % N].clone());
+        inputs.push(graph.input(&refs[index]));
+    }
+    inputs
+}
+
+fn send_cycle_deadlock(runtime: Runtime) {
+    match runtime {
+        Runtime::Simulation => {
+            let mut network = SimulationBuilder::default().with_mailbox_size(1);
+            let a = network.stage("knot_a", bounce);
+            let b = network.stage("knot_b", bounce);
+            let a_ref = a.sender();
+            let b_ref = b.sender();
+            let a = network.wire_up(a, b_ref.clone());
+            let b = network.wire_up(b, a_ref.clone());
+            let mut sim = network.run(test_runtime().handle());
+            sim.enqueue_msg(&a, [Knot::Boot]);
+            sim.enqueue_msg(&b, [Knot::Boot]);
+            sim.run(Run::default()).assert_sleeping();
+            sim.enqueue_msg(&a_ref, [Knot::Filler]);
+            sim.enqueue_msg(&b_ref, [Knot::Filler]);
+            let blocked = sim.run(Run::skip_wakeups());
+            blocked.assert_deadlock(["knot_a", "knot_b"]);
+            let Blocked::Deadlock(blocks) = &blocked else { unreachable!() };
+            assert_eq!(blocks.len(), 2, "{blocks:?}");
+            let report = sim.format_deadlock(blocks);
+            assert!(report.contains("[cycle]"), "{report}");
+            assert!(report.contains("Ping"), "{report}");
+        }
+        Runtime::Tokio => {
+            let rt = paused_runtime();
+            let mut network = TokioBuilder::default().with_mailbox_size(1);
+            let inputs = install_knots(&mut network, ["knot_a", "knot_b"]);
+            let running = network.run(rt.handle().clone());
+            let report = rt.block_on(async move {
+                for input in &inputs {
+                    input.send(Knot::Boot).await.unwrap();
+                }
+                settle().await;
+                for input in &inputs {
+                    input.send(Knot::Filler).await.unwrap();
+                }
+                running.join().await.unwrap()
+            });
+            let deadlock = report.deadlock.expect("the deadlock must abort the graph and be reported");
+            assert_eq!(deadlock.blocks.len(), 2, "{deadlock:?}");
+            assert!(deadlock.description.contains("[cycle]"), "{}", deadlock.description);
+            assert!(deadlock.description.contains("Ping"), "{}", deadlock.description);
+            assert!(deadlock.description.contains("knot_a"), "{}", deadlock.description);
+            assert!(deadlock.description.contains("knot_b"), "{}", deadlock.description);
+        }
+    }
+}
+
+#[test]
+fn send_cycle_deadlock_simulation() {
+    send_cycle_deadlock(Runtime::Simulation);
+}
+
+#[test]
+fn send_cycle_deadlock_tokio() {
+    send_cycle_deadlock(Runtime::Tokio);
+}
+
+#[test]
+fn send_ring_deadlock_names_every_stage_tokio() {
+    let rt = paused_runtime();
+    let mut network = TokioBuilder::default().with_mailbox_size(1);
+    let inputs = install_knots(&mut network, ["ring_a", "ring_b", "ring_c"]);
+    let running = network.run(rt.handle().clone());
+    let report = rt.block_on(async move {
+        for input in &inputs {
+            input.send(Knot::Boot).await.unwrap();
+        }
+        settle().await;
+        for input in &inputs {
+            input.send(Knot::Filler).await.unwrap();
+        }
+        running.join().await.unwrap()
+    });
+    let deadlock = report.deadlock.expect("the ring must be reported as a deadlock");
+    assert_eq!(deadlock.blocks.len(), 3, "{deadlock:?}");
+    for name in ["ring_a", "ring_b", "ring_c"] {
+        assert!(deadlock.description.contains(name), "{}", deadlock.description);
+    }
+}
+
+fn install_slow_consumer(
+    graph: &mut impl StageGraph,
+) -> (StageRef<u8>, Sender<u8>, StageRef<u8>, Sender<u8>, Receiver<Note>) {
+    let dest = graph.stage("dest", async |out: StageRef<Note>, msg: u8, eff| {
+        eff.send(&out, Note::Saw(msg)).await;
+        if msg == 0 {
+            eff.wait(SLOW_HOLD).await;
+        }
+        out
+    });
+    let dest_ref = dest.sender();
+    let sender = graph.stage("sender", async |st: SenderSt, _msg: u8, eff| {
+        eff.send(&st.dest, 2u8).await;
+        eff.send(&st.out, Note::Sent(2)).await;
+        st
+    });
+    let (out, rx) = graph.output::<Note>("out", 8);
+    let sender_ref = sender.sender();
+    graph.wire_up(dest, out.clone());
+    graph.wire_up(sender, SenderSt { dest: dest_ref.clone(), out });
+    let to_dest = graph.input(&dest_ref);
+    let to_sender = graph.input(&sender_ref);
+    (dest_ref, to_dest, sender_ref, to_sender, rx)
+}
+
+#[test]
+fn blocked_send_without_cycle_is_not_a_deadlock_tokio() {
+    let _guards = register_notes();
+    let rt = paused_runtime();
+    let mut network = TokioBuilder::default().with_mailbox_size(1);
+    let (_dest, to_dest, _sender, to_sender, mut out) = install_slow_consumer(&mut network);
+    let running = network.run(rt.handle().clone());
+    let joinable = running.clone();
+    rt.block_on(async move {
+        to_dest.send(0).await.unwrap();
+        settle().await;
+        assert_eq!(out.try_next(), Some(Note::Saw(0)));
+        to_dest.send(1).await.unwrap();
+        to_sender.send(0).await.unwrap();
+        tokio::time::sleep(SLOW_HOLD).await;
+        settle().await;
+        assert_eq!(out.drain().collect::<Vec<_>>(), vec![Note::Saw(1), Note::Sent(2), Note::Saw(2)]);
+        running.abort();
+        let report = joinable.join().await.unwrap();
+        assert_eq!(report.deadlock, None, "a blocked send without a cycle must not be reported");
+    });
 }

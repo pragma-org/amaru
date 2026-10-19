@@ -42,7 +42,12 @@ amaru-deps.workspace = true
 ignored = ["getrandom", "amaru-deps"]
 
 [dev-dependencies]
+criterion.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread", "test-util"] }
+
+[[bench]]
+name = "messaging"
+harness = false
 
 [lints]
 workspace = true
