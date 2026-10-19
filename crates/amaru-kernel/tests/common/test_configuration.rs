@@ -28,11 +28,11 @@ const TEST_REPORT_DIRECTORY: &str = "AMARU_TEST_REPORT_DIRECTORY";
 const ACKNOWLEDGED_FAILURES_FILE: &str = "tests/acknowledged-failures.toml";
 
 pub struct TestConfiguration {
-    /// The root of the corpus, e.g. `tests/cbor-dataset`.
+    /// The root of the corpus, e.g. `tests/data/cbor.dataset/conway`.
     root: PathBuf,
     /// The substring filter to select a subset of the corpus, e.g. `block/valid`.
     filter: Option<String>,
-    /// The corpus to test against, e.g. `Conway123_100`.
+    /// The corpus to test against, e.g. `Conway`.
     corpus: Corpus,
     /// The protocol version to use for the round-trip tests.
     protocol_version: ProtocolVersion,
@@ -48,7 +48,7 @@ impl TestConfiguration {
     /// Create a new test configuration for the given protocol version.
     pub fn create(protocol_version: ProtocolVersion) -> anyhow::Result<Option<Self>> {
         // only one corpus is supported for now
-        let corpus = Corpus::Conway123_100;
+        let corpus = Corpus::Conway;
         let report_directory =
             std::env::var(TEST_REPORT_DIRECTORY).ok().map(|d| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(d));
         let acknowledged_failures_file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(ACKNOWLEDGED_FAILURES_FILE);
@@ -108,7 +108,7 @@ impl TestConfiguration {
     pub fn read_tests_for(&self, rule: &str) -> anyhow::Result<Vec<TestKey>> {
         let rule_dir = self.root.join(rule);
         assert!(rule_dir.is_dir(), "corpus is missing the rule directory {}", rule_dir.display());
-        read_test_data(self.corpus, &rule_dir)
+        read_test_data(&rule_dir)
             .map(|tests| tests.into_iter().filter(|test_key| test_key.is_included(&self.filter)).collect())
     }
 }

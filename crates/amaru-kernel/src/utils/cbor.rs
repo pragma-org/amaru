@@ -20,7 +20,6 @@ pub use serialised_as_array::SerialisedAsArray;
 pub use serialised_as_cbor::SerialisedAsCbor;
 pub use serialised_as_millis::SerialisedAsMillis;
 pub use serialised_as_pico::SerialisedAsPico;
-pub use serialised_as_set::SerialisedAsSet;
 pub use skip::Skip;
 pub use versioned::{HasProtocolVersion, decode_bytes_v12, decode_string_v12, heterogeneous_array_v12};
 
@@ -28,7 +27,6 @@ mod serialised_as_array;
 mod serialised_as_cbor;
 mod serialised_as_millis;
 mod serialised_as_pico;
-mod serialised_as_set;
 mod skip;
 mod versioned;
 

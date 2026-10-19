@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::layout::Rect;
@@ -23,6 +23,7 @@ use super::{
     log_time::TimeJump,
     prompt::{PromptAction, PromptKind, PromptState},
     scrollbar::ScrollbarGeometry,
+    text_selection::{self, TextClick, TextDrag, TextPress},
     *,
 };
 use crate::{events::TelemetryRecord, ui::Views};
@@ -73,6 +74,7 @@ impl Model {
     pub fn enter_shutdown_mode(&mut self) {
         self.interaction_mode = InteractionMode::Shutdown;
         self.command_menu = CommandMenu::Default;
+        self.cancel_text_drag();
     }
 
     pub fn exit_copy_mode(&mut self) {
@@ -297,6 +299,10 @@ impl Model {
 
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return TerminalEventOutcome::Shutdown;
+        }
+
+        if self.text_drag.is_some() {
+            return TerminalEventOutcome::Continue;
         }
 
         if self.prompt.is_some() {
@@ -537,32 +543,130 @@ impl Model {
 
         let point = Rect { x: mouse.column, y: mouse.row, width: 1, height: 1 };
 
+        if self.text_drag.is_some() {
+            return match mouse.kind {
+                MouseEventKind::Drag(MouseButton::Left) => self.move_text_drag(views, point),
+                MouseEventKind::Up(_) => self.finish_text_drag(),
+                MouseEventKind::Down(_)
+                | MouseEventKind::Drag(_)
+                | MouseEventKind::Moved
+                | MouseEventKind::ScrollDown
+                | MouseEventKind::ScrollUp
+                | MouseEventKind::ScrollLeft
+                | MouseEventKind::ScrollRight => TerminalEventOutcome::Continue,
+            };
+        }
+
         match mouse.kind {
-            MouseEventKind::Down(MouseButton::Left) => self.handle_click(views, point),
+            MouseEventKind::Down(MouseButton::Left) => self.on_left_down(views, point),
             MouseEventKind::Drag(MouseButton::Left) if self.log_scrollbar_drag => {
                 self.jump_logs_to_track_y(views, mouse.row);
+                TerminalEventOutcome::Continue
             }
             MouseEventKind::Drag(MouseButton::Left) if self.log_select_drag => {
                 self.drag_log_selection(views, point);
+                TerminalEventOutcome::Continue
             }
+            MouseEventKind::Drag(MouseButton::Left) => self.begin_text_drag(views, point),
             MouseEventKind::Up(_) => {
                 self.log_scrollbar_drag = false;
                 self.log_select_drag = false;
+                self.text_press = None;
+                TerminalEventOutcome::Continue
             }
             MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.handle_horizontal_scroll(views, point, 1);
+                TerminalEventOutcome::Continue
             }
             MouseEventKind::ScrollUp if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.handle_horizontal_scroll(views, point, -1);
+                TerminalEventOutcome::Continue
             }
-            MouseEventKind::ScrollDown => self.handle_scroll(views, point, 3),
-            MouseEventKind::ScrollUp => self.handle_scroll(views, point, -3),
-            MouseEventKind::ScrollLeft => self.handle_horizontal_scroll(views, point, -1),
-            MouseEventKind::ScrollRight => self.handle_horizontal_scroll(views, point, 1),
-            MouseEventKind::Down(_) | MouseEventKind::Drag(_) | MouseEventKind::Moved => {}
+            MouseEventKind::ScrollDown => {
+                self.handle_scroll(views, point, 3);
+                TerminalEventOutcome::Continue
+            }
+            MouseEventKind::ScrollUp => {
+                self.handle_scroll(views, point, -3);
+                TerminalEventOutcome::Continue
+            }
+            MouseEventKind::ScrollLeft => {
+                self.handle_horizontal_scroll(views, point, -1);
+                TerminalEventOutcome::Continue
+            }
+            MouseEventKind::ScrollRight => {
+                self.handle_horizontal_scroll(views, point, 1);
+                TerminalEventOutcome::Continue
+            }
+            MouseEventKind::Down(_) | MouseEventKind::Drag(_) | MouseEventKind::Moved => TerminalEventOutcome::Continue,
+        }
+    }
+
+    fn on_left_down(&mut self, views: &Views, point: Rect) -> TerminalEventOutcome {
+        self.held_cells.clear();
+        self.copy_status = None;
+
+        if !self.is_copy_mode()
+            && !self.pointer_is_control(views, point)
+            && let Some(hit) = views.text_map.word_at(point.x, point.y)
+        {
+            let now = Instant::now();
+            let double = text_selection::is_double_click(self.last_text_click.as_ref(), now, &hit.key);
+            self.last_text_click = Some(TextClick { at: now, key: hit.key });
+            if double {
+                self.text_press = None;
+                return TerminalEventOutcome::CopyText { text: hit.text, cells: hit.cells };
+            }
+        } else {
+            self.last_text_click = None;
         }
 
+        self.handle_click(views, point);
+        self.text_press = (!self.is_copy_mode() && !self.log_scrollbar_drag)
+            .then(|| views.text_map.pane_at(point.x, point.y))
+            .flatten()
+            .map(|pane| TextPress { x: point.x, y: point.y, pane });
         TerminalEventOutcome::Continue
+    }
+
+    fn pointer_is_control(&self, views: &Views, point: Rect) -> bool {
+        views.page_at(point).is_some()
+            || views.toggles_logs(point)
+            || views.toggles_log_wrap(point)
+            || views.toggles_peers(point)
+            || views.toggles_proposals(point)
+            || views.log_scrollbar_at(point)
+            || views.level_filter_at(point).is_some()
+            || views.target_filter_at(point).is_some()
+    }
+
+    fn begin_text_drag(&mut self, views: &Views, point: Rect) -> TerminalEventOutcome {
+        let Some(press) = self.text_press.take() else {
+            return TerminalEventOutcome::Continue;
+        };
+        let (x, y) = views.text_map.clamp(press.pane, point.x, point.y);
+        self.text_drag = Some(TextDrag { anchor_x: press.x, anchor_y: press.y, x, y, pane: press.pane });
+        TerminalEventOutcome::StartTextDrag
+    }
+
+    fn move_text_drag(&mut self, views: &Views, point: Rect) -> TerminalEventOutcome {
+        let Some(drag) = self.text_drag.as_mut() else {
+            return TerminalEventOutcome::Continue;
+        };
+        let (x, y) = views.text_map.clamp(drag.pane, point.x, point.y);
+        drag.x = x;
+        drag.y = y;
+        TerminalEventOutcome::UpdateTextDrag
+    }
+
+    fn finish_text_drag(&mut self) -> TerminalEventOutcome {
+        self.log_scrollbar_drag = false;
+        self.log_select_drag = false;
+        self.text_press = None;
+        let Some(drag) = self.text_drag.take() else {
+            return TerminalEventOutcome::Continue;
+        };
+        TerminalEventOutcome::FinishTextDrag { anchor: (drag.anchor_x, drag.anchor_y), current: (drag.x, drag.y) }
     }
 
     fn handle_prompt_key(&mut self, key: event::KeyEvent) -> TerminalEventOutcome {

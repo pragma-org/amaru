@@ -46,6 +46,8 @@ The Amaru and Cardano pages stack three elements:
 
 The Config page gives the whole screen to its tables.
 
+On a very large terminal, the dashboard draws at most 65,536 characters. It keeps the full height and leaves the columns past that limit blank.
+
 ### Epoch bar
 
 Once the node has a tip, a bar across the top tracks the current epoch in slots, for example `86,338 / 432,000`.
@@ -217,6 +219,10 @@ The pane holds logs in memory up to the `--tui-log-retention` limit, `100MiB` by
 
 DEBUG lines vanishing as you scroll back is expected behaviour. The middle of the toggle row shows how full each part is, for example `debug+ 70%  info+ 10%  warn+ 10%  error 100%  [68.2 MiB]`. For complete logs, run with `--tui-off` and send output to a file or collector.
 
+## Copying text
+
+Double-click a value to copy it. A peer address copies as `ip:port`. To copy part of a row, drag across the characters you want. The dashboard holds still until you release the button.
+
 ## Copy mode and exporting logs
 
 Press `Esc` to enter copy mode. The title changes to `COPY MODE`, and borders, scrollbars and separators disappear.
@@ -297,6 +303,8 @@ Press `q`, then confirm with `q` or `y`. Press `n` or `Esc` to cancel. The title
 |---|---|
 | Click a page tab | Switch page |
 | Click a panel | Focus it |
+| Double-click a value | Copy it |
+| Drag across a row | Copy those characters |
 | Click `[+]` / `[-]` | Maximize or restore the panel |
 | Click a level or component toggle | Change the log filter |
 | Scroll wheel | Scroll the panel under the pointer |

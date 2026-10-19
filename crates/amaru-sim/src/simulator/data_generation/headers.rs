@@ -145,11 +145,6 @@ pub fn generate_headers_chain(length: usize) -> Vec<Header> {
     generate_headers(length, 1, 1, None, &mut rng)
 }
 
-/// Generate just one header
-pub fn generate_single_header() -> Header {
-    generate_headers_chain(1)[0].clone()
-}
-
 // IMPLEMENTATION
 
 /// Generate a chain of headers anchored at a given header.

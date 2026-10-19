@@ -352,7 +352,7 @@ mod tests {
                             Network::Testnet,
                             Credential::ScriptHash(Hash::new([1; 28])),
                         ),
-                        owners: Vec::new(),
+                        owners: Default::default(),
                         relays: Vec::new(),
                         metadata: None,
                     },

@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
-use crate::{DRep, Lovelace, PoolId, cbor, utils::cbor::SerialisedAsSet};
+use crate::{DRep, Lovelace, PoolId, VecSet, cbor};
 
 #[derive(Debug)]
 pub struct Account {
     pub rewards_and_deposit: Option<(Lovelace, Lovelace)>,
-    pub pointers: BTreeSet<(u64, u64, u64)>,
+    pub pointers: VecSet<(u64, u64, u64)>,
     pub pool: Option<PoolId>,
     pub drep: Option<DRep>,
 }
@@ -29,7 +27,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for Account {
         d.array()?;
         Ok(Account {
             rewards_and_deposit: d.decode_with(ctx)?,
-            pointers: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
+            pointers: d.decode_with(ctx)?,
             pool: d.decode_with(ctx)?,
             drep: d.decode_with(ctx)?,
         })

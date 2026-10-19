@@ -46,8 +46,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let aws_secret_access_key = required_env(AWS_SECRET_ACCESS_KEY_ENV)?;
     let s3_config = S3Config { bucket: s3.bucket, endpoint: s3.endpoint, region: s3.region, public_url: s3.public_url };
     let s3 = S3Client::new_with_credentials(s3_config, aws_access_key_id, aws_secret_access_key);
-    let snapshots = s3.list_snapshot_objects(network).await?;
-    let points: Vec<&str> = snapshots.iter().map(|snapshot| snapshot.point.as_str()).collect();
+    let points = s3.list_snapshot_objects(network).await?;
     let network_prefix = network.to_string().to_lowercase();
 
     s3.upload_bytes(serde_json::to_vec_pretty(&points)?, &format!("{network_prefix}/index.json")).await?;

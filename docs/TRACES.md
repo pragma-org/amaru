@@ -3674,7 +3674,17 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
 | `consensus_died` | `event` | error | public | The consensus pipeline stopped while the node was still running |  |  |
+| `ledger_still_closing` | `event` | warn | public | Ledger cleanup is still running after the soft shutdown timeout | status, phase |  |
 | `termination_signal` | `event` | warn | public | A termination signal was received; the node is shutting down |  |  |
+
+<details><summary>event: `ledger_still_closing`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `status` | `string` | ✓ |
+| `phase` | `string` | ✓ |
+
+</details>
 
 ## target: `amaru::setup::observability`
 

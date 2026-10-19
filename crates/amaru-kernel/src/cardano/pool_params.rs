@@ -19,9 +19,8 @@ use proptest::{
 };
 
 use crate::{
-    Hash, Lovelace, PoolId, PoolMetadata, Relay, RewardAccount, UnitRationalNumber, cbor,
+    Hash, Lovelace, PoolId, PoolMetadata, Relay, RewardAccount, UnitRationalNumber, VecSet, cbor,
     size::{KEY, VRF_KEY},
-    utils::cbor::SerialisedAsSet,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -32,18 +31,7 @@ pub struct PoolParams {
     pub cost: Lovelace,
     pub margin: UnitRationalNumber,
     pub reward_account: RewardAccount,
-    // NOTE: Small set too small for BTreeSet
-    //
-    // A BTreeSet allocates in nodes of ~400 bytes which can contain multiple elements. So when a
-    // set would typically be small; a BTreeSet can easily kill us memory-wise; especially when
-    // found in an object that gets reproduced many many times. Using a BTreeSet makes every pool
-    // params 400 bytes bigger; even if most will have a single owner.
-    //
-    // Plus, if the set is small anyway, doing a binary search to find elements is cheap.
-    //
-    // Here, nothing guarantees that the set is small but we know that at worse, it cannot contain
-    // much more than 500 elements due to the transaction max size.
-    pub owners: Vec<Hash<KEY>>,
+    pub owners: VecSet<Hash<KEY>>,
     pub relays: Vec<Relay>,
     pub metadata: Option<PoolMetadata>,
 }
@@ -61,7 +49,7 @@ impl<C: cbor::HasProtocolVersion> cbor::encode::Encode<C> for PoolParams {
         e.encode_with(self.cost, ctx)?;
         e.encode_with(self.margin, ctx)?;
         e.encode_with(self.reward_account, ctx)?;
-        e.encode_with(SerialisedAsSet(&self.owners), ctx)?;
+        e.encode_with(&self.owners, ctx)?;
         e.encode_with(&self.relays, ctx)?;
         e.encode_with(&self.metadata, ctx)?;
         Ok(())
@@ -79,7 +67,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PoolParams
                 cost: d.decode_with(ctx)?,
                 margin: d.decode_with(ctx)?,
                 reward_account: d.decode_with(ctx)?,
-                owners: d.decode_with::<_, SerialisedAsSet<_>>(ctx)?.0,
+                owners: d.decode_with(ctx)?,
                 relays: d.decode_with(ctx)?,
                 metadata: d.decode_with(ctx)?,
             })
@@ -101,7 +89,7 @@ impl Arbitrary for PoolParams {
             any::<u64>(),
             0..100u64,
             any::<RewardAccount>(),
-            collection::vec(any::<Hash<KEY>>(), 1..3),
+            collection::btree_set(any::<Hash<KEY>>(), 1..3),
             collection::vec(any::<Relay>(), 0..10),
         )
             .prop_map(|(id, vrf, pledge, cost, margin, reward_account, owners, relays)| PoolParams {
@@ -111,7 +99,7 @@ impl Arbitrary for PoolParams {
                 cost,
                 margin: UnitRationalNumber::new(margin, 100).expect("margin is always less than 100"),
                 reward_account,
-                owners,
+                owners: VecSet::from(owners),
                 relays,
                 metadata: None,
             })

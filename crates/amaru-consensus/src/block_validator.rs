@@ -15,7 +15,7 @@
 use std::{
     any::Any,
     collections::BTreeSet,
-    sync::Arc,
+    sync::{Arc, Weak},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -27,6 +27,7 @@ use amaru_ledger::{
     store::{HistoricalStores, Store},
 };
 use amaru_metrics::ledger::LedgerMetrics;
+use amaru_observability::warn;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated,
     PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError,
@@ -62,47 +63,74 @@ enum LedgerRequest {
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
 }
 
+/// Worker activity reported when ledger cleanup is still pending.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LedgerThreadPhase {
+    #[default]
+    WaitingForRequests,
+    ValidatingBlock,
+    SwitchingFork,
+    ReadingTip,
+    ReadingVolatileTip,
+    ValidatingTransaction,
+    ReadingRelayCandidates,
+    UpdatingStakeDistributionCallback,
+    JoiningRewards,
+    ReleasingStores,
+}
+
 /// Wait-handle for the ledger worker spawned by [`BlockValidator::new`].
 ///
-/// Cloning shares the same [`JoinHandle`]. The first [`Self::join_timeout`] consumes it;
-/// later calls succeed immediately. The worker exits only after every [`BlockValidator`]
-/// sender has been dropped, so drop those clones (typically by dropping the stage graph)
-/// before joining.
-#[derive(Clone)]
+/// Clones share the worker. Joining closes request intake
+/// and drains accepted work; timeout errors retain a handle for a later join.
+#[derive(Clone, Debug)]
+#[cfg_attr(test, derive(Default))]
 pub struct LedgerThreadStop {
-    join: Arc<Mutex<Option<JoinHandle<()>>>>,
+    /// The handle and cached panic share one lock so concurrent joins see the same outcome.
+    join: Arc<Mutex<(Option<JoinHandle<()>>, Option<String>)>>,
+    phase: Arc<Mutex<LedgerThreadPhase>>,
+    sender: Weak<Mutex<Option<mpsc::Sender<LedgerRequest>>>>,
 }
 
 /// Failure from [`LedgerThreadStop::join_timeout`].
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum LedgerThreadJoinError {
-    #[error(
-        "timed out after {timeout:?} waiting for the ledger thread to exit \
-         (it closes RocksDB on the way out; a hang means that close did not finish)"
-    )]
-    Timeout { timeout: Duration },
+    #[error("timed out after {timeout:?} waiting for the ledger thread: {phase:?}; stores may still be active")]
+    Timeout { timeout: Duration, phase: LedgerThreadPhase, ledger_thread: LedgerThreadStop },
     #[error("ledger thread panicked: {0}")]
     Panicked(String),
 }
 
 impl LedgerThreadStop {
-    /// Wait up to `timeout` for the ledger thread to finish after its senders have been dropped.
-    ///
-    /// Returns immediately if this handle was already joined. On timeout the thread is detached
-    /// so the caller can fail with a clear error instead of blocking forever.
+    /// Close intake and wait up to `timeout` for accepted work and ledger cleanup.
+    /// Timeouts retain ownership for retry; repeated joins return the same completion or panic.
     pub fn join_timeout(&self, timeout: Duration) -> Result<(), LedgerThreadJoinError> {
-        let Some(handle) = self.join.lock().take() else {
-            return Ok(());
-        };
-        let deadline = Instant::now() + timeout;
-        while !handle.is_finished() {
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(LedgerThreadJoinError::Timeout { timeout });
+        let started = Instant::now();
+        drop(self.sender.upgrade().and_then(|sender| sender.lock().take()));
+        let timed_out =
+            || LedgerThreadJoinError::Timeout { timeout, phase: *self.phase.lock(), ledger_thread: self.clone() };
+        let mut join = self.join.try_lock_for(timeout.saturating_sub(started.elapsed())).ok_or_else(timed_out)?;
+        let (handle, panic) = &mut *join;
+        let mut notified = false;
+        while handle.as_ref().is_some_and(|handle| !handle.is_finished()) {
+            let elapsed = started.elapsed();
+            if elapsed >= timeout {
+                return Err(timed_out());
             }
-            thread::sleep((deadline - now).min(JOIN_POLL_INTERVAL));
+            if !notified && elapsed >= Duration::from_secs(10) {
+                warn!(
+                    setup::lifecycle::LEDGER_STILL_CLOSING,
+                    status = "Still closing the ledger…",
+                    phase = format!("{:?}", *self.phase.lock())
+                );
+                notified = true;
+            }
+            thread::sleep(timeout.saturating_sub(started.elapsed()).min(JOIN_POLL_INTERVAL));
         }
-        handle.join().map_err(|payload| LedgerThreadJoinError::Panicked(panic_message(payload)))
+        if let Some(handle) = handle.take() {
+            *panic = handle.join().err().map(panic_message);
+        }
+        panic.clone().map_or(Ok(()), |message| Err(LedgerThreadJoinError::Panicked(message)))
     }
 }
 
@@ -122,10 +150,10 @@ fn panic_message(payload: Box<dyn Any + Send>) -> String {
 /// response, so all of them execute sequentially regardless of how many entities (block
 /// validation, mempool, ...) hold a handle. Chain-store lookups happen on the caller side,
 /// before a request is sent, so the ledger thread touches nothing but the ledger state.
-/// The thread terminates once every handle is dropped.
+/// The thread terminates when all handles are dropped or [`LedgerThreadStop::join_timeout`] closes request intake.
 #[derive(Clone)]
 pub struct BlockValidator {
-    sender: mpsc::Sender<LedgerRequest>,
+    sender: Arc<Mutex<Option<mpsc::Sender<LedgerRequest>>>>,
     chain_store: Arc<dyn ChainStore>,
     stop: LedgerThreadStop,
 }
@@ -141,6 +169,8 @@ impl BlockValidator {
         HS: HistoricalStores + Send + 'static,
     {
         let (sender, mut receiver) = mpsc::channel(REQUEST_QUEUE_BOUND);
+        let phase = Arc::new(Mutex::new(LedgerThreadPhase::WaitingForRequests));
+        let worker_phase = phase.clone();
         // The ledger thread does not inherit a thread-local subscriber. Keep the dispatch that
         // was current when the node was built, so each simulated node keeps its own log.
         let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
@@ -148,14 +178,21 @@ impl BlockValidator {
             tracing::dispatcher::with_default(&dispatch, || {
                 let mut ledger = LedgerThread { state, vm_eval_pool };
                 while let Some(request) = receiver.blocking_recv() {
-                    ledger.handle(request);
+                    ledger.handle(request, &worker_phase);
+                    *worker_phase.lock() = LedgerThreadPhase::WaitingForRequests;
                 }
+                *worker_phase.lock() = LedgerThreadPhase::JoiningRewards;
+                ledger.state.shutdown_rewards();
+                *worker_phase.lock() = LedgerThreadPhase::ReleasingStores;
             });
         })?;
-        Ok(Self { sender, chain_store, stop: LedgerThreadStop { join: Arc::new(Mutex::new(Some(join))) } })
+        let sender = Arc::new(Mutex::new(Some(sender)));
+        let stop =
+            LedgerThreadStop { join: Arc::new(Mutex::new((Some(join), None))), phase, sender: Arc::downgrade(&sender) };
+        Ok(Self { sender, chain_store, stop })
     }
 
-    /// Shared wait-handle for the ledger worker. Tests join this after dropping graph senders.
+    /// Shared stop-and-join handle for the ledger worker.
     pub fn thread_stop(&self) -> LedgerThreadStop {
         self.stop.clone()
     }
@@ -167,7 +204,9 @@ impl BlockValidator {
     }
 
     fn send(&self, request: LedgerRequest) -> Result<(), LedgerThreadTerminated> {
-        match self.sender.try_send(request) {
+        let sender = self.sender.lock();
+        let sender = sender.as_ref().ok_or(LedgerThreadTerminated)?;
+        match sender.try_send(request) {
             Ok(()) => Ok(()),
             #[expect(clippy::panic)]
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -269,12 +308,14 @@ struct LedgerThread<S: Store, HS: HistoricalStores> {
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS> {
-    fn handle(&mut self, request: LedgerRequest) {
+    fn handle(&mut self, request: LedgerRequest, phase: &Mutex<LedgerThreadPhase>) {
         match request {
             LedgerRequest::RollForwardBlock(block, reply) => {
+                *phase.lock() = LedgerThreadPhase::ValidatingBlock;
                 let _ = reply.send(self.roll_forward_block(&block));
             }
             LedgerRequest::SwitchToFork(fork_point, blocks, reply) => {
+                *phase.lock() = LedgerThreadPhase::SwitchingFork;
                 let _ = reply.send(
                     self.state
                         .switch_to_fork(&fork_point, blocks, &self.vm_eval_pool)
@@ -282,19 +323,24 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                 );
             }
             LedgerRequest::Tip(reply) => {
+                *phase.lock() = LedgerThreadPhase::ReadingTip;
                 let _ = reply.send(self.state.tip().into_owned());
             }
             LedgerRequest::VolatileTip(reply) => {
+                *phase.lock() = LedgerThreadPhase::ReadingVolatileTip;
                 let _ = reply.send(self.state.volatile_tip());
             }
             LedgerRequest::ValidateTx(tx, reply) => {
+                *phase.lock() = LedgerThreadPhase::ValidatingTransaction;
                 let _ = reply.send(self.validate_tx(&tx));
             }
             LedgerRequest::RegisteredRelayCandidates(reply) => {
+                *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
                 let _ = reply
                     .send(self.state.registered_relay_candidates().map_err(|e| BlockValidationError::new(anyhow!(e))));
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
+                *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;
                 self.state.set_on_stake_dist_updated(callback);
             }
         }
@@ -327,7 +373,7 @@ mod tests {
     #[test]
     fn join_timeout_succeeds_when_thread_already_exited() {
         let join = thread::spawn(|| {});
-        let stop = LedgerThreadStop { join: Arc::new(Mutex::new(Some(join))) };
+        let stop = LedgerThreadStop { join: Arc::new(Mutex::new((Some(join), None))), ..Default::default() };
         stop.join_timeout(Duration::from_secs(1)).expect("join finished thread");
         stop.join_timeout(Duration::from_millis(1)).expect("second join is a no-op");
     }
@@ -338,10 +384,10 @@ mod tests {
         let join = thread::spawn(move || {
             let _ = release_rx.recv();
         });
-        let stop = LedgerThreadStop { join: Arc::new(Mutex::new(Some(join))) };
+        let stop = LedgerThreadStop { join: Arc::new(Mutex::new((Some(join), None))), ..Default::default() };
         let err = stop.join_timeout(Duration::from_millis(30)).expect_err("thread still blocked");
         assert!(
-            matches!(err, LedgerThreadJoinError::Timeout { timeout } if timeout == Duration::from_millis(30)),
+            matches!(err, LedgerThreadJoinError::Timeout { timeout, .. } if timeout == Duration::from_millis(30)),
             "{err}"
         );
         assert!(err.to_string().contains("timed out after 30ms"), "timeout error should be explicit, got: {err}");

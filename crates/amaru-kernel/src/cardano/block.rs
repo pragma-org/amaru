@@ -44,7 +44,7 @@ pub struct Block {
     pub auxiliary_data: BTreeMap<TransactionIndex, AuxiliaryData>,
 
     #[n(4)]
-    pub invalid_transactions: Option<BTreeSet<TransactionIndex>>,
+    pub invalid_transactions: BTreeSet<TransactionIndex>,
 }
 
 /// Position of a transaction within a block.
@@ -200,18 +200,6 @@ impl Block {
     pub fn point(&self) -> Point {
         self.header.point()
     }
-
-    /// Compare two `Block`s by their CBOR-encoded forms.
-    ///
-    /// The derived `PartialEq` compares every field, including ones that are derived from the
-    /// input bytes at decode time.
-    ///
-    /// Those field could legitimately differ after a re-encode -> re-decode round-trip.
-    /// This method bypasses the issue by encoding both blocks and comparing the resulting bytes.
-    /// (the `#[cbor(skip)]` fields are then excluded from the equality by construction)
-    pub fn cbor_eq(&self, other: &Self) -> bool {
-        amaru_minicbor_extra::to_cbor(self) == amaru_minicbor_extra::to_cbor(other)
-    }
 }
 
 impl IntoIterator for Block {
@@ -223,8 +211,7 @@ impl IntoIterator for Block {
             .zip(self.transaction_bodies)
             .zip(self.transaction_witnesses)
             .map(|((i, body), witnesses)| {
-                let is_expected_valid =
-                    !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
+                let is_expected_valid = !self.invalid_transactions.contains(&i);
 
                 let auxiliary_data = self.auxiliary_data.remove(&i);
 
@@ -242,8 +229,7 @@ impl<'a> IntoIterator for &'a Block {
     fn into_iter(self) -> Self::IntoIter {
         Box::new((0u16..).zip(self.transaction_bodies.iter()).zip(&self.transaction_witnesses).map(
             |((i, body), witnesses)| {
-                let is_expected_valid =
-                    !self.invalid_transactions.as_ref().map(|set| set.contains(&i)).unwrap_or(false);
+                let is_expected_valid = !self.invalid_transactions.contains(&i);
 
                 let auxiliary_data = self.auxiliary_data.get(&i);
 
@@ -302,9 +288,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
             })?;
 
             let (invalid_transactions, invalid_transactions_bytes) =
-                cbor::tee(d, |d| d.decode_with::<_, Option<BTreeSet<TransactionIndex>>>(ctx))?;
+                cbor::tee(d, |d| d.decode_with::<_, BTreeSet<TransactionIndex>>(ctx))?;
 
-            for index in invalid_transactions.iter().flatten() {
+            for index in invalid_transactions.iter() {
                 if usize::from(*index) >= transaction_count {
                     return Err(cbor::decode::Error::message(format!(
                         "invalid transaction index {index} out of bounds for {transaction_count} transaction bodies"

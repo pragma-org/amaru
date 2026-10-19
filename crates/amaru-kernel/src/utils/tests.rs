@@ -50,31 +50,6 @@ where
     catch_unwind(f)
 }
 
-/// Run `f` on values from `strategy` and assert that every case panics.
-///
-/// Use this instead of `proptest!` + `#[should_panic]`. Panics are caught with a silenced hook, and
-/// shrinking is disabled (a panic is success, not a counterexample to shrink).
-#[allow(clippy::panic)]
-pub fn assert_strategy_always_panics<S, F>(strategy: S, mut config: ProptestConfig, f: F)
-where
-    S: Strategy,
-    F: Fn(S::Value) + UnwindSafe + RefUnwindSafe,
-{
-    config.max_shrink_iters = 0;
-    let mut runner = TestRunner::new(config);
-    let f = &f;
-    match runner.run(&strategy, |value| {
-        if catch_unwind_silent(AssertUnwindSafe(|| f(value))).is_err() {
-            Ok(())
-        } else {
-            Err(TestCaseError::fail("expected a panic"))
-        }
-    }) {
-        Ok(()) => {}
-        Err(e) => panic!("{e}"),
-    }
-}
-
 /// Assert that `strategy` produces at least one value for which `f` panics.
 ///
 /// Use this instead of `proptest!` + `#[should_panic]` when only some generated values panic.

@@ -63,7 +63,10 @@ then click another to mark a time range (a later click moves the nearer end;
 drag also works), then `e` writes the currently visible lines in that range
 (or every visible line if nothing is selected) to a plain-text file in the
 working directory. On the Config page, mouse capture is still released so the
-terminal can select text.
+terminal can select text. In the live dashboard the TUI copies text itself:
+double-click a value, or drag across the characters. A peer address copies as
+`ip:port`. The screen does not update until the drag is released. On this Mac
+the text goes to the clipboard. Inside tmux it also goes to the tmux paste buffer.
 
 `AMARU_TUI_ALIASES` replaces keyboard controls with comma-separated
 `key=alias` entries, for example `esc=~,ctrl+up=j,ctrl+down=k`. The `ctrl+` and

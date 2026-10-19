@@ -25,7 +25,6 @@ http-body-util.workspace = true
 minicbor.workspace = true
 pallas-network.workspace = true
 reqwest.workspace = true
-serde.workspace = true
 serde_json = { workspace = true, features = ["std"] }
 tar.workspace = true
 thiserror.workspace = true

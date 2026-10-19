@@ -68,14 +68,6 @@ impl Default for S3Config {
     }
 }
 
-/// An S3 snapshot entry discovered by listing the bucket.
-pub struct S3Snapshot {
-    /// The snapshot point in `<slot>.<hash>` format.
-    pub point: String,
-    /// The full S3 object key: `<network>/<point>.tar.zst`.
-    pub key: String,
-}
-
 /// Thin wrapper around the AWS S3 client, scoped to a specific bucket and endpoint.
 pub struct S3Client {
     inner: Client,
@@ -106,35 +98,8 @@ impl S3Client {
         S3Client { inner: Client::from_conf(sdk_config), config }
     }
 
-    /// List available snapshots by fetching `<network>/index.json` from S3.
-    ///
-    /// Returns an empty list if the index does not exist yet (no snapshots published).
-    pub async fn list_snapshots(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
-        let network_prefix = network.to_string().to_lowercase();
-        let key = format!("{network_prefix}/index.json");
-
-        let response = match self.inner.get_object().bucket(&self.config.bucket).key(&key).send().await {
-            Ok(r) => r,
-            Err(err) => {
-                let is_not_found = err.as_service_error().map(|e| e.is_no_such_key()).unwrap_or(false);
-                if is_not_found {
-                    return Ok(Vec::new());
-                }
-                return Err(err.into());
-            }
-        };
-
-        let bytes = response.body.collect().await?.into_bytes();
-        let points: Vec<String> = serde_json::from_slice(&bytes)?;
-
-        Ok(points
-            .into_iter()
-            .map(|point| S3Snapshot { key: format!("{network_prefix}/{point}{ARCHIVE_EXTENSION}"), point })
-            .collect())
-    }
-
-    /// List snapshot archives stored under the network prefix, independently from `index.json`.
-    pub async fn list_snapshot_objects(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
+    /// List snapshot points (`<slot>.<hash>`) stored under the network prefix, independently from `index.json`.
+    pub async fn list_snapshot_objects(&self, network: NetworkName) -> anyhow::Result<Vec<String>> {
         let prefix = format!("{}/", network.to_string().to_lowercase());
         let mut continuation_token = None;
         let mut snapshots = Vec::new();
@@ -167,22 +132,8 @@ impl S3Client {
             }
         }
 
-        snapshots.sort_by(|left, right| left.point.cmp(&right.point));
+        snapshots.sort();
         Ok(snapshots)
-    }
-
-    /// Download an S3 object and write it to `dest`.
-    pub async fn download_object(&self, key: &str, dest: &Path) -> anyhow::Result<()> {
-        use tokio::{fs::File, io::AsyncWriteExt as _};
-
-        let response = self.inner.get_object().bucket(&self.config.bucket).key(key).send().await?;
-        let bytes = response.body.collect().await?.into_bytes();
-
-        let mut file = File::create(dest).await?;
-        file.write_all(&bytes).await?;
-        file.sync_all().await?;
-
-        Ok(())
     }
 
     /// Upload a local file to S3 at the given key.
@@ -239,20 +190,9 @@ impl S3Client {
 
         Ok(())
     }
-
-    /// Return `true` if the S3 object with `key` exists, `false` if it returns 404.
-    pub async fn object_exists(&self, key: &str) -> anyhow::Result<bool> {
-        match self.inner.head_object().bucket(&self.config.bucket).key(key).send().await {
-            Ok(_) => Ok(true),
-            Err(err) => {
-                let is_not_found = err.as_service_error().map(|e| e.is_not_found()).unwrap_or(false);
-                if is_not_found { Ok(false) } else { Err(err.into()) }
-            }
-        }
-    }
 }
 
-fn parse_snapshot_key(key: &str, prefix: &str) -> Option<S3Snapshot> {
+fn parse_snapshot_key(key: &str, prefix: &str) -> Option<String> {
     let filename = key.strip_prefix(prefix)?;
     let point = filename.strip_suffix(ARCHIVE_EXTENSION)?;
 
@@ -263,7 +203,7 @@ fn parse_snapshot_key(key: &str, prefix: &str) -> Option<S3Snapshot> {
         return None;
     }
 
-    Some(S3Snapshot { point: point.to_owned(), key: key.to_owned() })
+    Some(point.to_owned())
 }
 
 /// S3 client for unauthenticated (public-read) access via the public CDN URL.
@@ -286,7 +226,7 @@ impl AnonymousS3Client {
     /// List available snapshots by fetching `<network>/index.json` from the public CDN.
     ///
     /// Returns an empty list if the index does not exist yet (no snapshots published).
-    pub async fn list_snapshots(&self, network: NetworkName) -> anyhow::Result<Vec<S3Snapshot>> {
+    pub async fn list_snapshots(&self, network: NetworkName) -> anyhow::Result<Vec<String>> {
         let network_prefix = network.to_string().to_lowercase();
         let url = format!("{}/{network_prefix}/index.json", self.base_url);
 
@@ -295,12 +235,7 @@ impl AnonymousS3Client {
             return Ok(Vec::new());
         }
 
-        let points: Vec<String> = response.error_for_status()?.json().await?;
-
-        Ok(points
-            .into_iter()
-            .map(|point| S3Snapshot { key: format!("{network_prefix}/{point}{ARCHIVE_EXTENSION}"), point })
-            .collect())
+        Ok(response.error_for_status()?.json().await?)
     }
 
     /// Return the object size advertised by the public endpoint, when available.
@@ -308,11 +243,6 @@ impl AnonymousS3Client {
         let url = format!("{}/{key}", self.base_url);
         let response = self.http.head(&url).send().await?.error_for_status()?;
         Ok(response.headers().get(CONTENT_LENGTH).and_then(|value| value.to_str().ok()?.parse().ok()))
-    }
-
-    /// Download an object by key using an unsigned GET against the public CDN.
-    pub async fn download_object(&self, key: &str, dest: &Path) -> anyhow::Result<()> {
-        self.download_object_with_progress(key, dest, |_| {}).await
     }
 
     /// Download an object while reporting the size of each written chunk.
@@ -348,68 +278,4 @@ fn transfer_progress_bar(action: &str, size: u64) -> TerminalProgressBar {
     );
     progress.refresh();
     progress
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        io::{BufRead, BufReader, Write},
-        net::TcpListener,
-    };
-
-    use super::*;
-
-    #[test]
-    fn object_size_reads_head_content_length_header() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let public_url = format!("http://{}", listener.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request_line = String::new();
-            BufReader::new(&mut stream).read_line(&mut request_line).unwrap();
-            assert_eq!(request_line, "HEAD /snapshot.tar.zst HTTP/1.1\r\n");
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 12345\r\nConnection: close\r\n\r\n").unwrap();
-        });
-        let client = AnonymousS3Client::new(S3Config { public_url, ..S3Config::default() });
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-
-        assert_eq!(runtime.block_on(client.object_size("snapshot.tar.zst")).unwrap(), Some(12345));
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn parse_snapshot_key_valid() {
-        let prefix = "preprod/";
-        let key = "preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.tar.zst";
-        let snap = parse_snapshot_key(key, prefix).unwrap();
-        assert_eq!(snap.point, "69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912");
-        assert_eq!(snap.key, key);
-    }
-
-    #[test]
-    fn parse_snapshot_key_rejects_wrong_extension() {
-        assert!(parse_snapshot_key("preprod/69206375.hash.tar.gz", "preprod/").is_none());
-    }
-
-    #[test]
-    fn parse_snapshot_key_rejects_nested_path() {
-        assert!(parse_snapshot_key("preprod/sub/69206375.hash.tar.zst", "preprod/").is_none());
-    }
-
-    #[test]
-    fn parse_snapshot_key_rejects_non_numeric_slot() {
-        assert!(parse_snapshot_key("preprod/noslot.hash.tar.zst", "preprod/").is_none());
-    }
-
-    #[test]
-    fn parse_snapshot_key_rejects_invalid_hash() {
-        assert!(parse_snapshot_key("preprod/69206375.hash.tar.zst", "preprod/").is_none());
-        assert!(
-            parse_snapshot_key(
-                "preprod/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.extra.tar.zst",
-                "preprod/"
-            )
-            .is_none()
-        );
-    }
 }

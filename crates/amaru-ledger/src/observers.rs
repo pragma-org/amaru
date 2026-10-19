@@ -75,12 +75,12 @@ impl<'a> AdoptedBlock<'a> {
 
     /// Transactions in block order (bodies, witnesses, validity, aux data) — all borrowed.
     pub fn transactions(&self) -> impl Iterator<Item = TransactionRef<'a>> + '_ {
-        let invalid = self.block.invalid_transactions.as_ref();
+        let invalid = &self.block.invalid_transactions;
         self.block.transaction_bodies.iter().zip(self.block.transaction_witnesses.iter()).enumerate().map(
             move |(ix, (body, witnesses))| TransactionRef {
                 body,
                 witnesses: witnesses.as_ref(),
-                is_expected_valid: invalid.is_none_or(|set| !set.contains(&(ix as u16))),
+                is_expected_valid: !invalid.contains(&(ix as u16)),
                 auxiliary_data: self.block.auxiliary_data.get(&(ix as u16)),
             },
         )
@@ -160,16 +160,6 @@ impl LedgerObservers {
     pub fn on_adopted_block(mut self, handler: impl Fn(AdoptedBlock<'_>) + Send + Sync + 'static) -> Self {
         self.on_block = Some(Arc::new(move |event| {
             if let LedgerBlockEvent::Adopted(block) = event {
-                handler(block);
-            }
-        }));
-        self
-    }
-
-    /// Convenience: handle only undos (ignores adopts).
-    pub fn on_undone_block(mut self, handler: impl Fn(UndoneBlock<'_>) + Send + Sync + 'static) -> Self {
-        self.on_block = Some(Arc::new(move |event| {
-            if let LedgerBlockEvent::Undone(block) = event {
                 handler(block);
             }
         }));
