@@ -16,7 +16,7 @@ use std::{fmt, str::FromStr};
 
 use minicbor::{Decode, Encode};
 
-use crate::{AsShelley, Credential, HasOwnership, Network, RewardAccount, cbor, hash, size};
+use crate::{AsShelley, Credential, HasOwnership, Network, cbor, hash, size};
 
 pub mod byron;
 pub use byron::ByronAddress;
@@ -39,8 +39,6 @@ use crate::cbor::HasProtocolVersion;
 pub enum Address {
     Byron(ByronAddress),
     Shelley(ShelleyAddress),
-    // TODO: This is wrong, stake address should be a completely separate type.
-    Stake(RewardAccount),
 }
 
 impl<'b, Ctx: HasProtocolVersion> Decode<'b, Ctx> for Address {
@@ -66,7 +64,6 @@ impl fmt::Display for Address {
         match self {
             Self::Byron(x) => f.write_str(&x.to_base58()),
             Self::Shelley(x) => f.write_str(&x.to_bech32()),
-            Self::Stake(x) => f.write_str(&x.to_bech32()),
         }
     }
 }
@@ -101,7 +98,6 @@ impl Address {
         match self {
             Address::Byron(_) => None,
             Address::Shelley(x) => Some(x.to_bech32()),
-            Address::Stake(x) => Some(x.to_bech32()),
         }
     }
 
@@ -127,8 +123,7 @@ impl Address {
             AddressType::Type6 => parse_type_6(header, payload),
             AddressType::Type7 => parse_type_7(header, payload),
             AddressType::Type8 => parse_type_8(header, payload),
-            AddressType::Type14 => parse_type_14(header, payload),
-            AddressType::Type15 => parse_type_15(header, payload),
+            AddressType::Type14 | AddressType::Type15 => None,
         }
     }
 
@@ -143,7 +138,6 @@ impl Address {
         match self {
             Address::Byron(x) => x.network(),
             Address::Shelley(x) => x.network(),
-            Address::Stake(x) => x.network(),
         }
     }
 
@@ -152,7 +146,6 @@ impl Address {
         match self {
             Address::Byron(_) => false,
             Address::Shelley(x) => x.has_script(),
-            Address::Stake(x) => x.is_script(),
         }
     }
 
@@ -160,7 +153,6 @@ impl Address {
         match self {
             Address::Byron(x) => x.to_vec(),
             Address::Shelley(x) => x.to_vec(),
-            Address::Stake(x) => x.to_vec(),
         }
     }
 
@@ -168,7 +160,6 @@ impl Address {
         match self {
             Address::Byron(x) => x.to_hex(),
             Address::Shelley(x) => x.to_hex(),
-            Address::Stake(x) => x.to_hex(),
         }
     }
 }
@@ -247,22 +238,3 @@ fn parse_type_8(header: u8, payload: &[u8]) -> Option<Address> {
     let inner = cbor::from_cbor_no_leftovers(&vec).ok()?;
     Some(Address::Byron(inner))
 }
-
-macro_rules! parse_stake_fn {
-    ($name:tt, $type:tt) => {
-        fn $name(header: u8, payload: &[u8]) -> Option<Address> {
-            if payload.len() != size::CREDENTIAL {
-                return None;
-            }
-
-            let net = parse_network(header)?;
-            let h1 = hash::try_from_slice::<{ size::CREDENTIAL }>(&payload[0..size::CREDENTIAL])?;
-
-            Some(Address::Stake(RewardAccount::new(net, Credential::$type(h1))))
-        }
-    };
-}
-
-// types 14-15 are Stake addresses
-parse_stake_fn!(parse_type_14, KeyHash);
-parse_stake_fn!(parse_type_15, ScriptHash);

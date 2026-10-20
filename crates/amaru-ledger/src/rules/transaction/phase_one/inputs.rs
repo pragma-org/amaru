@@ -119,7 +119,6 @@ where
                     context.require_verification_key_witness(shelley_address.payment().as_hash());
                 }
             }
-            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         }
 
         if let Some((script_hash, script_size)) = script_ref {

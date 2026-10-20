@@ -52,6 +52,7 @@ Other guiding principles:
 - **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
+- **amaru-kernel**: by definition, a transaction output cannot be at a reward address.
 
 ## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
