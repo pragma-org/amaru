@@ -94,8 +94,6 @@ where
                     }
                 }
             }
-            // FIXME: Not unreachable at all?
-            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         };
 
         effective_collateral += &collateral_input.value;

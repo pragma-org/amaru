@@ -22,7 +22,7 @@ pub trait AsShelley {
 impl AsShelley for Address {
     fn as_shelley(&self) -> Option<&ShelleyAddress> {
         match self {
-            Self::Byron(..) | Self::Stake(..) => None,
+            Self::Byron(..) => None,
             Self::Shelley(address) => Some(address),
         }
     }

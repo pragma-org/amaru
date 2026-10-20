@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, fmt};
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 use thiserror::Error;
 
-use crate::{Address, AsHash, Credential, Lovelace, Network, Withdrawals, bech32, cbor};
+use crate::{AddressType, AsHash, Credential, Hash, Lovelace, Network, Withdrawals, bech32, cbor};
 
 /// The account rewards are paid to, often called a StakeAddress.
 ///
@@ -96,10 +96,16 @@ impl TryFrom<&[u8]> for RewardAccount {
     type Error = MalformedRewardAccount;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        match Address::from_bytes(bytes) {
-            Some(Address::Stake(account)) => Ok(account),
-            _ => Err(MalformedRewardAccount(bytes.to_vec())),
-        }
+        let malformed = || MalformedRewardAccount(bytes.to_vec());
+        let (&header, payload) = bytes.split_first().ok_or_else(malformed)?;
+        let hash = Hash::try_from(payload).map_err(|_| malformed())?;
+        let credential = match AddressType::try_from_header_byte(header) {
+            Some(AddressType::Type14) => Credential::KeyHash(hash),
+            Some(AddressType::Type15) => Credential::ScriptHash(hash),
+            _ => return Err(malformed()),
+        };
+        let network = Network::try_from(header & 0b0000_1111).map_err(|_| malformed())?;
+        Ok(Self::new(network, credential))
     }
 }
 
