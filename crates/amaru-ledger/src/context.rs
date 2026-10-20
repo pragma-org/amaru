@@ -240,8 +240,9 @@ pub trait AccountsSlice {
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<Credential, DRep>>;
 
-    // FIXME: Should yield an error when account doesn't exists.
-    fn unregister(&mut self, credential: Credential);
+    /// Remove a registered account, yielding its state as it stood just before removal.
+    fn unregister(&mut self, credential: Credential)
+    -> Result<AccountState, UnregisterError<AccountState, Credential>>;
 
     fn withdraw_from(&mut self, credential: Credential);
 }
@@ -269,7 +270,12 @@ pub trait DRepsSlice {
 
     fn update(&mut self, drep: Credential, anchor: Option<Box<Anchor>>) -> Result<(), UpdateError<Credential>>;
 
-    fn unregister(&mut self, drep: Credential, refund: Lovelace, pointer: CertificatePointer);
+    /// Remove a registered DRep, returning its registration as it was before removal.
+    fn unregister(
+        &mut self,
+        drep: Credential,
+        pointer: CertificatePointer,
+    ) -> Result<DRepRegistration, UnregisterError<DRepRegistration, Credential>>;
 }
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.

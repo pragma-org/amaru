@@ -526,6 +526,8 @@ normalizeGovCertFailure :: ConwayGovCertPredFailure ConwayEra -> Text
 normalizeGovCertFailure = \case
     ConwayDRepAlreadyRegistered{} ->
         "DRepAlreadyRegistered"
+    ConwayDRepNotRegistered{} ->
+        "DRepNotRegistered"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
     ConwayCommitteeHasPreviouslyResigned{} ->

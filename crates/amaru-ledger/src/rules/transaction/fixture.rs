@@ -296,9 +296,11 @@ pub(super) enum Predicate {
     DelegateeDRepNotRegistered,
     DelegateeStakePoolNotRegistered,
     DRepAlreadyRegistered,
+    DRepNotRegistered,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
     StakeKeyHasNonZeroAccountBalance,
+    StakeKeyNotRegistered,
     StakeKeyRegistered,
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
@@ -449,6 +451,12 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered
+            }
+            PhaseOneError::Certificates(
+                InvalidCertificates::DRepNotRegistered(_) | InvalidCertificates::DRepInvalidUpdate(_),
+            ) => Predicate::DRepNotRegistered,
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialNotRegistered(_)) => {
+                Predicate::StakeKeyNotRegistered
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolRetirementWrongEpoch { .. }) => {
                 Predicate::StakePoolRetirementWrongEpochPOOL
