@@ -243,7 +243,7 @@ pub struct ProbeReport {
     pub errors: Vec<String>,
 }
 
-/// Stage at which a `--ps-check` attempt failed.
+/// Stage at which a `--peer-check` attempt failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PsCheckFailedAt {
@@ -291,7 +291,7 @@ pub fn classify_failure(message: &str) -> PsCheckFailedAt {
     PsCheckFailedAt::Handshake
 }
 
-/// Which post-handshake mini-protocols a ps-check should run (on the same TCP session).
+/// Which post-handshake mini-protocols a peer-check should run (on the same TCP session).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PsCheckExtras {
     pub ping: bool,
@@ -313,7 +313,7 @@ pub struct PeerCheck {
     pub ping_rtts_ms: Vec<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tip: Option<TipInfo>,
-    /// Peer-share addresses from this check only (never recursively ps-checked).
+    /// Peer-share addresses from this check only (never recursively peer-checked).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peers: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

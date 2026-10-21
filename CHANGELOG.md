@@ -39,7 +39,7 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: `amaru peer probe <TARGETS> [OPTIONS]` checks TCP connect, N2N handshake (default max version 15), tip, peer-share, and optional keep-alive ping RTT. Targets are comma-separated `IP:PORT`, `HOSTNAME:PORT` (A/AAAA), or a bare DNS name for CIP-0155 SRV (`_cardano._tcp.<name>`). Put targets before options; optional-value flags use `=` (e.g. `--ping=5`). Use `--ps-check` to handshake each shared peer on its own session; optional extras are `ping`, `tip`, and `peer-share`.
+- **amaru**: `amaru peer probe <TARGETS> [OPTIONS]` checks TCP connect, N2N handshake (default max version 15), tip, peer-share, and optional keep-alive ping RTT. Targets are comma-separated `IP:PORT`, `HOSTNAME:PORT` (A/AAAA), or a bare DNS name for CIP-0155 SRV (`_cardano._tcp.<name>`). An SRV name expands to every usable record (priority order) and each resolved peer is probed. Put targets before options; optional-value flags use `=` (e.g. `--ping=5`). Use `--peer-check` to handshake each shared peer on its own session; optional extras are `ping`, `tip`, and `peer-share`.
 - **amaru**: conformance reports for uplc, uplc turbo, ledger rules and cbor decoding as release artifacts.
 
 ### Changed

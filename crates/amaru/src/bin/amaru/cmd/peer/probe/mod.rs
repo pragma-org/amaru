@@ -36,7 +36,7 @@ use amaru::{
     observability::Color,
 };
 use amaru_kernel::{NetworkName, Peer, PeerCandidate, utils::duration};
-use amaru_network::resolve::{init_resolver, resolve_peer_candidate};
+use amaru_network::resolve::{init_resolver, resolve_all_peers};
 use amaru_protocols::protocol_messages::version_number::VersionNumber;
 use anyhow::{Context, bail};
 use clap::Parser;
@@ -47,52 +47,14 @@ pub struct Args {
     /// Peer target(s), comma-separated.
     ///
     /// Each entry is `IP:PORT`, `HOSTNAME:PORT` (A/AAAA lookup), or a bare DNS name for a
-    /// CIP-0155 Cardano SRV lookup (`_cardano._tcp.<name>`). Targets are probed in order.
+    /// CIP-0155 Cardano SRV lookup (`_cardano._tcp.<name>`). SRV names expand to every usable
+    /// record (RFC 2782 priority order); each resolved peer is probed in turn.
     #[arg(value_name = amaru::value_names::PEER_TARGETS)]
     targets: String,
 
-    /// Cardano network (selects handshake network magic).
-    #[arg(
-        long,
-        value_name = amaru::value_names::NETWORK,
-        env = amaru::env_vars::NETWORK,
-        default_value = "mainnet",
-        display_order = 0,
-    )]
-    network: NetworkName,
-
-    /// TCP connect timeout.
-    #[arg(
-        long = "timeout-connect",
-        value_name = amaru::value_names::DURATION,
-        value_parser = duration::parse,
-        env = amaru::env_vars::PROBE_TIMEOUT_CONNECT,
-        default_value = "5s",
-        display_order = 0,
-    )]
-    connect_timeout: Duration,
-
-    /// Handshake mini-protocol timeout.
-    #[arg(
-        long = "timeout-handshake",
-        value_name = amaru::value_names::DURATION,
-        value_parser = duration::parse,
-        env = amaru::env_vars::PROBE_TIMEOUT_HANDSHAKE,
-        default_value = "10s",
-        display_order = 0,
-    )]
-    handshake_timeout: Duration,
-
-    /// Timeout for chainsync / peer-share / keep-alive replies.
-    #[arg(
-        long = "timeout-protocol",
-        value_name = amaru::value_names::DURATION,
-        value_parser = duration::parse,
-        env = amaru::env_vars::PROBE_TIMEOUT_PROTOCOL,
-        default_value = "15s",
-        display_order = 0,
-    )]
-    protocol_timeout: Duration,
+    /// Run ping, handshake, tip, and peer-share.
+    #[arg(long, help_heading = "Probe types", display_order = 1)]
+    all: bool,
 
     /// Measure keep-alive mini-protocol RTT after TCP connect + N2N handshake.
     ///
@@ -105,46 +67,67 @@ pub struct Args {
         require_equals = true,
         default_missing_value = "1",
         value_name = "COUNT|COUNT:INTERVAL",
-        display_order = 0,
+        help_heading = "Probe types",
+        display_order = 2,
     )]
     ping: Option<PingSpec>,
 
     /// Query remote offered N2N versions (`MsgQueryReply`) and print them.
-    #[arg(long, display_order = 0)]
+    #[arg(long, help_heading = "Probe types", display_order = 3)]
     handshake: bool,
 
+    /// Query tip via chain-sync FindIntersect(Origin).
+    #[arg(long, help_heading = "Probe types", display_order = 4)]
+    tip: bool,
+
     /// Request up to 10 peer-share addresses.
-    #[arg(long = "peer-share", display_order = 0)]
+    #[arg(long = "peer-share", help_heading = "Probe types", display_order = 5)]
     peer_share: bool,
 
     /// After peer-share, check each returned peer on one TCP session (connect + N2N handshake).
     ///
-    /// Bare `--ps-check` stops after a successful Accept. Optional semicolon-separated extras
-    /// via `=`: `ping`, `tip`, `peer-share` (e.g. `--ps-check=tip;ping`). Peer-share extras
-    /// report returned addresses but those addresses are not ps-checked again (one level only).
+    /// Bare `--peer-check` stops after a successful Accept. Optional semicolon-separated extras
+    /// via `=`: `ping`, `tip`, `peer-share` (e.g. `--peer-check=tip;ping`). Peer-share extras
+    /// report returned addresses but those addresses are not peer-checked again (one level only).
     /// Uses the same timeouts, `--requested-version`, `--time-track`, and `--retry` as the
     /// primary probe.
     #[arg(
-        long = "ps-check",
+        long = "peer-check",
         num_args = 0..=1,
         require_equals = true,
         default_missing_value = "",
         value_name = "TESTS",
-        display_order = 0,
+        help_heading = "Probe types",
+        display_order = 6,
     )]
-    ps_check: Option<PsCheckSpec>,
+    peer_check: Option<PeerCheckSpec>,
 
-    /// Query tip via chain-sync FindIntersect(Origin).
-    #[arg(long, display_order = 0)]
-    tip: bool,
+    /// Cardano network (selects handshake network magic).
+    #[arg(
+        long,
+        value_name = amaru::value_names::NETWORK,
+        env = amaru::env_vars::NETWORK,
+        default_value = "mainnet",
+        help_heading = "Probe settings",
+        display_order = 10,
+    )]
+    network: NetworkName,
 
-    /// Run ping, handshake, tip, and peer-share (then bare ps-check if peers are returned).
-    #[arg(long, display_order = 0)]
-    all: bool,
-
-    /// Record per-step wall timestamps, deltas, elapsed-from-start, and TCP bytes.
-    #[arg(long = "time-track", display_order = 0)]
-    time_track: bool,
+    /// Highest N2N version to offer in the handshake (default: current Amaru N2N version).
+    ///
+    /// Proposes every Amaru-supported version from 11 through this value. The remote may
+    /// Accept any offered version at or below this ceiling; a lower negotiated version is
+    /// success, not a failure. Must be a version Amaru implements (11..=15 on this branch).
+    /// Applies to the primary probe and to each `--peer-check` session.
+    #[arg(
+        long = "requested-version",
+        value_name = amaru::value_names::UINT,
+        env = amaru::env_vars::PROBE_REQUESTED_VERSION,
+        default_value_t = VersionNumber::CURRENT.as_u64(),
+        help_heading = "Probe settings",
+        display_order = 11,
+    )]
+    requested_version: u64,
 
     /// Extra attempts after a failed handshake-query or session step.
     ///
@@ -158,27 +141,53 @@ pub struct Args {
         default_missing_value = "1:500ms",
         value_name = "COUNT|COUNT:INTERVAL",
         env = amaru::env_vars::PROBE_RETRY,
-        display_order = 0,
+        help_heading = "Probe settings",
+        display_order = 12,
     )]
     retry: Option<RetrySpec>,
 
-    /// Highest N2N version to offer in the handshake (default: current Amaru N2N version).
-    ///
-    /// Proposes every Amaru-supported version from 11 through this value. The remote may
-    /// Accept any offered version at or below this ceiling; a lower negotiated version is
-    /// success, not a failure. Must be a version Amaru implements (11..=15 on this branch).
-    /// Applies to the primary probe and to each `--ps-check` session.
+    /// TCP connect timeout.
     #[arg(
-        long = "requested-version",
-        value_name = amaru::value_names::UINT,
-        env = amaru::env_vars::PROBE_REQUESTED_VERSION,
-        default_value_t = VersionNumber::CURRENT.as_u64(),
-        display_order = 0,
+        long = "timeout-connect",
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PROBE_TIMEOUT_CONNECT,
+        default_value = "5s",
+        help_heading = "Probe settings",
+        display_order = 13,
     )]
-    requested_version: u64,
+    connect_timeout: Duration,
+
+    /// Handshake mini-protocol timeout.
+    #[arg(
+        long = "timeout-handshake",
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PROBE_TIMEOUT_HANDSHAKE,
+        default_value = "10s",
+        help_heading = "Probe settings",
+        display_order = 14,
+    )]
+    handshake_timeout: Duration,
+
+    /// Timeout for chainsync / peer-share / keep-alive replies.
+    #[arg(
+        long = "timeout-protocol",
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PROBE_TIMEOUT_PROTOCOL,
+        default_value = "15s",
+        help_heading = "Probe settings",
+        display_order = 15,
+    )]
+    protocol_timeout: Duration,
+
+    /// Record per-step wall timestamps, deltas, elapsed-from-start, and TCP bytes.
+    #[arg(long = "time-track", help_heading = "Probe settings", display_order = 16)]
+    time_track: bool,
 
     /// Emit machine-readable JSON instead of color human output.
-    #[arg(long, display_order = 0)]
+    #[arg(long, help_heading = "Probe settings", display_order = 17)]
     json: bool,
 }
 
@@ -198,13 +207,13 @@ impl FromStr for PingSpec {
     }
 }
 
-/// Optional post-handshake tests for `--ps-check` (semicolon-separated).
+/// Optional post-handshake tests for `--peer-check` (semicolon-separated).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct PsCheckSpec {
+struct PeerCheckSpec {
     extras: session::PsCheckExtras,
 }
 
-impl PsCheckSpec {
+impl PeerCheckSpec {
     fn display(&self) -> String {
         let mut parts = Vec::new();
         if self.extras.ping {
@@ -220,7 +229,7 @@ impl PsCheckSpec {
     }
 }
 
-impl FromStr for PsCheckSpec {
+impl FromStr for PeerCheckSpec {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -240,7 +249,7 @@ impl FromStr for PsCheckSpec {
                 "peer-share" => extras.peer_share = true,
                 other => {
                     return Err(format!(
-                        "unknown --ps-check test '{other}'; expected ping, tip, peer-share \
+                        "unknown --peer-check test '{other}'; expected ping, tip, peer-share \
                          (semicolon-separated)"
                     ));
                 }
@@ -329,7 +338,7 @@ struct Actions {
     ping: Option<PingSpec>,
     handshake: bool,
     peer_share: bool,
-    ps_check: Option<PsCheckSpec>,
+    peer_check: Option<PeerCheckSpec>,
     tip: bool,
 }
 
@@ -340,26 +349,26 @@ impl Actions {
                 ping: Some(PingSpec { count: 1, interval: Duration::from_secs(1) }),
                 handshake: true,
                 peer_share: true,
-                ps_check: Some(PsCheckSpec::default()),
+                peer_check: None,
                 tip: true,
             };
         }
         let mut actions = Self {
             ping: args.ping,
             handshake: args.handshake,
-            peer_share: args.peer_share || args.ps_check.is_some(),
-            ps_check: args.ps_check,
+            peer_share: args.peer_share || args.peer_check.is_some(),
+            peer_check: args.peer_check,
             tip: args.tip,
         };
         if actions.ping.is_none()
-            && !(actions.handshake || actions.peer_share || actions.ps_check.is_some() || actions.tip)
+            && !(actions.handshake || actions.peer_share || actions.peer_check.is_some() || actions.tip)
         {
             // Default: full probe when no action flag is given.
             actions = Self {
                 ping: Some(PingSpec { count: 1, interval: Duration::from_secs(1) }),
                 handshake: true,
                 peer_share: true,
-                ps_check: None,
+                peer_check: None,
                 tip: true,
             };
         }
@@ -405,8 +414,16 @@ async fn run(args: Args) -> anyhow::Result<()> {
 
     let mut reports = Vec::with_capacity(candidates.len());
     for candidate in &candidates {
-        let report = probe_one(candidate, &args, actions, max_n2n_version, stream, color).await;
-        reports.push(report);
+        let peers = resolve_all_peers(candidate).await;
+        if peers.is_empty() {
+            reports.push(probe_resolve_failed(candidate, &args, stream, color));
+            continue;
+        }
+        for peer in peers {
+            let report =
+                probe_one(candidate, peer, &args, actions, max_n2n_version, stream, color).await;
+            reports.push(report);
+        }
     }
 
     if args.json {
@@ -419,8 +436,36 @@ async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn probe_resolve_failed(
+    candidate: &PeerCandidate,
+    args: &Args,
+    stream: bool,
+    color: bool,
+) -> session::ProbeReport {
+    let out = HumanOut::new(color);
+    let address = candidate.to_string();
+    let kind = match candidate {
+        PeerCandidate::Socket(_) => "socket",
+        PeerCandidate::Host { .. } => "host",
+        PeerCandidate::Srv { .. } => "CIP-0155 SRV",
+    };
+    let report = session::ProbeReport {
+        address,
+        resolved: None,
+        network: args.network.to_string(),
+        errors: vec![format!("failed to resolve {kind} target '{candidate}'")],
+        ..session::ProbeReport::default()
+    };
+    if stream {
+        out.probe_header(&report);
+        out.errors(&report.errors);
+    }
+    report
+}
+
 async fn probe_one(
     candidate: &PeerCandidate,
+    peer: Peer,
     args: &Args,
     actions: Actions,
     max_n2n_version: VersionNumber,
@@ -432,7 +477,7 @@ async fn probe_one(
 
     let mut report = session::ProbeReport {
         address: address.clone(),
-        resolved: None,
+        resolved: candidate.needs_resolution().then(|| peer.to_string()),
         network: args.network.to_string(),
         ping_rtts_ms: Vec::new(),
         ping_interval_ms: None,
@@ -443,24 +488,6 @@ async fn probe_one(
         timetrack: Vec::new(),
         errors: Vec::new(),
     };
-
-    let Some(peer) = resolve_peer_candidate(candidate).await else {
-        let kind = match candidate {
-            PeerCandidate::Socket(_) => "socket",
-            PeerCandidate::Host { .. } => "host",
-            PeerCandidate::Srv { .. } => "CIP-0155 SRV",
-        };
-        report.errors.push(format!("failed to resolve {kind} target '{address}'"));
-        if stream {
-            out.probe_header(&report);
-            out.errors(&report.errors);
-        }
-        return report;
-    };
-
-    if candidate.needs_resolution() {
-        report.resolved = Some(peer.to_string());
-    }
 
     let connect_timeout = args.connect_timeout;
     let handshake_timeout = args.handshake_timeout;
@@ -579,7 +606,7 @@ async fn probe_one(
             if !report.ping_rtts_ms.is_empty() {
                 out.ping(&report);
             }
-            out.session_sections(&report, /*include_pscheck*/ false, /*skip_handshake*/ true);
+            out.session_sections(&report, /*include_peer_check*/ false, /*skip_handshake*/ true);
         }
     } else if stream && actions.handshake {
         // handshake-only already streamed above
@@ -589,29 +616,29 @@ async fn probe_one(
         out.timetrack(&report.timetrack);
     }
 
-    if let Some(ps_spec) = actions.ps_check {
+    if let Some(check_spec) = actions.peer_check {
         let peers = report.peers.clone().unwrap_or_default();
-        let mut pscheck_header = stream && !peers.is_empty();
-        let ps_params = PsCheckParams {
+        let mut peer_check_header = stream && !peers.is_empty();
+        let check_params = PeerCheckParams {
             network: args.network,
             connect_timeout,
             handshake_timeout,
             protocol_timeout,
             max_n2n_version,
-            extras: ps_spec.extras,
+            extras: check_spec.extras,
             time_track: args.time_track,
         };
         for addr in peers {
-            let check = match with_retries(args.retry, || run_pscheck_one(&addr, ps_params)).await {
+            let check = match with_retries(args.retry, || run_peer_check_one(&addr, check_params)).await {
                 Ok(check) => check,
                 Err(err) => session::PeerCheck::hard_failure(&addr, format!("{err:#}")),
             };
             if stream {
-                if pscheck_header {
-                    out.pscheck_header();
-                    pscheck_header = false;
+                if peer_check_header {
+                    out.peer_check_header();
+                    peer_check_header = false;
                 }
-                out.pscheck_nested(&check);
+                out.peer_check_nested(&check);
             }
             report.peer_checks.push(check);
         }
@@ -620,9 +647,9 @@ async fn probe_one(
     report
 }
 
-/// Shared probe settings applied to each `--ps-check` session.
+/// Shared probe settings applied to each `--peer-check` session.
 #[derive(Debug, Clone, Copy)]
-struct PsCheckParams {
+struct PeerCheckParams {
     network: NetworkName,
     connect_timeout: Duration,
     handshake_timeout: Duration,
@@ -634,14 +661,14 @@ struct PsCheckParams {
 
 /// One TCP connect + handshake (+ optional extras). Hard connect/session errors are `Err`
 /// so `--retry` can re-attempt; soft handshake/protocol failures are `Ok` with `ok: false`.
-async fn run_pscheck_one(addr: &str, params: PsCheckParams) -> anyhow::Result<session::PeerCheck> {
+async fn run_peer_check_one(addr: &str, params: PeerCheckParams) -> anyhow::Result<session::PeerCheck> {
     let Ok(peer) = addr.parse::<Peer>() else {
         // Not retryable: address came from peer-share encoding.
         return Ok(session::PeerCheck::hard_failure(addr, "invalid peer address from share"));
     };
 
     // Peer-share extras are reported on this check only; callers never enqueue those peers
-    // for another ps-check (one discovery level).
+    // for another peer-check (one discovery level).
     let partial = session::run_session(session::SessionRequest {
         peer,
         network: params.network,
@@ -780,8 +807,8 @@ impl HumanOut {
         self.flush();
     }
 
-    /// Tip / peershare (and optionally already-collected pscheck rows).
-    fn session_sections(&self, report: &session::ProbeReport, include_pscheck: bool, skip_handshake: bool) {
+    /// Tip / peershare (and optionally already-collected peer-check rows).
+    fn session_sections(&self, report: &session::ProbeReport, include_peer_check: bool, skip_handshake: bool) {
         if !skip_handshake && let Some(hs) = &report.handshake {
             self.handshake(hs);
         }
@@ -797,20 +824,20 @@ impl HumanOut {
             } else {
                 self.section_ok_suffix("peer-share", format!("{} peer(s)", peers.len()));
                 for p in peers {
-                    if include_pscheck && let Some(check) = report.peer_checks.iter().find(|c| c.address == *p) {
-                        self.pscheck_nested(check);
+                    if include_peer_check && let Some(check) = report.peer_checks.iter().find(|c| c.address == *p) {
+                        self.peer_check_nested(check);
                         continue;
                     }
                     println!("    {p}");
                 }
             }
         }
-        if include_pscheck {
+        if include_peer_check {
             for check in &report.peer_checks {
                 if report.peers.as_ref().is_some_and(|ps| ps.iter().any(|p| p == &check.address)) {
                     continue;
                 }
-                self.pscheck_orphan(check);
+                self.peer_check_orphan(check);
             }
         }
         self.errors(&report.errors);
@@ -872,26 +899,26 @@ impl HumanOut {
         self.flush();
     }
 
-    fn pscheck_header(&self) {
-        self.section_ok("ps-check");
+    fn peer_check_header(&self) {
+        self.section_ok("peer-check");
         self.flush();
     }
 
     /// Nested under a peershare address, or a live streaming progress line.
-    fn pscheck_nested(&self, check: &session::PeerCheck) {
+    fn peer_check_nested(&self, check: &session::PeerCheck) {
         let tag = self.p.status(check.ok);
-        println!("    {}  {tag}{}{}", check.address, format_pscheck_summary(check), self.p.reset);
-        self.pscheck_details(check, "      ");
+        println!("    {}  {tag}{}{}", check.address, format_peer_check_summary(check), self.p.reset);
+        self.peer_check_details(check, "      ");
         self.flush();
     }
 
-    fn pscheck_orphan(&self, check: &session::PeerCheck) {
+    fn peer_check_orphan(&self, check: &session::PeerCheck) {
         let tag = self.p.status(check.ok);
-        println!("  {tag}ps-check{}  {}  {}", self.p.reset, check.address, format_pscheck_summary(check));
-        self.pscheck_details(check, "           ");
+        println!("  {tag}peer-check{}  {}  {}", self.p.reset, check.address, format_peer_check_summary(check));
+        self.peer_check_details(check, "           ");
     }
 
-    fn pscheck_details(&self, check: &session::PeerCheck, indent: &str) {
+    fn peer_check_details(&self, check: &session::PeerCheck, indent: &str) {
         if !check.ping_rtts_ms.is_empty() {
             let samples =
                 check.ping_rtts_ms.iter().map(|ms| format!("{} ms", format_rtt_ms(*ms))).collect::<Vec<_>>().join(", ");
@@ -918,7 +945,7 @@ impl HumanOut {
 
 }
 
-fn format_pscheck_summary(check: &session::PeerCheck) -> String {
+fn format_peer_check_summary(check: &session::PeerCheck) -> String {
     let version = check.negotiated_version.map(|v| format!(" v{v}")).unwrap_or_default();
     if check.ok {
         format!("ok handshake{version}")
@@ -1006,15 +1033,15 @@ mod tests {
     }
 
     #[test]
-    fn ps_check_spec_bare_is_handshake_only() {
-        let spec: PsCheckSpec = "".parse().unwrap();
+    fn peer_check_spec_bare_is_handshake_only() {
+        let spec: PeerCheckSpec = "".parse().unwrap();
         assert_eq!(spec.extras, session::PsCheckExtras::default());
         assert_eq!(spec.display(), "handshake");
     }
 
     #[test]
-    fn ps_check_spec_parses_semicolon_extras() {
-        let spec: PsCheckSpec = "ping;tip;peer-share".parse().unwrap();
+    fn peer_check_spec_parses_semicolon_extras() {
+        let spec: PeerCheckSpec = "ping;tip;peer-share".parse().unwrap();
         assert!(spec.extras.ping);
         assert!(spec.extras.tip);
         assert!(spec.extras.peer_share);
@@ -1022,8 +1049,8 @@ mod tests {
     }
 
     #[test]
-    fn ps_check_spec_rejects_unknown_token() {
-        let err = "tip;foo".parse::<PsCheckSpec>().unwrap_err();
+    fn peer_check_spec_rejects_unknown_token() {
+        let err = "tip;foo".parse::<PeerCheckSpec>().unwrap_err();
         assert!(err.contains("unknown"));
     }
 
