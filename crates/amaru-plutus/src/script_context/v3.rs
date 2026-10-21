@@ -211,7 +211,7 @@ impl ToPlutusData<3> for Voter {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 impl ToPlutusData<3> for Proposal {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        constr_v3!(0, [self.deposit, Address::Stake(self.reward_account), self.gov_action])
+        constr_v3!(0, [self.deposit, self.reward_account, self.gov_action])
     }
 }
 

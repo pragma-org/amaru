@@ -90,7 +90,6 @@ impl MemoizedTransactionOutput {
         match &self.address {
             Address::Shelley(shelley) => shelley.delegation().and_then(StakeReference::credential),
             Address::Byron(..) => None,
-            Address::Stake(..) => unreachable!("stake address inside output?"),
         }
     }
 }
@@ -450,6 +449,18 @@ mod tests {
     fn decode_rejects_unknown_and_duplicate_keys(input: &[u8]) {
         let mut version = crate::protocol_version::PROTOCOL_VERSION_10;
         let decoded: Result<MemoizedTransactionOutput, _> = cbor::from_cbor_no_leftovers_with(input, &mut version);
+        assert!(decoded.is_err(), "expected a decoding failure, got {decoded:?}");
+    }
+
+    #[cfg(test)]
+    #[test_case::test_case(&[0x82], 0xe0, &[0x00]       ; "legacy output with a key stake address")]
+    #[test_case::test_case(&[0x82], 0xf0, &[0x00]       ; "legacy output with a script stake address")]
+    #[test_case::test_case(&[0xa2, 0x00], 0xe0, &[0x01, 0x00] ; "modern output with a key stake address")]
+    #[test_case::test_case(&[0xa2, 0x00], 0xf0, &[0x01, 0x00] ; "modern output with a script stake address")]
+    fn decode_rejects_stake_address(prefix: &[u8], header: u8, suffix: &[u8]) {
+        let input = [prefix, &[0x58, 0x1d, header], &[0x42; 28], suffix].concat();
+        let mut version = crate::protocol_version::PROTOCOL_VERSION_10;
+        let decoded: Result<MemoizedTransactionOutput, _> = cbor::from_cbor_no_leftovers_with(&input, &mut version);
         assert!(decoded.is_err(), "expected a decoding failure, got {decoded:?}");
     }
 }
