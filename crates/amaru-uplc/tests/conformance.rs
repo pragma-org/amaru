@@ -17,6 +17,7 @@
 use std::{
     fs::OpenOptions,
     io::Write,
+    mem,
     sync::{Mutex, OnceLock},
 };
 
@@ -157,10 +158,11 @@ fn run_conformance(
         );
     }
 
-    let result = program.eval(&arena, conformance_cost_model(plutus_version, protocol_version), ExBudget::default());
-    let info = result.info;
+    let mut result =
+        program.eval(&arena, conformance_cost_model(plutus_version, protocol_version), ExBudget::default());
+    let info = mem::take(&mut result.info);
 
-    let term = match result.term {
+    let term = match result.into_term() {
         Ok(term) => term,
         Err(error) => {
             let actual =

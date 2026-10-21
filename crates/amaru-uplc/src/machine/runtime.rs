@@ -14,8 +14,7 @@
 
 #![expect(clippy::unwrap_used, clippy::expect_used, clippy::wildcard_enum_match_arm)]
 
-use core::str;
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, str};
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
 use dashu_base::{BitTest, DivRem, RemEuclid, UnsignedAbs, ring::ExtendedGcd};
@@ -35,6 +34,9 @@ use crate::{
     machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, StringSize, integer_log2},
     typ::Type,
 };
+
+mod arguments;
+pub use arguments::Arguments;
 
 pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
 pub const WRITE_BITS_MAXIMUM_INPUT_LENGTH: usize = 4096;
@@ -116,7 +118,7 @@ pub struct Runtime<'a, V>
 where
     V: Eval<'a>,
 {
-    pub args: BumpVec<'a, &'a Value<'a, V>>,
+    pub args: Arguments<'a, V>,
     pub fun: DefaultFunction,
     pub forces: usize,
 }
@@ -125,21 +127,17 @@ impl<'a, V> Runtime<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn new(arena: &'a Arena, fun: DefaultFunction) -> &'a Self {
-        arena.alloc(Self { args: BumpVec::new_in(arena.as_bump()), fun, forces: 0 })
+    pub fn new(fun: DefaultFunction) -> Self {
+        Self { args: Arguments::empty(), fun, forces: 0 }
     }
 
-    pub fn force(&self, arena: &'a Arena) -> &'a Self {
-        arena.alloc(Runtime { args: self.args.clone(), fun: self.fun, forces: self.forces + 1 })
+    pub fn force(&self) -> Self {
+        Runtime { args: self.args, fun: self.fun, forces: self.forces + 1 }
     }
 
-    pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> &'a Self {
-        // `BumpVec::clone` has no spare capacity, so appending to it allocates and copies the arguments twice.
-        let mut args = BumpVec::with_capacity_in(self.args.len() + 1, arena.as_bump());
-        args.extend_from_slice(&self.args);
-        args.push(arg);
-
-        arena.alloc(Runtime { args, fun: self.fun, forces: self.forces })
+    pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> Self {
+        let args = self.args.push(arena, arg);
+        Runtime { args, fun: self.fun, forces: self.forces }
     }
 
     pub fn needs_force(&self) -> bool {
@@ -155,11 +153,11 @@ where
     }
 }
 
-impl<'a> Machine<'a> {
-    fn unwrap_bounded_integer<V>(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+impl<'a, V> Machine<'a, V>
+where
+    V: Eval<'a>,
+{
+    fn unwrap_bounded_integer(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>> {
         let integer = value.unwrap_integer()?;
 
         if self.costs.semantics.enforces_integer_bounds() && !fits_cardano_integer_range(integer) {
@@ -178,10 +176,7 @@ impl<'a> Machine<'a> {
     }
 
     /// The absolute shift amount used for costing, saturated to `i64::MAX` where the semantics allow larger amounts.
-    fn shift_amount_cost<V>(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+    fn shift_amount_cost(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>> {
         match i64::try_from(shift) {
             Ok(shift) => Ok(shift.saturating_abs()),
             Err(_) if self.costs.semantics.bounds_shift_amount_to_int64() => {
@@ -191,10 +186,7 @@ impl<'a> Machine<'a> {
         }
     }
 
-    pub fn call<V>(&mut self, runtime: &'a Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+    pub fn call(&mut self, runtime: &Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>> {
         match runtime.fun {
             DefaultFunction::AddInteger => {
                 let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;
@@ -546,7 +538,7 @@ impl<'a> Machine<'a> {
                 if list.is_empty() {
                     Err(MachineError::empty_list(list))
                 } else {
-                    let value = Value::con(self.arena, list[0]);
+                    let value = Value::con(self.arena, list.first().expect("non-empty list"));
 
                     Ok(value)
                 }
@@ -750,15 +742,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::mk_cons_type_mismatch(item));
                 }
 
-                let mut new_list = BumpVec::with_capacity_in(list.len() + 1, self.arena.as_bump());
-
-                new_list.push(item);
-
-                new_list.extend_from_slice(list);
-
-                let new_list = self.arena.alloc(new_list);
-
-                let constant = Constant::proto_list(self.arena, typ, new_list);
+                let constant = Constant::proto_list_cons(self.arena, typ, item, list);
 
                 let value = constant.value(self.arena);
 
@@ -1024,7 +1008,8 @@ impl<'a> Machine<'a> {
                 if list.is_empty() {
                     Err(MachineError::empty_list(list))
                 } else {
-                    let constant = Constant::proto_list(self.arena, t1, &list[1..]);
+                    let constant =
+                        Constant::proto_list_from(self.arena, t1, list.tail(self.arena).expect("non-empty list"));
 
                     let value = Value::con(self.arena, constant);
 
@@ -1787,17 +1772,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0xFF);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0xFF);
-                            left_byte & right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0xFF);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0xFF);
+                        result.push(left_byte & right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 & b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 & b2).collect_in(self.arena.as_bump())
                 };
                 let result = self.arena.alloc(bytes_result);
                 let value = Value::byte_string(self.arena, result);
@@ -1815,17 +1800,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
-                            left_byte | right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
+                        result.push(left_byte | right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 | b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 | b2).collect_in(self.arena.as_bump())
                 };
 
                 let result = self.arena.alloc(bytes_result);
@@ -1845,17 +1830,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
-                            left_byte ^ right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
+                        result.push(left_byte ^ right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 ^ b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 ^ b2).collect_in(self.arena.as_bump())
                 };
 
                 let result = self.arena.alloc(bytes_result);
@@ -1870,7 +1855,8 @@ impl<'a> Machine<'a> {
                     self.costs.builtin_costs.get_cost(DefaultFunction::ComplementByteString, &[(&bytes).into()]);
                 self.spend_budget(budget)?;
 
-                let result = self.arena.alloc(bytes.iter().map(|b| b ^ 255).collect::<Vec<_>>());
+                let result: BumpVec<'_, u8> = bytes.iter().map(|b| b ^ 255).collect_in(self.arena.as_bump());
+                let result = self.arena.alloc(result);
 
                 Ok(Value::byte_string(self.arena, result))
             }
@@ -1922,7 +1908,8 @@ impl<'a> Machine<'a> {
                     ));
                 }
 
-                let mut bytes = original_bytes.to_vec();
+                let mut bytes = BumpVec::with_capacity_in(original_bytes.len(), self.arena.as_bump());
+                bytes.extend_from_slice(original_bytes);
 
                 for index in indices {
                     let Constant::Integer(bit_index) = index else { unreachable!("bit_index must be an integer") };
@@ -1991,7 +1978,9 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::outside_byte_bounds(byte));
                 };
 
-                let result = if size == 0 { self.arena.alloc(vec![]) } else { self.arena.alloc([byte].repeat(size)) };
+                let mut result = BumpVec::with_capacity_in(size, self.arena.as_bump());
+                result.resize(size, byte);
+                let result = self.arena.alloc(result);
 
                 Ok(Value::byte_string(self.arena, result))
             }
@@ -2008,7 +1997,9 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let length = bytes.len();
-                let result = self.arena.alloc(vec![0; length]);
+                let mut result = BumpVec::with_capacity_in(length, self.arena.as_bump());
+                result.resize(length, 0);
+                let result = self.arena.alloc(result);
 
                 let shift_abs = shift.clone().unsigned_abs();
 
@@ -2098,7 +2089,9 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let length = bytes.len();
-                let result = self.arena.alloc(bytes.to_vec());
+                let mut result = BumpVec::with_capacity_in(length, self.arena.as_bump());
+                result.extend_from_slice(bytes);
+                let result = self.arena.alloc(result);
 
                 if bytes.is_empty() {
                     return Ok(Value::byte_string(self.arena, result));
@@ -2242,7 +2235,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if elements_to_drop.is_negative() {
-                    let constant = Constant::proto_list(self.arena, list_type, list);
+                    let constant = Constant::proto_list_from(self.arena, list_type, list);
                     let value = Value::con(self.arena, constant);
                     return Ok(value);
                 }
@@ -2253,10 +2246,9 @@ impl<'a> Machine<'a> {
                     usize::try_from(elements_to_drop).unwrap_or(0)
                 };
 
-                let remaining_list =
-                    if elements_to_drop_usize >= list.len() { &[] } else { &list[elements_to_drop_usize..] };
+                let remaining_list = list.drop(self.arena, elements_to_drop_usize);
 
-                let constant = Constant::proto_list(self.arena, list_type, remaining_list);
+                let constant = Constant::proto_list_from(self.arena, list_type, remaining_list);
                 let value = Value::con(self.arena, constant);
 
                 Ok(value)
@@ -2283,7 +2275,8 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let constant = Constant::proto_array(self.arena, list_type, list);
+                let array: BumpVec<'_, _> = list.iter().collect_in(self.arena.as_bump());
+                let constant = Constant::proto_array(self.arena, list_type, array.into_bump_slice());
 
                 let value = Value::con(self.arena, constant);
 
@@ -2328,12 +2321,14 @@ impl<'a> Machine<'a> {
                 let mut scalar_buf = blst::blst_scalar::default();
 
                 for i in 0..n {
-                    let Constant::Integer(si) = scalars[i] else {
-                        return Err(MachineError::type_mismatch(Type::Integer, scalars[i]));
+                    let scalar = scalars.get(i).expect("scalar list length must match its cached length");
+                    let Constant::Integer(si) = scalar else {
+                        return Err(MachineError::type_mismatch(Type::Integer, scalar));
                     };
 
-                    let Constant::Bls12_381G1Element(pi) = points[i] else {
-                        return Err(MachineError::type_mismatch(Type::Bls12_381G1Element, points[i]));
+                    let point = points.get(i).expect("point list length must match its cached length");
+                    let Constant::Bls12_381G1Element(pi) = point else {
+                        return Err(MachineError::type_mismatch(Type::Bls12_381G1Element, point));
                     };
 
                     // Validate range even for infinity points.
@@ -2341,7 +2336,7 @@ impl<'a> Machine<'a> {
 
                     // Skip infinity points: scalar * infinity = identity,
                     // and infinity poisons the batch affine conversion.
-                    if unsafe { blst::blst_p1_is_inf(*pi) } {
+                    if unsafe { blst::blst_p1_is_inf(*pi as *const _) } {
                         continue;
                     }
 
@@ -2390,12 +2385,14 @@ impl<'a> Machine<'a> {
                 let mut scalar_buf = blst::blst_scalar::default();
 
                 for i in 0..n {
-                    let Constant::Integer(si) = scalars[i] else {
-                        return Err(MachineError::type_mismatch(Type::Integer, scalars[i]));
+                    let scalar = scalars.get(i).expect("scalar list length must match its cached length");
+                    let Constant::Integer(si) = scalar else {
+                        return Err(MachineError::type_mismatch(Type::Integer, scalar));
                     };
 
-                    let Constant::Bls12_381G2Element(pi) = points[i] else {
-                        return Err(MachineError::type_mismatch(Type::Bls12_381G2Element, points[i]));
+                    let point = points.get(i).expect("point list length must match its cached length");
+                    let Constant::Bls12_381G2Element(pi) = point else {
+                        return Err(MachineError::type_mismatch(Type::Bls12_381G2Element, point));
                     };
 
                     // Validate range even for infinity points.
@@ -2403,7 +2400,7 @@ impl<'a> Machine<'a> {
 
                     // Skip infinity points: scalar * infinity = identity,
                     // and infinity poisons the batch affine conversion.
-                    if unsafe { blst::blst_p2_is_inf(*pi) } {
+                    if unsafe { blst::blst_p2_is_inf(*pi as *const _) } {
                         continue;
                     }
 

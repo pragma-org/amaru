@@ -19,7 +19,7 @@ use crate::{
     binder::Eval,
     bls::BlsError,
     builtin::DefaultFunction,
-    constant::{Constant, Integer},
+    constant::{Constant, Integer, List},
     data::PlutusData,
     ledger_value::ValueError,
     term::Term,
@@ -76,7 +76,7 @@ pub enum RuntimeError<'a> {
     #[error("Malformed data")]
     MalFormedData(&'a PlutusData<'a>),
     #[error("Empty list")]
-    EmptyList(&'a [&'a Constant<'a>]),
+    EmptyList(&'a List<'a>),
     #[error("Unexpected Ed25519 public key length")]
     UnexpectedEd25519PublicKeyLength(TryFromSliceError),
     #[error("Unexpected Ed25519 signature length")]
@@ -165,7 +165,7 @@ where
         MachineError::runtime(RuntimeError::ExpectedArray(constant))
     }
 
-    pub fn empty_list(constant: &'a [&'a Constant<'a>]) -> Self {
+    pub fn empty_list(constant: &'a List<'a>) -> Self {
         MachineError::runtime(RuntimeError::EmptyList(constant))
     }
 

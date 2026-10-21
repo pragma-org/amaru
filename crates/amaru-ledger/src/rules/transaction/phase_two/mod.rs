@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fmt, time::Instant};
+use std::{collections::BTreeMap, fmt, mem, time::Instant};
 
 use amaru_kernel::{
     BorrowedScript, EraHistory, GlobalParameters, HasScriptHash, HasTransactionId, Hash, PlutusVersion,
@@ -306,17 +306,20 @@ where
 
             let budget = script_context.budget();
             let uplc_budget = ExBudget { mem: budget.mem as i64, cpu: budget.steps as i64 };
-            let result = program.eval(
+            let mut result = program.eval(
                 &arena,
                 CostModel::new(plutus_version, protocol_parameters.protocol_version, cost_model),
                 uplc_budget,
             );
             span_execute.record(EXECUTE::FIELD_EVALUATE_UPLC_PROGRAM_MICROS, elapsed_and_reset(&mut meter));
 
-            let uplc_machine_error = |err| {
+            let error = result.error().map(ToString::to_string);
+            let is_unit = result.is_unit();
+
+            let mut uplc_machine_error = |err| {
                 ScriptOutcome::Failed(UplcMachineError {
                     plutus_version,
-                    info: result.info,
+                    info: mem::take(&mut result.info),
                     err,
                     redeemer: *redeemer,
                     program: encode_program(program),
@@ -324,18 +327,17 @@ where
             };
 
             Ok(match plutus_version {
-                PlutusVersion::V1 | PlutusVersion::V2 => match result.term {
-                    Ok(Term::Error) => uplc_machine_error("evaluated to error term".to_owned()),
-                    Ok(_) => ScriptOutcome::Passed,
-                    Err(e) => uplc_machine_error(e.to_string()),
+                PlutusVersion::V1 | PlutusVersion::V2 => match error {
+                    Some(error) => uplc_machine_error(error),
+                    None => ScriptOutcome::Passed,
                 },
 
                 // According to [CIP-117](https://cips.cardano.org/cip/CIP-0117),
                 // Plutus V3 scripts must evaluate to a constant term of unit
-                PlutusVersion::V3 => match result.term {
-                    Ok(Term::Constant(Constant::Unit)) => ScriptOutcome::Passed,
-                    Ok(_) => uplc_machine_error("evaluated to a non-unit term".to_owned()),
-                    Err(e) => uplc_machine_error(e.to_string()),
+                PlutusVersion::V3 => match error {
+                    Some(error) => uplc_machine_error(error),
+                    None if is_unit => ScriptOutcome::Passed,
+                    None => uplc_machine_error("evaluated to a non-unit term".to_owned()),
                 },
             })
         })

@@ -19,6 +19,9 @@ use crate::{
     arena::Arena, binder::Eval, data::PlutusData, ledger_value::LedgerValue, machine::MachineError, typ::Type,
 };
 
+mod list;
+pub use list::{List, ListIter};
+
 #[derive(Debug, PartialEq)]
 pub enum Constant<'a> {
     Integer(&'a Integer),
@@ -26,7 +29,7 @@ pub enum Constant<'a> {
     String(&'a str),
     Boolean(bool),
     Data(&'a PlutusData<'a>),
-    ProtoList(&'a Type<'a>, &'a [&'a Constant<'a>]),
+    ProtoList(&'a Type<'a>, List<'a>),
     ProtoArray(&'a Type<'a>, &'a [&'a Constant<'a>]),
     ProtoPair(&'a Type<'a>, &'a Type<'a>, &'a Constant<'a>, &'a Constant<'a>),
     Unit,
@@ -117,7 +120,20 @@ impl<'a> Constant<'a> {
     }
 
     pub fn proto_list(arena: &'a Arena, inner: &'a Type<'a>, values: &'a [&'a Constant<'a>]) -> &'a Constant<'a> {
-        arena.alloc(Constant::ProtoList(inner, values))
+        arena.alloc(Constant::ProtoList(inner, List::flat(values)))
+    }
+
+    pub fn proto_list_from(arena: &'a Arena, inner: &'a Type<'a>, values: &'a List<'a>) -> &'a Constant<'a> {
+        arena.alloc(Constant::ProtoList(inner, *values))
+    }
+
+    pub fn proto_list_cons(
+        arena: &'a Arena,
+        inner: &'a Type<'a>,
+        head: &'a Constant<'a>,
+        tail: &'a List<'a>,
+    ) -> &'a Constant<'a> {
+        arena.alloc(Constant::ProtoList(inner, List::cons(head, tail)))
     }
 
     pub fn proto_array(arena: &'a Arena, inner: &'a Type<'a>, values: &'a [&'a Constant<'a>]) -> &'a Constant<'a> {

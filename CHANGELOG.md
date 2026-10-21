@@ -44,13 +44,17 @@ Other guiding principles:
 ### Changed
 
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
+- **amaru-uplc**: turn runtime arguments into a chain of pointers, rather than a vec.
 
 ### Fixed
 
+- **amaru-uplc**: prevent byte-string builtin results from retaining global-allocator buffers after an evaluation arena is reset, reducing memory growth across repeated script evaluations.
+- **amaru-uplc**: optimize out unnecessary allocations of empty vectors.
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 - **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
+- **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
 
 ## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
