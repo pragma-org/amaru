@@ -33,7 +33,10 @@ use amaru_kernel::{
     hash::size,
 };
 
-use crate::{RoundTrip, TestConfiguration, TestResults, read_directory, round_trip, round_trip_without_context};
+use crate::{
+    RoundTrip, TestConfiguration, TestResults, normalize_rule_name, read_directory, round_trip,
+    round_trip_without_context,
+};
 
 /// List of rules the corpus carries, and the round-trip function to use for each.
 /// The round-trip function decodes a sample and re-encodes it, returning the re-encoded bytes.
@@ -147,7 +150,7 @@ pub fn check_no_unknown_rules(root: &Path) -> anyhow::Result<()> {
         if !entry.path().is_dir() {
             continue;
         }
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let name = normalize_rule_name(&entry.file_name().to_string_lossy());
         if !known.contains(name.as_str()) {
             anyhow::bail!("corpus contains the unknown rule `{name}`; add it to RULES");
         }

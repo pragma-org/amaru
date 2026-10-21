@@ -185,30 +185,10 @@ fn counts(actual: usize, expected: usize) -> String {
 /// The file the run writes its results to, named the way the dataset names a report of its own.
 const REPORT_FILE: &str = "amaru-latest.json";
 
-/// Recorded when a sample the corpus expects to be rejected decodes anyway.
-const DECODED_WHEN_IT_SHOULD_NOT: &str = "decode: succeeded when expected to fail";
-
-/// Recorded when a sample decodes but comes back as bytes the reference does not agree with.
-const RE_ENCODING_DIFFERS: &str = "encode: reserialization differs from the expected output";
-
-/// Write the run's result for every sample, in the shape the dataset publishes and a consuming site
-/// aggregates: one entry per sample, keyed by its path inside the corpus, holding `true` when the sample met
-/// its expectation and otherwise the reason it did not.
+/// Write the structured run summary consumed by the node-diversity-conformance site.
 #[expect(clippy::expect_used)]
 fn report_json(test_configuration: &TestConfiguration, test_results: &TestResults) -> anyhow::Result<()> {
     let Some(directory) = test_configuration.report_directory() else { return Ok(()) };
-
-    let results = test_results
-        .samples
-        .iter()
-        .map(|key| {
-            let outcome = match test_results.failures.get(key) {
-                None => serde_json::Value::Bool(true),
-                Some(reason) => serde_json::Value::String(report_error(reason)),
-            };
-            (format!("{}.input.cbor", key.key()), outcome)
-        })
-        .collect::<serde_json::Map<_, _>>();
 
     let report = serde_json::json!({
         "version": "1",
@@ -226,21 +206,8 @@ fn report_json(test_configuration: &TestConfiguration, test_results: &TestResult
     });
 
     std::fs::create_dir_all(directory)?;
-    std::fs::write(directory.join(REPORT_FILE), serde_json::to_string_pretty(&results)?)?;
+    std::fs::write(directory.join(REPORT_FILE), serde_json::to_string_pretty(&report)?)?;
     Ok(())
-}
-
-/// Classify a failure the way the dataset's reports do: `<category>: <message>`, where the category is
-/// `decode` for anything that went wrong reading the sample and `encode` for anything that went wrong writing
-/// it back.
-fn report_error(reason: &str) -> String {
-    if reason.starts_with("decoded successfully") {
-        DECODED_WHEN_IT_SHOULD_NOT.to_string()
-    } else if reason.starts_with("re-encoding differs") {
-        RE_ENCODING_DIFFERS.to_string()
-    } else {
-        format!("decode: {}", reason.lines().next().unwrap_or(reason))
-    }
 }
 
 /// Print a checkmark if the actual count matches the expected count, otherwise print a cross.
