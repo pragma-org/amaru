@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::{
-    assert_bounded_chunk, decode_bounded_integer, decode_integer, encode_bytestring, encode_integer,
-    heterogeneous_array,
-};
+use amaru_minicbor_extra::{assert_bounded_chunk, encode_bytestring, heterogeneous_array};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 use stacksafe::stacksafe;
 
-use crate::{data::PlutusData, flat::SimpleCtx};
+use crate::{
+    data::PlutusData,
+    flat::SimpleCtx,
+    integer::cbor::{decode_bounded_integer, decode_integer, encode_integer},
+};
 
 impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
     #[stacksafe]

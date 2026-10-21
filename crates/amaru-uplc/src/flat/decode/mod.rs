@@ -368,7 +368,7 @@ fn decode_value<'a>(ctx: &mut Ctx<'a>, d: &mut Decoder<'_>) -> Result<&'a Consta
             }
 
             // No zero quantities
-            if qty.is_zero() {
+            if crate::integer::integer_is_zero(&qty) {
                 return Err(FlatDecodeError::Message("Value contains zero quantity".into()));
             }
 

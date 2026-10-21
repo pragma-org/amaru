@@ -23,6 +23,7 @@ pub mod builtin;
 pub mod constant;
 pub mod data;
 pub mod flat;
+pub(crate) mod integer;
 pub mod ledger_value;
 pub mod machine;
 pub mod program;

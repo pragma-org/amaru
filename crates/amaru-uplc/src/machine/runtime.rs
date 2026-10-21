@@ -17,7 +17,6 @@
 use std::{array::TryFromSliceError, str};
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
-use dashu_base::{BitTest, DivRem, RemEuclid, UnsignedAbs, ring::ExtendedGcd};
 
 use super::{Machine, MachineError, RuntimeError, value::Value};
 use crate::{
@@ -30,6 +29,11 @@ use crate::{
         natural_to_u64,
     },
     data::PlutusData,
+    integer::{
+        integer_div_rem, integer_extended_gcd, integer_from_natural, integer_gt_i64, integer_gt_u8, integer_gt_usize,
+        integer_is_negative, integer_is_zero, integer_rem_euclid, integer_to_bytes as backend_integer_to_bytes,
+        integer_unsigned_abs, natural_bit, natural_is_one, natural_to_i64, natural_zero,
+    },
     ledger_value::{self, LedgerValue, ValueError},
     machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, StringSize, integer_log2},
     typ::Type,
@@ -60,7 +64,7 @@ fn fits_signed_integer_range(integer: &Integer, maximum_bits: u64) -> bool {
         return false;
     }
 
-    integer.clone().unsigned_abs() == Natural::from(1u8) << maximum_bits as usize
+    integer_unsigned_abs(integer) == Natural::from(1u8) << maximum_bits as usize
 }
 
 /// Check that an integer fits in a signed 4096-bit range: [-(2^4095), 2^4095 - 1].
@@ -72,8 +76,8 @@ fn check_multi_scalar_range(int: &Integer) -> Result<(), RuntimeError<'_>> {
 /// Reduce scalar mod SCALAR_PERIOD, convert to LE bytes, and append to the output buffer.
 /// Caller must validate the scalar range first via `check_multi_scalar_range`.
 fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_bytes: &mut Vec<u8>) {
-    let si = si.rem_euclid(&*SCALAR_PERIOD);
-    let be_bytes = si.to_be_bytes();
+    let si = integer_rem_euclid(si, &SCALAR_PERIOD);
+    let be_bytes = backend_integer_to_bytes(&si, true);
 
     // Zero-padded big-endian scalar on the stack (always 32 bytes).
     const SIZE: usize = size_of::<blst::blst_scalar>();
@@ -90,8 +94,8 @@ fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_b
 fn modular_pow(mut base: Natural, mut exponent: Natural, modulus: &Natural) -> Natural {
     let mut result = Natural::from(1u8) % modulus;
 
-    while exponent != Natural::ZERO {
-        if exponent.bit(0) {
+    while exponent != natural_zero() {
+        if natural_bit(&exponent, 0) {
             result = (result * &base) % modulus;
         }
 
@@ -104,9 +108,9 @@ fn modular_pow(mut base: Natural, mut exponent: Natural, modulus: &Natural) -> N
 
 /// Divide with a quotient rounded toward negative infinity and a divisor-signed remainder.
 fn floor_div_mod(dividend: &Integer, divisor: &Integer) -> (Integer, Integer) {
-    let (quotient, remainder) = dividend.div_rem(divisor);
+    let (quotient, remainder) = integer_div_rem(dividend, divisor);
 
-    if remainder != Integer::ZERO && dividend.is_negative() != divisor.is_negative() {
+    if !integer_is_zero(&remainder) && dividend.is_negative() != divisor.is_negative() {
         (quotient - Integer::from(1u8), remainder + divisor)
     } else {
         (quotient, remainder)
@@ -341,12 +345,12 @@ where
                 self.spend_budget(budget)?;
 
                 let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
-                    if *arg1 > Integer::from(255u8) || *arg1 < Integer::ZERO {
+                    if integer_gt_u8(arg1, 255) || integer_is_negative(arg1) {
                         return Err(MachineError::byte_string_cons_not_a_byte(arg1));
                     }
                     integer_to_u8(arg1).expect("should cast to u8 just fine")
                 } else {
-                    let wrap = arg1.rem_euclid(&Integer::from(256u16));
+                    let wrap = integer_rem_euclid(arg1, &Integer::from(256u16));
                     u8::try_from(&wrap).expect("a value reduced mod 256 fits in a u8")
                 };
 
@@ -425,7 +429,7 @@ where
 
                 self.spend_budget(budget)?;
 
-                if !arg2.is_zero() {
+                if !crate::integer::integer_is_zero(arg2) {
                     let (result, _) = floor_div_mod(arg1, arg2);
 
                     let new = self.arena.alloc_integer(result);
@@ -814,7 +818,7 @@ where
 
                 self.spend_budget(budget)?;
 
-                if !arg2.is_zero() {
+                if !crate::integer::integer_is_zero(arg2) {
                     let (_, result) = floor_div_mod(arg1, arg2);
                     let result = self.arena.alloc_integer(result);
                     let value = Value::integer(self.arena, result);
@@ -862,8 +866,8 @@ where
 
                 self.spend_budget(budget)?;
 
-                if !arg2.is_zero() {
-                    let (quotient, _) = arg1.div_rem(arg2);
+                if !crate::integer::integer_is_zero(arg2) {
+                    let (quotient, _) = integer_div_rem(arg1, arg2);
                     let q = self.arena.alloc_integer(quotient);
                     let value = Value::integer(self.arena, q);
                     Ok(value)
@@ -880,8 +884,8 @@ where
 
                 self.spend_budget(budget)?;
 
-                if !arg2.is_zero() {
-                    let (_, remainder) = arg1.div_rem(arg2);
+                if !crate::integer::integer_is_zero(arg2) {
+                    let (_, remainder) = integer_div_rem(arg1, arg2);
                     let r = self.arena.alloc_integer(remainder);
                     let value = Value::integer(self.arena, r);
                     Ok(value)
@@ -947,17 +951,17 @@ where
 
                 self.spend_budget(budget)?;
 
-                let skip: usize = if *arg1 < Integer::ZERO {
+                let skip: usize = if integer_is_negative(arg1) {
                     0
-                } else if *arg1 > Integer::from(arg3.len()) {
+                } else if integer_gt_usize(arg1, arg3.len()) {
                     arg3.len()
                 } else {
                     integer_to_usize(arg1).expect("should cast to usize just fine")
                 };
 
-                let take: usize = if *arg2 < Integer::ZERO {
+                let take: usize = if integer_is_negative(arg2) {
                     0
-                } else if *arg2 > Integer::from(arg3.len()) {
+                } else if integer_gt_usize(arg2, arg3.len()) {
                     arg3.len()
                 } else {
                     integer_to_usize(arg2).expect("should cast to usize just fine")
@@ -1332,8 +1336,8 @@ where
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
-                let mut arg1 = arg1.to_be_bytes().into_vec();
+                let arg1 = integer_rem_euclid(arg1, &SCALAR_PERIOD);
+                let mut arg1 = backend_integer_to_bytes(&arg1, true);
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1494,9 +1498,9 @@ where
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
+                let arg1 = integer_rem_euclid(arg1, &SCALAR_PERIOD);
 
-                let mut arg1 = arg1.to_be_bytes().into_vec();
+                let mut arg1 = backend_integer_to_bytes(&arg1, true);
 
                 if size_scalar > arg1.len() {
                     let diff = size_scalar - arg1.len();
@@ -1654,7 +1658,7 @@ where
                     return Err(MachineError::integer_to_byte_string_negative_size(size));
                 }
 
-                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
+                if integer_gt_i64(size, INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -1679,7 +1683,9 @@ where
                 //
                 // >= 0 && < INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
 
-                if size.is_zero() && integer_log2(input) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if crate::integer::integer_is_zero(size)
+                    && integer_log2(input) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
+                {
                     let required = integer_log2(input) / 8 + 1;
 
                     return Err(MachineError::integer_to_byte_string_size_too_big(
@@ -1694,7 +1700,7 @@ where
 
                 let size_unwrapped: usize = size.try_into().unwrap();
 
-                if input.is_zero() {
+                if crate::integer::integer_is_zero(input) {
                     let mut new_bytes = BumpVec::with_capacity_in(size_unwrapped, self.arena.as_bump());
 
                     new_bytes.resize(size_unwrapped, 0);
@@ -1712,7 +1718,7 @@ where
                     integer_to_bytes(self.arena, input, false)
                 };
 
-                if !size.is_zero() && bytes.len() > size_unwrapped {
+                if !crate::integer::integer_is_zero(size) && bytes.len() > size_unwrapped {
                     return Err(MachineError::integer_to_byte_string_size_too_small(size, bytes.len()));
                 }
 
@@ -1873,11 +1879,11 @@ where
                     return Err(MachineError::empty_byte_array());
                 }
 
-                if bit_index < &Integer::ZERO || bit_index >= &Integer::from(bytes.len() * 8) {
+                if integer_is_negative(bit_index) || bit_index >= &Integer::from(bytes.len() * 8) {
                     return Err(MachineError::read_bit_out_of_bounds(bit_index, bytes.len() * 8));
                 }
 
-                let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
+                let (byte_index, bit_offset) = integer_div_rem(bit_index, &Integer::from(8u8));
                 let bit_offset = integer_to_usize(&bit_offset).unwrap();
 
                 let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
@@ -1914,11 +1920,11 @@ where
                 for index in indices {
                     let Constant::Integer(bit_index) = index else { unreachable!("bit_index must be an integer") };
 
-                    if *bit_index < &Integer::ZERO || *bit_index >= &Integer::from(bytes.len() * 8) {
+                    if integer_is_negative(bit_index) || *bit_index >= &Integer::from(bytes.len() * 8) {
                         return Err(MachineError::write_bits_out_of_bounds(bit_index, bytes.len() * 8));
                     }
 
-                    let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
+                    let (byte_index, bit_offset) = integer_div_rem(bit_index, &Integer::from(8u8));
                     let bit_offset = integer_to_usize(&bit_offset).unwrap();
                     let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
                     let bit_mask: u8 = 1 << bit_offset;
@@ -1941,7 +1947,7 @@ where
                     return Err(MachineError::replicate_byte_negative_size(size));
                 }
 
-                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
+                if integer_gt_i64(size, INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
                     return Err(MachineError::replicate_byte_size_too_big(
                         size,
                         INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
@@ -1959,7 +1965,9 @@ where
 
                 self.spend_budget(budget)?;
 
-                if size.is_zero() && integer_log2(byte) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if crate::integer::integer_is_zero(size)
+                    && integer_log2(byte) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
+                {
                     let required = integer_log2(byte) / 8 + 1;
 
                     return Err(MachineError::replicate_byte_size_too_big(
@@ -2001,13 +2009,13 @@ where
                 result.resize(length, 0);
                 let result = self.arena.alloc(result);
 
-                let shift_abs = shift.clone().unsigned_abs();
+                let shift_abs = integer_unsigned_abs(shift);
 
                 if Natural::from(length) * Natural::from(8u8) <= shift_abs {
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let is_shift_left = shift >= &Integer::ZERO;
+                let is_shift_left = !integer_is_negative(shift);
                 let byte_shift = natural_to_u64(&(&shift_abs / &Natural::from(8u8)))
                     .and_then(|value| usize::try_from(value).ok())
                     .unwrap();
@@ -2097,8 +2105,8 @@ where
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let shift = shift.rem_euclid(&Integer::from(length * 8));
-                if shift == Natural::ZERO {
+                let shift = integer_unsigned_abs(&integer_rem_euclid(shift, &Integer::from(length * 8)));
+                if shift == natural_zero() {
                     return Ok(Value::byte_string(self.arena, result));
                 }
                 let byte_shift = usize::try_from(&(&shift / &Natural::from(8u8))).unwrap();
@@ -2198,34 +2206,38 @@ where
                     .get_cost(DefaultFunction::ExpModInteger, &[base.into(), exponent.into(), modulus_integer.into()]);
                 self.spend_budget(budget)?;
 
-                if modulus_integer <= &Integer::ZERO {
+                if integer_is_negative(modulus_integer) || integer_is_zero(modulus_integer) {
                     return Err(MachineError::division_by_zero(base, modulus_integer));
                 }
 
                 let is_negative_exponent = exponent.is_negative();
-                let modulus = modulus_integer.clone().unsigned_abs();
+                let modulus = integer_unsigned_abs(modulus_integer);
                 let base_integer = base;
-                let base = base_integer.rem_euclid(modulus_integer);
-                let exponent = exponent.clone().unsigned_abs();
+                let base = integer_unsigned_abs(&integer_rem_euclid(base_integer, modulus_integer));
+                let exponent = integer_unsigned_abs(exponent);
                 let result = if is_negative_exponent {
-                    let (gcd, inverse, _) = base_integer.gcd_ext(modulus_integer);
-                    if gcd != Natural::from(1u8) {
+                    let (gcd, inverse, _) = integer_extended_gcd(base_integer, modulus_integer);
+                    if !natural_is_one(&gcd) {
                         return Err(MachineError::ExplicitErrorTerm);
                     }
 
-                    modular_pow(inverse.rem_euclid(modulus_integer), exponent, &modulus)
+                    modular_pow(
+                        integer_unsigned_abs(&integer_rem_euclid(&inverse, modulus_integer)),
+                        exponent,
+                        &modulus,
+                    )
                 } else {
                     modular_pow(base, exponent, &modulus)
                 };
 
-                let value = Value::integer(self.arena, self.arena.alloc_integer(Integer::from(result)));
+                let value = Value::integer(self.arena, self.arena.alloc_integer(integer_from_natural(result)));
                 Ok(value)
             }
             DefaultFunction::DropList => {
                 let elements_to_drop = runtime.args[0].unwrap_integer()?;
                 let (list_type, list) = runtime.args[1].unwrap_list()?;
 
-                let arg0: i64 = i64::try_from(elements_to_drop.clone().unsigned_abs()).unwrap_or(i64::MAX);
+                let arg0: i64 = natural_to_i64(&integer_unsigned_abs(elements_to_drop)).unwrap_or(i64::MAX);
 
                 let budget = self
                     .costs
@@ -2240,7 +2252,7 @@ where
                     return Ok(value);
                 }
 
-                let elements_to_drop_usize = if *elements_to_drop > Integer::from(usize::MAX) {
+                let elements_to_drop_usize = if integer_gt_usize(elements_to_drop, usize::MAX) {
                     list.len()
                 } else {
                     usize::try_from(elements_to_drop).unwrap_or(0)
@@ -2443,13 +2455,13 @@ where
                 self.spend_budget(budget)?;
 
                 // Validate quantity in 128-bit signed range
-                if !qty.is_zero() {
+                if !crate::integer::integer_is_zero(qty) {
                     ledger_value::check_quantity_range(qty).map_err(|e| MachineError::runtime(e.into()))?;
                 }
 
                 // Validate key lengths (> 32 only allowed when qty=0, which is a no-op)
                 if ccy.len() > 32 || tok.len() > 32 {
-                    if qty.is_zero() {
+                    if crate::integer::integer_is_zero(qty) {
                         let constant = Constant::ledger_value(self.arena, v);
                         return Ok(Value::con(self.arena, constant));
                     }
