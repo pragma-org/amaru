@@ -68,6 +68,15 @@ less than 0.5% lower arena occupancy in the affected cases. Most of the cost
 comes from the surrounding CEK transitions and data/list operations, so the
 extra representation and compatibility path were reverted.
 
+### Short-circuit identical `PlutusData` nodes during equality
+
+The derived equality implementation was replaced temporarily with an
+equivalent implementation that checked pointer identity for data nodes and
+leaf payloads before comparing their contents. The focused cases remained
+within measurement noise (about 28.9 ms / 10.1 MiB and 20.5 ms / 7.7 MiB),
+so the extra implementation was reverted rather than adding a branch to a
+hot path without a measurable benefit.
+
 ## Deferred
 
 ### Replace arena-backed continuation frames with a machine-owned stack
