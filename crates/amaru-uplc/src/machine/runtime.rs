@@ -1787,17 +1787,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0xFF);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0xFF);
-                            left_byte & right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0xFF);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0xFF);
+                        result.push(left_byte & right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 & b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 & b2).collect_in(self.arena.as_bump())
                 };
                 let result = self.arena.alloc(bytes_result);
                 let value = Value::byte_string(self.arena, result);
@@ -1815,17 +1815,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
-                            left_byte | right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
+                        result.push(left_byte | right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 | b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 | b2).collect_in(self.arena.as_bump())
                 };
 
                 let result = self.arena.alloc(bytes_result);
@@ -1845,17 +1845,17 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let bytes_result: Vec<u8> = if should_pad {
+                let bytes_result = if should_pad {
                     let max_len = left_bytes.len().max(right_bytes.len());
-                    (0..max_len)
-                        .map(|index| {
-                            let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
-                            let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
-                            left_byte ^ right_byte
-                        })
-                        .collect()
+                    let mut result = BumpVec::with_capacity_in(max_len, self.arena.as_bump());
+                    for index in 0..max_len {
+                        let left_byte = left_bytes.get(index).copied().unwrap_or(0x00);
+                        let right_byte = right_bytes.get(index).copied().unwrap_or(0x00);
+                        result.push(left_byte ^ right_byte);
+                    }
+                    result
                 } else {
-                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 ^ b2).collect()
+                    left_bytes.iter().zip(right_bytes).map(|(b1, b2)| b1 ^ b2).collect_in(self.arena.as_bump())
                 };
 
                 let result = self.arena.alloc(bytes_result);
@@ -1870,7 +1870,8 @@ impl<'a> Machine<'a> {
                     self.costs.builtin_costs.get_cost(DefaultFunction::ComplementByteString, &[(&bytes).into()]);
                 self.spend_budget(budget)?;
 
-                let result = self.arena.alloc(bytes.iter().map(|b| b ^ 255).collect::<Vec<_>>());
+                let result: BumpVec<'_, u8> = bytes.iter().map(|b| b ^ 255).collect_in(self.arena.as_bump());
+                let result = self.arena.alloc(result);
 
                 Ok(Value::byte_string(self.arena, result))
             }
@@ -1922,7 +1923,8 @@ impl<'a> Machine<'a> {
                     ));
                 }
 
-                let mut bytes = original_bytes.to_vec();
+                let mut bytes = BumpVec::with_capacity_in(original_bytes.len(), self.arena.as_bump());
+                bytes.extend_from_slice(original_bytes);
 
                 for index in indices {
                     let Constant::Integer(bit_index) = index else { unreachable!("bit_index must be an integer") };
@@ -1991,7 +1993,9 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::outside_byte_bounds(byte));
                 };
 
-                let result = if size == 0 { self.arena.alloc(vec![]) } else { self.arena.alloc([byte].repeat(size)) };
+                let mut result = BumpVec::with_capacity_in(size, self.arena.as_bump());
+                result.resize(size, byte);
+                let result = self.arena.alloc(result);
 
                 Ok(Value::byte_string(self.arena, result))
             }
@@ -2008,7 +2012,9 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let length = bytes.len();
-                let result = self.arena.alloc(vec![0; length]);
+                let mut result = BumpVec::with_capacity_in(length, self.arena.as_bump());
+                result.resize(length, 0);
+                let result = self.arena.alloc(result);
 
                 let shift_abs = shift.clone().unsigned_abs();
 
@@ -2098,7 +2104,9 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 let length = bytes.len();
-                let result = self.arena.alloc(bytes.to_vec());
+                let mut result = BumpVec::with_capacity_in(length, self.arena.as_bump());
+                result.extend_from_slice(bytes);
+                let result = self.arena.alloc(result);
 
                 if bytes.is_empty() {
                     return Ok(Value::byte_string(self.arena, result));
