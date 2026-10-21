@@ -147,7 +147,9 @@ pub struct Args {
     retry: Option<RetrySpec>,
 
     /// Wall-clock budget for one attempt on one target, from TCP connect start until the session
-    /// finishes. Each `--retry` attempt gets a fresh budget. Step timeouts still apply within this.
+    /// finishes. When `--ping` requests several samples, the gaps between them
+    /// (`(COUNT - 1) × INTERVAL`) are added on top so multi-ping runs are not cut short. Each
+    /// `--retry` attempt gets a fresh budget. Step timeouts still apply within this.
     #[arg(
         long = "timeout",
         value_name = amaru::value_names::DURATION,
@@ -385,10 +387,11 @@ impl Actions {
     fn from_args(args: &Args) -> Self {
         if args.all {
             return Self {
-                ping: Some(PingSpec { count: 1, interval: Duration::from_secs(1) }),
+                // Keep an explicit `--ping=…` / `--peer-check=…`; default one ping when absent.
+                ping: args.ping.or(Some(PingSpec { count: 1, interval: Duration::from_secs(1) })),
                 handshake: true,
                 peer_share: true,
-                peer_check: None,
+                peer_check: args.peer_check,
                 tip: true,
             };
         }
@@ -416,6 +419,16 @@ impl Actions {
 
     fn needs_session(self) -> bool {
         self.ping.is_some() || self.peer_share || self.tip
+    }
+}
+
+/// Wall-clock budget for one attempt: base `--timeout` plus intentional inter-ping waits.
+fn session_timeout_for(base: Duration, ping: Option<PingSpec>) -> Duration {
+    match ping {
+        Some(PingSpec { count, interval }) if count > 1 => {
+            base.saturating_add(interval.saturating_mul(count.saturating_sub(1)))
+        }
+        Some(_) | None => base,
     }
 }
 
@@ -528,7 +541,9 @@ async fn probe_one(
         errors: Vec::new(),
     };
 
-    let session_timeout = args.timeout;
+    // Multi-ping gaps extend only the primary session budget, not query / peer-check attempts.
+    let session_timeout = session_timeout_for(args.timeout, actions.ping);
+    let step_timeout = args.timeout;
     let connect_timeout = args.connect_timeout;
     let handshake_timeout = args.handshake_timeout;
     let protocol_timeout = args.protocol_timeout;
@@ -550,7 +565,7 @@ async fn probe_one(
             session::run_version_query(
                 peer,
                 args.network,
-                session_timeout,
+                step_timeout,
                 connect_timeout,
                 handshake_timeout,
                 max_n2n_version,
@@ -680,7 +695,7 @@ async fn probe_one(
         let mut peer_check_header = stream && !peers.is_empty();
         let check_params = PeerCheckParams {
             network: args.network,
-            session_timeout,
+            session_timeout: step_timeout,
             connect_timeout,
             handshake_timeout,
             protocol_timeout,
@@ -1254,6 +1269,36 @@ mod tests {
         .await;
         assert_eq!(result, Ok(3));
         assert_eq!(tries, 3);
+    }
+
+    #[test]
+    fn session_timeout_adds_inter_ping_gaps() {
+        let base = Duration::from_secs(5);
+        assert_eq!(session_timeout_for(base, None), base);
+        assert_eq!(
+            session_timeout_for(base, Some(PingSpec { count: 1, interval: Duration::from_secs(5) })),
+            base
+        );
+        assert_eq!(
+            session_timeout_for(base, Some(PingSpec { count: 20, interval: Duration::from_secs(5) })),
+            Duration::from_secs(5 + 19 * 5)
+        );
+    }
+
+    #[test]
+    fn all_preserves_explicit_ping_and_peer_check() {
+        let args = Args::try_parse_from([
+            "probe",
+            "1.2.3.4:3001",
+            "--all",
+            "--ping=3:2s",
+            "--peer-check=tip",
+        ])
+        .unwrap();
+        let actions = Actions::from_args(&args);
+        assert_eq!(actions.ping.map(|p| (p.count, p.interval)), Some((3, Duration::from_secs(2))));
+        assert!(actions.peer_check.is_some());
+        assert!(actions.peer_check.unwrap().extras.tip);
     }
 
     #[tokio::test]

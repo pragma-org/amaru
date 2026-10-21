@@ -49,14 +49,14 @@ With no type flags, the default is ping, handshake, tip, and peer-share (same as
 | `--network` | `mainnet` | Handshake network magic (`AMARU_NETWORK`) |
 | `--requested-version` | current Amaru N2N (15) | Highest version offered; lower Accept is success |
 | `--retry[=COUNT\|COUNT:INTERVAL]` | off | Retries on connect failure, step timeouts, and wall-clock timeout; each attempt gets a fresh budget |
-| `--timeout` | `5s` | Wall clock per attempt, from TCP connect until the session finishes (`AMARU_PROBE_TIMEOUT`) |
+| `--timeout` | `5s` | Wall clock per attempt from TCP connect (`AMARU_PROBE_TIMEOUT`). For multi-sample `--ping`, `(COUNT - 1) × INTERVAL` is added so intentional waits are not cut short |
 | `--timeout-connect` | `5s` | TCP connect only |
 | `--timeout-handshake` | `10s` | Handshake step |
 | `--timeout-protocol` | `15s` | Tip / peer-share / keep-alive reply |
 | `--time-track` | off | Per-step timestamps, deltas, and TCP byte counters |
 | `--json` | off | Machine-readable JSON (one object, or an array for several targets) |
 
-Global Amaru flags such as `--log-output`, `--with-json-traces`, and `--with-open-telemetry` also apply; see `amaru --help`.
+`--log-output`, `--with-json-traces`, and `--with-open-telemetry` have no effect on `peer probe`: this subcommand skips the observability stack so probe stdout stays clean.
 
 ## Output
 
