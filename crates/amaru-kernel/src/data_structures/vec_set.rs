@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, ops::Deref};
+#[cfg(any(test, feature = "test-utils"))]
+use std::collections::BTreeSet;
+use std::ops::Deref;
 
 use crate::cbor;
 

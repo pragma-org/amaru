@@ -119,7 +119,7 @@ fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
     assert!(help.contains("node"), "top-level help should show 'node'");
     assert!(help.contains("keys"), "top-level help should show 'keys'");
     assert!(help.contains("snapshot"), "top-level help should show 'snapshot'");
-    assert!(help.contains("mithril"), "top-level help should show 'mithril'");
+    assert_eq!(help.contains("mithril"), cfg!(feature = "mithril"));
     assert!(!help.contains("dev"), "top-level help should NOT show hidden 'dev'");
     assert!(!help.contains("dump-chain-db"), "top-level help should NOT show legacy commands");
     assert!(!help.contains("remove-validation-status"), "top-level help should NOT show legacy commands");
@@ -127,6 +127,7 @@ fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg(feature = "mithril")]
 fn mithril_sync_help_shows_all_options() -> anyhow::Result<()> {
     let help = amaru_help(&["mithril", "sync"])?;
     assert!(help.contains("--network"), "mithril sync should accept --network");
@@ -172,7 +173,8 @@ fn node_rollback_help_shows_targets() -> anyhow::Result<()> {
 #[test]
 fn snapshot_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["snapshot"])?;
-    assert!(help.contains("create"), "snapshot help should show 'create'");
+    let has_create = help.lines().any(|line| line.split_whitespace().next() == Some("create"));
+    assert_eq!(has_create, cfg!(feature = "mithril"));
     Ok(())
 }
 

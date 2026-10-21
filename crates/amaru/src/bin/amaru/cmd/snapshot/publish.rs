@@ -24,7 +24,7 @@ use amaru_observability::info;
 use anyhow::{Context, anyhow};
 use clap::Parser;
 
-use super::create::default_snapshot_output_dir;
+use super::default_snapshot_output_dir;
 
 const ARCHIVE_EXTENSION: &str = ".tar.zst";
 const AWS_ACCESS_KEY_ID_ENV: &str = "AWS_ACCESS_KEY_ID";
