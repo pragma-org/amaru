@@ -103,6 +103,14 @@ less than 0.5% lower arena occupancy in the affected cases. Most of the cost
 comes from the surrounding CEK transitions and data/list operations, so the
 extra representation and compatibility path were reverted.
 
+### Compare `PlutusData` with an explicit pair stack
+
+An iterative equality implementation was tested to avoid recursive calls while
+comparing nested data. It was neutral on the large data-heavy cases, but it
+regressed a smaller V3 case from about 0.78 ms to 1.39 ms because every
+comparison needed a heap-backed pair stack. The implementation was reverted;
+the extra allocation is not justified by the inconsistent gain.
+
 ### Short-circuit identical `PlutusData` nodes during equality
 
 The derived equality implementation was replaced temporarily with an
