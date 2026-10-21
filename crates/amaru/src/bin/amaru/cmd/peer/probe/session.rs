@@ -54,6 +54,8 @@ pub struct SessionRequest {
     pub want_tip: bool,
     /// Keep-alive pings after Accept (`count`, `interval`). `None` skips ping.
     pub want_ping: Option<(u32, Duration)>,
+    /// When set, each keep-alive RTT (milliseconds) is sent as soon as it is measured.
+    pub ping_progress: Option<tokio::sync::mpsc::UnboundedSender<f64>>,
     pub want_timetrack: bool,
     /// Continue an existing timeline (e.g. after a prior query handshake). `(started, last)`.
     pub timetrack_continue: Option<(Instant, Instant)>,
@@ -100,6 +102,22 @@ impl std::fmt::Debug for TimingCtx {
 impl PartialEq for TimingCtx {
     fn eq(&self, _other: &Self) -> bool {
         // Stage equality ignores live clocks / connection handles.
+        true
+    }
+}
+
+/// Live ping RTT notifications for human streaming output (`#[serde(skip)]` on [`Driver`]).
+#[derive(Clone)]
+struct PingProgressTx(tokio::sync::mpsc::UnboundedSender<f64>);
+
+impl std::fmt::Debug for PingProgressTx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PingProgressTx")
+    }
+}
+
+impl PartialEq for PingProgressTx {
+    fn eq(&self, _other: &Self) -> bool {
         true
     }
 }
@@ -467,6 +485,7 @@ pub async fn run_version_query(
         want_peershare: false,
         want_tip: false,
         want_ping: None,
+        ping_progress: None,
         want_timetrack,
         timetrack_continue,
         max_n2n_version,
@@ -544,6 +563,7 @@ async fn run_session_inner(req: SessionRequest, handshake_mode: HandshakeMode) -
             pings_remaining: 0,
             partial: SessionPartial { timetrack: pre_steps, ..SessionPartial::default() },
             timing: timing_for_driver,
+            ping_progress: req.ping_progress.map(PingProgressTx),
         },
     );
 
@@ -610,6 +630,8 @@ struct Driver {
     partial: SessionPartial,
     #[serde(skip)]
     timing: Option<TimingCtx>,
+    #[serde(skip)]
+    ping_progress: Option<PingProgressTx>,
 }
 
 fn mark(state: &mut Driver, step: &str) {
@@ -727,7 +749,11 @@ async fn driver_stage(mut state: Driver, msg: DriverMsg, eff: Effects<DriverMsg>
             eff.clear_timeout_at(5).await;
             match result {
                 KaResult::Response { round_trip: Some(rtt), .. } => {
-                    state.partial.ping_rtts_ms.push(rtt.as_secs_f64() * 1_000.0);
+                    let rtt_ms = rtt.as_secs_f64() * 1_000.0;
+                    state.partial.ping_rtts_ms.push(rtt_ms);
+                    if let Some(tx) = &state.ping_progress {
+                        let _ = tx.0.send(rtt_ms);
+                    }
                     mark(&mut state, "ping_ok");
                 }
                 KaResult::Bootstrap | KaResult::Response { round_trip: None, .. } => {

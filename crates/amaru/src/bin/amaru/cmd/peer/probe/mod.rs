@@ -554,25 +554,34 @@ async fn probe_one(
     }
 
     if actions.needs_session() {
+        let stream_ping = stream && actions.ping.is_some();
+        let mut ping_streamed = false;
         match with_retries(args.retry, || {
-            session::run_session(session::SessionRequest {
-                peer,
-                network: args.network,
-                connect_timeout,
-                handshake_timeout,
-                protocol_timeout,
-                want_peershare: actions.peer_share,
-                want_tip: actions.tip,
-                want_ping: actions.ping.map(|s| (s.count, s.interval)),
-                want_timetrack: args.time_track,
-                timetrack_continue: track_clock,
-                max_n2n_version,
-                peer_share_amount: 10,
-            })
+            run_session_streaming_ping(
+                session::SessionRequest {
+                    peer,
+                    network: args.network,
+                    connect_timeout,
+                    handshake_timeout,
+                    protocol_timeout,
+                    want_peershare: actions.peer_share,
+                    want_tip: actions.tip,
+                    want_ping: actions.ping.map(|s| (s.count, s.interval)),
+                    ping_progress: None,
+                    want_timetrack: args.time_track,
+                    timetrack_continue: track_clock,
+                    max_n2n_version,
+                    peer_share_amount: 10,
+                },
+                stream_ping,
+                &out,
+                report.ping_interval_ms,
+            )
         })
         .await
         {
-            Ok(partial) => {
+            Ok((partial, streamed)) => {
+                ping_streamed = streamed;
                 report.ping_rtts_ms = partial.ping_rtts_ms;
                 // Merge Accept negotiated fields onto any prior query offered_versions.
                 match (report.handshake.take(), partial.handshake) {
@@ -600,10 +609,14 @@ async fn probe_one(
             Err(err) => report.errors.push(format!("session: {err:#}")),
         }
         if stream {
+            // Samples already printed live; finish the ping section before Accept/tip/share.
+            if ping_streamed {
+                out.ping_summary(&report);
+            }
             if let Some(hs) = &report.handshake {
                 out.handshake(hs);
             }
-            if !report.ping_rtts_ms.is_empty() {
+            if !ping_streamed && !report.ping_rtts_ms.is_empty() {
                 out.ping(&report);
             }
             out.session_sections(&report, /*include_peer_check*/ false, /*skip_handshake*/ true);
@@ -647,6 +660,56 @@ async fn probe_one(
     report
 }
 
+/// Run a probe session, optionally streaming each keep-alive RTT as it arrives.
+///
+/// Returns `(partial, ping_samples_were_streamed)`.
+async fn run_session_streaming_ping(
+    mut req: session::SessionRequest,
+    stream_ping: bool,
+    out: &HumanOut,
+    ping_interval_ms: Option<u64>,
+) -> anyhow::Result<(session::SessionPartial, bool)> {
+    if !stream_ping {
+        let partial = session::run_session(req).await?;
+        return Ok((partial, false));
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    req.ping_progress = Some(tx);
+    let session = session::run_session(req);
+    tokio::pin!(session);
+
+    let mut seq = 0u32;
+    let mut header = false;
+    let print_sample = |seq: u32, ms: f64, header: &mut bool| {
+        if !*header {
+            out.ping_header(ping_interval_ms);
+            *header = true;
+        }
+        out.ping_sample(seq, ms);
+    };
+
+    let partial = loop {
+        tokio::select! {
+            biased;
+            sample = rx.recv() => {
+                if let Some(ms) = sample {
+                    seq += 1;
+                    print_sample(seq, ms, &mut header);
+                }
+            }
+            result = &mut session => {
+                while let Ok(ms) = rx.try_recv() {
+                    seq += 1;
+                    print_sample(seq, ms, &mut header);
+                }
+                break result?;
+            }
+        }
+    };
+    Ok((partial, header))
+}
+
 /// Shared probe settings applied to each `--peer-check` session.
 #[derive(Debug, Clone, Copy)]
 struct PeerCheckParams {
@@ -678,6 +741,7 @@ async fn run_peer_check_one(addr: &str, params: PeerCheckParams) -> anyhow::Resu
         want_peershare: params.extras.peer_share,
         want_tip: params.extras.tip,
         want_ping: params.extras.ping.then_some((1, Duration::from_secs(1))),
+        ping_progress: None,
         want_timetrack: params.time_track,
         timetrack_continue: None,
         max_n2n_version: params.max_n2n_version,
@@ -844,26 +908,48 @@ impl HumanOut {
         self.flush();
     }
 
+    /// Buffered (JSON / non-stream) ping section: samples then optional summary.
     fn ping(&self, report: &session::ProbeReport) {
         let samples = &report.ping_rtts_ms;
-        self.section_ok("ping");
+        self.ping_header(report.ping_interval_ms);
         if samples.len() == 1 {
             self.field("    ", "rtt", format!("{} ms", format_rtt_ms(samples[0])));
+            self.flush();
+            return;
+        }
+        for (i, ms) in samples.iter().enumerate() {
+            self.ping_sample(i as u32 + 1, *ms);
+        }
+        self.ping_summary(report);
+    }
+
+    fn ping_header(&self, interval_ms: Option<u64>) {
+        self.section_ok("ping");
+        if let Some(interval) = interval_ms {
+            self.field("    ", "interval", format!("{interval} ms"));
+        }
+        self.flush();
+    }
+
+    fn ping_sample(&self, seq: u32, ms: f64) {
+        self.field("    ", &seq.to_string(), format!("{} ms", format_rtt_ms(ms)));
+        self.flush();
+    }
+
+    /// min/avg/max after streamed (or multi-sample) pings. No-op for a single sample.
+    fn ping_summary(&self, report: &session::ProbeReport) {
+        let samples = &report.ping_rtts_ms;
+        if samples.len() < 2 {
             return;
         }
         let min = samples.iter().copied().fold(f64::INFINITY, f64::min);
         let max = samples.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let avg = samples.iter().sum::<f64>() / samples.len() as f64;
         self.field("    ", "count", samples.len());
-        if let Some(interval) = report.ping_interval_ms {
-            self.field("    ", "interval", format!("{interval} ms"));
-        }
-        for (i, ms) in samples.iter().enumerate() {
-            self.field("    ", &(i + 1).to_string(), format!("{} ms", format_rtt_ms(*ms)));
-        }
         self.field("    ", "min", format!("{} ms", format_rtt_ms(min)));
         self.field("    ", "avg", format!("{} ms", format_rtt_ms(avg)));
         self.field("    ", "max", format!("{} ms", format_rtt_ms(max)));
+        self.flush();
     }
 
     fn timetrack(&self, steps: &[session::TimeTrackStep]) {
