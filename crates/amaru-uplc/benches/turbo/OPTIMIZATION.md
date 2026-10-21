@@ -67,3 +67,14 @@ passed conformance tests, but the focused corpus showed no stable CPU gain and
 less than 0.5% lower arena occupancy in the affected cases. Most of the cost
 comes from the surrounding CEK transitions and data/list operations, so the
 extra representation and compatibility path were reverted.
+
+## Deferred
+
+### Replace arena-backed continuation frames with a machine-owned stack
+
+This is the next likely source of cumulative arena growth: `Context` frames
+are still allocated for each CEK continuation. A clean implementation would
+make the machine own a binder-typed frame stack, which requires a wider change
+to the currently public context/state API. It was not attempted in this pass;
+unsafe type erasure or a parallel context representation would violate the
+complexity and encapsulation constraints.
