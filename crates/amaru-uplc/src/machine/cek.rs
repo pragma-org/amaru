@@ -65,7 +65,7 @@ impl<'a> Machine<'a> {
 
         let initial_context = Context::no_frame(self.arena);
 
-        let mut state = MachineState::compute(self.arena, initial_context, Env::new_in(self.arena), term);
+        let mut state = MachineState::compute(initial_context, Env::new_in(self.arena), term);
 
         loop {
             let step = match state {
@@ -85,7 +85,7 @@ impl<'a> Machine<'a> {
         context: &'a Context<'a, V>,
         env: &'a Env<'a, V>,
         term: &'a Term<'a, V>,
-    ) -> Result<&'a mut MachineState<'a, V>, MachineError<'a, V>>
+    ) -> Result<MachineState<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
@@ -95,7 +95,7 @@ impl<'a> Machine<'a> {
 
                 let value = env.lookup(name.index()).ok_or(MachineError::OpenTermEvaluated(term))?;
 
-                let state = MachineState::return_(self.arena, context, value);
+                let state = MachineState::return_(context, value);
 
                 Ok(state)
             }
@@ -104,7 +104,7 @@ impl<'a> Machine<'a> {
 
                 let value = Value::lambda(self.arena, *parameter, body, env);
 
-                let state = MachineState::return_(self.arena, context, value);
+                let state = MachineState::return_(context, value);
 
                 Ok(state)
             }
@@ -113,7 +113,7 @@ impl<'a> Machine<'a> {
 
                 let frame = Context::frame_await_fun_term(self.arena, env, argument, context);
 
-                let state = MachineState::compute(self.arena, frame, env, function);
+                let state = MachineState::compute(frame, env, function);
 
                 Ok(state)
             }
@@ -122,7 +122,7 @@ impl<'a> Machine<'a> {
 
                 let value = Value::delay(self.arena, body, env);
 
-                let state = MachineState::return_(self.arena, context, value);
+                let state = MachineState::return_(context, value);
 
                 Ok(state)
             }
@@ -131,7 +131,7 @@ impl<'a> Machine<'a> {
 
                 let frame = Context::frame_force(self.arena, context);
 
-                let state = MachineState::compute(self.arena, frame, env, body);
+                let state = MachineState::compute(frame, env, body);
 
                 Ok(state)
             }
@@ -141,13 +141,13 @@ impl<'a> Machine<'a> {
                 if let Some((first, terms)) = fields.split_first() {
                     let frame = Context::frame_constr_empty(self.arena, env, *tag, terms, context);
 
-                    let state = MachineState::compute(self.arena, frame, env, first);
+                    let state = MachineState::compute(frame, env, first);
 
                     Ok(state)
                 } else {
                     let value = Value::constr_empty(self.arena, *tag);
 
-                    let state = MachineState::return_(self.arena, context, value);
+                    let state = MachineState::return_(context, value);
 
                     Ok(state)
                 }
@@ -157,7 +157,7 @@ impl<'a> Machine<'a> {
 
                 let frame = Context::frame_cases(self.arena, env, branches, context);
 
-                let state = MachineState::compute(self.arena, frame, env, constr);
+                let state = MachineState::compute(frame, env, constr);
 
                 Ok(state)
             }
@@ -166,7 +166,7 @@ impl<'a> Machine<'a> {
 
                 let value = Value::con(self.arena, constant);
 
-                let state = MachineState::return_(self.arena, context, value);
+                let state = MachineState::return_(context, value);
 
                 Ok(state)
             }
@@ -177,7 +177,7 @@ impl<'a> Machine<'a> {
 
                 let value = Value::builtin(self.arena, runtime);
 
-                let state = MachineState::return_(self.arena, context, value);
+                let state = MachineState::return_(context, value);
 
                 Ok(state)
             }
@@ -190,7 +190,7 @@ impl<'a> Machine<'a> {
         &mut self,
         context: &'a Context<'a, V>,
         value: &'a Value<'a, V>,
-    ) -> Result<&'a mut MachineState<'a, V>, MachineError<'a, V>>
+    ) -> Result<MachineState<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
@@ -198,7 +198,7 @@ impl<'a> Machine<'a> {
             Context::FrameAwaitFunTerm(arg_env, argument, context) => {
                 let context = Context::frame_await_arg(self.arena, value, context);
 
-                let state = MachineState::compute(self.arena, context, arg_env, argument);
+                let state = MachineState::compute(context, arg_env, argument);
 
                 Ok(state)
             }
@@ -219,13 +219,13 @@ impl<'a> Machine<'a> {
                 if let Some((first, terms)) = terms.split_first() {
                     let frame = Context::frame_constr(self.arena, env, *tag, terms, values, context);
 
-                    let state = MachineState::compute(self.arena, frame, env, first);
+                    let state = MachineState::compute(frame, env, first);
 
                     Ok(state)
                 } else {
                     let value = Value::constr(self.arena, *tag, values);
 
-                    let state = MachineState::return_(self.arena, context, value);
+                    let state = MachineState::return_(context, value);
 
                     Ok(state)
                 }
@@ -235,7 +235,7 @@ impl<'a> Machine<'a> {
                     if let Some(branch) = branches.get(*tag) {
                         let frame = self.transfer_arg_stack(fields, context);
 
-                        let state = MachineState::compute(self.arena, frame, env, branch);
+                        let state = MachineState::compute(frame, env, branch);
 
                         Ok(state)
                     } else {
@@ -252,7 +252,7 @@ impl<'a> Machine<'a> {
                     if let Some(branch) = branches.get(tag) {
                         let frame = self.transfer_arg_stack(fields, context);
 
-                        let state = MachineState::compute(self.arena, frame, env, branch);
+                        let state = MachineState::compute(frame, env, branch);
 
                         Ok(state)
                     } else {
@@ -266,7 +266,7 @@ impl<'a> Machine<'a> {
                     self.spend_unbudgeted_steps()?;
                 }
 
-                let state = MachineState::done(self.arena, value);
+                let state = MachineState::done(value);
 
                 Ok(state)
             }
@@ -278,12 +278,12 @@ impl<'a> Machine<'a> {
         &mut self,
         context: &'a Context<'a, V>,
         value: &'a Value<'a, V>,
-    ) -> Result<&'a mut MachineState<'a, V>, MachineError<'a, V>>
+    ) -> Result<MachineState<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
         match value {
-            Value::Delay(term, env) => Ok(MachineState::compute(self.arena, context, env, term)),
+            Value::Delay(term, env) => Ok(MachineState::compute(context, env, term)),
             Value::Builtin(runtime) => {
                 if runtime.needs_force() {
                     let value = if runtime.is_ready() {
@@ -292,7 +292,7 @@ impl<'a> Machine<'a> {
                         Value::builtin(self.arena, runtime.force())
                     };
 
-                    let state = MachineState::return_(self.arena, context, value);
+                    let state = MachineState::return_(context, value);
 
                     Ok(state)
                 } else {
@@ -311,7 +311,7 @@ impl<'a> Machine<'a> {
         context: &'a Context<'a, V>,
         function: &'a Value<'a, V>,
         argument: &'a Value<'a, V>,
-    ) -> Result<&'a mut MachineState<'a, V>, MachineError<'a, V>>
+    ) -> Result<MachineState<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
@@ -319,7 +319,7 @@ impl<'a> Machine<'a> {
             Value::Lambda { body, env, .. } => {
                 let new_env = env.push(self.arena, argument);
 
-                let state = MachineState::compute(self.arena, context, new_env, body);
+                let state = MachineState::compute(context, new_env, body);
 
                 Ok(state)
             }
@@ -333,7 +333,7 @@ impl<'a> Machine<'a> {
                         Value::builtin(self.arena, runtime)
                     };
 
-                    let state = MachineState::return_(self.arena, context, value);
+                    let state = MachineState::return_(context, value);
 
                     Ok(state)
                 } else {

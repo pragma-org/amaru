@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{context::Context, env::Env, value::Value};
-use crate::{arena::Arena, binder::Eval, term::Term};
+use crate::{binder::Eval, term::Term};
 
 pub enum MachineState<'a, V>
 where
@@ -28,24 +28,15 @@ impl<'a, V> MachineState<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn compute(
-        arena: &'a Arena,
-        context: &'a Context<'a, V>,
-        env: &'a Env<'a, V>,
-        term: &'a Term<'a, V>,
-    ) -> &'a mut MachineState<'a, V> {
-        arena.alloc(MachineState::Compute(context, env, term))
+    pub fn compute(context: &'a Context<'a, V>, env: &'a Env<'a, V>, term: &'a Term<'a, V>) -> Self {
+        Self::Compute(context, env, term)
     }
 
-    pub fn return_(
-        arena: &'a Arena,
-        context: &'a Context<'a, V>,
-        value: &'a Value<'a, V>,
-    ) -> &'a mut MachineState<'a, V> {
-        arena.alloc(MachineState::Return(context, value))
+    pub fn return_(context: &'a Context<'a, V>, value: &'a Value<'a, V>) -> Self {
+        Self::Return(context, value)
     }
 
-    pub fn done(arena: &'a Arena, value: &'a Value<'a, V>) -> &'a mut MachineState<'a, V> {
-        arena.alloc(MachineState::Done(value))
+    pub fn done(value: &'a Value<'a, V>) -> Self {
+        Self::Done(value)
     }
 }

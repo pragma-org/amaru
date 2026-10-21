@@ -31,6 +31,26 @@ The change is accepted because it removes an allocation from every builtin
 application and improves the CPU-weighted score without adding a new runtime
 concept.
 
+### Keep the current CEK state on the stack
+
+The dispatch loop consumes each `MachineState` immediately, but the previous
+implementation allocated every `Compute`, `Return`, and `Done` state in the
+arena. The state is now moved through the loop by value. Contexts, values, and
+environments remain arena-backed, so this does not change their lifetimes or
+the machine's observable behavior.
+
+| Metric | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Mean CPU | 17.82 ms | 12.53 ms | -29.7% |
+| Mean arena occupancy | 7.56 MiB | 4.39 MiB | -41.9% |
+| CPU-weighted score | | | 32.7 points |
+| Complexity cost | | | 2 |
+
+The extreme big-integer multiplication case did not improve materially; it is
+dominated by arithmetic rather than CEK state transitions. The broad gain on
+the remaining corpus and the absence of a new runtime abstraction justify the
+small mechanical signature change.
+
 ## Rejected
 
 ### Intern primitive type descriptors
