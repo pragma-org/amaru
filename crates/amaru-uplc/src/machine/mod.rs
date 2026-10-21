@@ -45,6 +45,7 @@ pub use semantics::Semantics;
 pub mod state;
 
 pub mod value;
+pub use value::Value;
 
 mod version;
 pub use version::MachineVersion;

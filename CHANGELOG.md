@@ -40,6 +40,8 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
+- **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
+- **amaru-uplc**: turn runtime arguments into a chain of pointers, rather than a vec.
 
 ### Fixed
 
