@@ -146,6 +146,19 @@ pub struct Args {
     )]
     retry: Option<RetrySpec>,
 
+    /// Wall-clock budget for one attempt on one target, from TCP connect start until the session
+    /// finishes. Each `--retry` attempt gets a fresh budget. Step timeouts still apply within this.
+    #[arg(
+        long = "timeout",
+        value_name = amaru::value_names::DURATION,
+        value_parser = duration::parse,
+        env = amaru::env_vars::PROBE_TIMEOUT,
+        default_value = "5s",
+        help_heading = "Probe settings",
+        display_order = 13,
+    )]
+    timeout: Duration,
+
     /// TCP connect timeout.
     #[arg(
         long = "timeout-connect",
@@ -154,7 +167,7 @@ pub struct Args {
         env = amaru::env_vars::PROBE_TIMEOUT_CONNECT,
         default_value = "5s",
         help_heading = "Probe settings",
-        display_order = 13,
+        display_order = 14,
     )]
     connect_timeout: Duration,
 
@@ -166,7 +179,7 @@ pub struct Args {
         env = amaru::env_vars::PROBE_TIMEOUT_HANDSHAKE,
         default_value = "10s",
         help_heading = "Probe settings",
-        display_order = 14,
+        display_order = 15,
     )]
     handshake_timeout: Duration,
 
@@ -178,16 +191,16 @@ pub struct Args {
         env = amaru::env_vars::PROBE_TIMEOUT_PROTOCOL,
         default_value = "15s",
         help_heading = "Probe settings",
-        display_order = 15,
+        display_order = 16,
     )]
     protocol_timeout: Duration,
 
     /// Record per-step wall timestamps, deltas, elapsed-from-start, and TCP bytes.
-    #[arg(long = "time-track", help_heading = "Probe settings", display_order = 16)]
+    #[arg(long = "time-track", help_heading = "Probe settings", display_order = 17)]
     time_track: bool,
 
     /// Emit machine-readable JSON instead of color human output.
-    #[arg(long, help_heading = "Probe settings", display_order = 17)]
+    #[arg(long, help_heading = "Probe settings", display_order = 18)]
     json: bool,
 }
 
@@ -489,6 +502,7 @@ async fn probe_one(
         errors: Vec::new(),
     };
 
+    let session_timeout = args.timeout;
     let connect_timeout = args.connect_timeout;
     let handshake_timeout = args.handshake_timeout;
     let protocol_timeout = args.protocol_timeout;
@@ -510,6 +524,7 @@ async fn probe_one(
             session::run_version_query(
                 peer,
                 args.network,
+                session_timeout,
                 connect_timeout,
                 handshake_timeout,
                 max_n2n_version,
@@ -561,6 +576,7 @@ async fn probe_one(
                 session::SessionRequest {
                     peer,
                     network: args.network,
+                    session_timeout,
                     connect_timeout,
                     handshake_timeout,
                     protocol_timeout,
@@ -634,6 +650,7 @@ async fn probe_one(
         let mut peer_check_header = stream && !peers.is_empty();
         let check_params = PeerCheckParams {
             network: args.network,
+            session_timeout,
             connect_timeout,
             handshake_timeout,
             protocol_timeout,
@@ -714,6 +731,7 @@ async fn run_session_streaming_ping(
 #[derive(Debug, Clone, Copy)]
 struct PeerCheckParams {
     network: NetworkName,
+    session_timeout: Duration,
     connect_timeout: Duration,
     handshake_timeout: Duration,
     protocol_timeout: Duration,
@@ -735,6 +753,7 @@ async fn run_peer_check_one(addr: &str, params: PeerCheckParams) -> anyhow::Resu
     let partial = session::run_session(session::SessionRequest {
         peer,
         network: params.network,
+        session_timeout: params.session_timeout,
         connect_timeout: params.connect_timeout,
         handshake_timeout: params.handshake_timeout,
         protocol_timeout: params.protocol_timeout,

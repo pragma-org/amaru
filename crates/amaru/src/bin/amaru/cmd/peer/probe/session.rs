@@ -47,6 +47,8 @@ use tokio::runtime::Handle;
 pub struct SessionRequest {
     pub peer: Peer,
     pub network: NetworkName,
+    /// Wall-clock budget from TCP connect start until this attempt finishes (`--timeout`).
+    pub session_timeout: Duration,
     pub connect_timeout: Duration,
     pub handshake_timeout: Duration,
     pub protocol_timeout: Duration,
@@ -470,6 +472,7 @@ fn offered_versions_from_table(
 pub async fn run_version_query(
     peer: Peer,
     network: NetworkName,
+    session_timeout: Duration,
     connect_timeout: Duration,
     handshake_timeout: Duration,
     max_n2n_version: VersionNumber,
@@ -479,6 +482,7 @@ pub async fn run_version_query(
     let req = SessionRequest {
         peer,
         network,
+        session_timeout,
         connect_timeout,
         handshake_timeout,
         protocol_timeout: handshake_timeout,
@@ -515,8 +519,29 @@ pub async fn run_session(req: SessionRequest) -> anyhow::Result<SessionPartial> 
 }
 
 async fn run_session_inner(req: SessionRequest, handshake_mode: HandshakeMode) -> anyhow::Result<SessionPartial> {
+    let session_timeout = req.session_timeout;
+    let attempt_started = Instant::now();
+    match tokio::time::timeout(session_timeout, run_session_attempt(req, handshake_mode, attempt_started)).await {
+        Ok(result) => result,
+        Err(_) => {
+            bail!("probe timed out after {}", amaru_kernel::utils::duration::format(&session_timeout))
+        }
+    }
+}
+
+async fn run_session_attempt(
+    req: SessionRequest,
+    handshake_mode: HandshakeMode,
+    attempt_started: Instant,
+) -> anyhow::Result<SessionPartial> {
     let _guards = deserializers::register_deserializers();
     let connections = Arc::new(TokioConnections::new(65535));
+
+    // Connect may not consume more than the remaining session budget.
+    let connect_budget = req.connect_timeout.min(req.session_timeout.saturating_sub(attempt_started.elapsed()));
+    if connect_budget.is_zero() {
+        bail!("probe timed out after {}", amaru_kernel::utils::duration::format(&req.session_timeout));
+    }
 
     let (conn_id, pre_steps, timing_for_driver) = if req.want_timetrack {
         let (started, mut last) = req.timetrack_continue.unwrap_or_else(|| {
@@ -524,13 +549,13 @@ async fn run_session_inner(req: SessionRequest, handshake_mode: HandshakeMode) -
             (now, now)
         });
         let mut steps = vec![mark_standalone_step(started, &mut last, "tcp_connect_start", 0, 0)];
-        let conn_id = connections.connect(req.peer, req.connect_timeout).await.context("TCP connect for session")?;
+        let conn_id = connections.connect(req.peer, connect_budget).await.context("TCP connect for session")?;
         let (sent, recv) = connections.byte_counts(conn_id).unwrap_or((0, 0));
         steps.push(mark_standalone_step(started, &mut last, "tcp_connect_ok", sent, recv));
         let ctx = TimingCtx { started, last, connections: connections.clone(), conn_id };
         (conn_id, steps, Some(ctx))
     } else {
-        let conn_id = connections.connect(req.peer, req.connect_timeout).await.context("TCP connect for session")?;
+        let conn_id = connections.connect(req.peer, connect_budget).await.context("TCP connect for session")?;
         (conn_id, Vec::new(), None)
     };
 
@@ -573,27 +598,26 @@ async fn run_session_inner(req: SessionRequest, handshake_mode: HandshakeMode) -
 
     let handle = Handle::current();
     let running = network.run(handle);
-    let ping_budget = req
-        .want_ping
-        .map(|(count, interval)| req.protocol_timeout * count + interval * count.saturating_sub(1))
-        .unwrap_or(Duration::ZERO);
-    let overall = req.handshake_timeout
-        + ping_budget
-        + req.protocol_timeout * (u32::from(req.want_tip) + u32::from(req.want_peershare)).max(1);
+    // Abort the graph if this attempt is cancelled (session `--timeout`) or returns early.
+    struct AbortOnDrop(Option<amaru_pure_stage::tokio::TokioRunning>);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            if let Some(running) = self.0.take() {
+                running.abort();
+            }
+        }
+    }
+    let mut running = AbortOnDrop(Some(running));
 
-    let partial = match tokio::time::timeout(overall + Duration::from_secs(5), report_rx.next()).await {
-        Ok(Some(report)) => report,
-        Ok(None) => {
-            running.abort();
-            bail!("probe session ended without a report (graph shut down before result delivery)")
-        }
-        Err(_) => {
-            running.abort();
-            bail!("probe session timed out")
-        }
+    // Outer `--timeout` is the deadline; wait for the report until that future is cancelled.
+    let partial = match report_rx.next().await {
+        Some(report) => report,
+        None => bail!("probe session ended without a report (graph shut down before result delivery)"),
     };
 
-    running.abort();
+    if let Some(running) = running.0.take() {
+        running.abort();
+    }
     let _ = connections.close(conn_id).await;
     Ok(partial)
 }
