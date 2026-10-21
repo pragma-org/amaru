@@ -37,9 +37,20 @@ Other guiding principles:
 
 ## v10.11.20261022 _[unreleased; planned for 2026-10-22]_
 
+### Added
+
+- **amaru**: conformance reports for uplc, uplc turbo, ledger rules and cbor decoding as release artifacts.
+
+### Changed
+
+- **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
+
 ### Fixed
 
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
+- **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
+- **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
+- **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 
 ## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
