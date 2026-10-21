@@ -16,7 +16,7 @@ use super::{MachineError, env::Env, runtime::Runtime};
 use crate::{
     arena::Arena,
     binder::Eval,
-    constant::{Constant, Integer},
+    constant::{Constant, Integer, List},
     ledger_value::LedgerValue,
     term::Term,
     typ::Type,
@@ -140,7 +140,7 @@ where
         Ok((t1, t2, first, second))
     }
 
-    pub fn unwrap_list(&'a self) -> Result<(&'a Type<'a>, &'a [&'a Constant<'a>]), MachineError<'a, V>> {
+    pub fn unwrap_list(&'a self) -> Result<(&'a Type<'a>, &'a List<'a>), MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(t1, list) = inner else {
@@ -160,7 +160,7 @@ where
         Ok((t1, array))
     }
 
-    pub fn unwrap_map(&'a self) -> Result<(&'a Type<'a>, &'a [&'a Constant<'a>]), MachineError<'a, V>> {
+    pub fn unwrap_map(&'a self) -> Result<(&'a Type<'a>, &'a List<'a>), MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(t1, list) = inner else {
@@ -188,7 +188,7 @@ where
         Ok(())
     }
 
-    pub(super) fn unwrap_int_list(&'a self) -> Result<&'a [&'a Constant<'a>], MachineError<'a, V>> {
+    pub(super) fn unwrap_int_list(&'a self) -> Result<&'a List<'a>, MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(Type::Integer, list) = inner else {

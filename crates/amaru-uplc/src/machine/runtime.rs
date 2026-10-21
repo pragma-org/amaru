@@ -544,7 +544,7 @@ impl<'a> Machine<'a> {
                 if list.is_empty() {
                     Err(MachineError::empty_list(list))
                 } else {
-                    let value = Value::con(self.arena, list[0]);
+                    let value = Value::con(self.arena, list.first().expect("non-empty list"));
 
                     Ok(value)
                 }
@@ -748,15 +748,7 @@ impl<'a> Machine<'a> {
                     return Err(MachineError::mk_cons_type_mismatch(item));
                 }
 
-                let mut new_list = BumpVec::with_capacity_in(list.len() + 1, self.arena.as_bump());
-
-                new_list.push(item);
-
-                new_list.extend_from_slice(list);
-
-                let new_list = self.arena.alloc(new_list);
-
-                let constant = Constant::proto_list(self.arena, typ, new_list);
+                let constant = Constant::proto_list_cons(self.arena, typ, item, list);
 
                 let value = constant.value(self.arena);
 
@@ -1022,7 +1014,8 @@ impl<'a> Machine<'a> {
                 if list.is_empty() {
                     Err(MachineError::empty_list(list))
                 } else {
-                    let constant = Constant::proto_list(self.arena, t1, &list[1..]);
+                    let constant =
+                        Constant::proto_list_from(self.arena, t1, list.tail(self.arena).expect("non-empty list"));
 
                     let value = Value::con(self.arena, constant);
 
@@ -2248,7 +2241,7 @@ impl<'a> Machine<'a> {
                 self.spend_budget(budget)?;
 
                 if elements_to_drop.is_negative() {
-                    let constant = Constant::proto_list(self.arena, list_type, list);
+                    let constant = Constant::proto_list_from(self.arena, list_type, list);
                     let value = Value::con(self.arena, constant);
                     return Ok(value);
                 }
@@ -2259,10 +2252,9 @@ impl<'a> Machine<'a> {
                     usize::try_from(elements_to_drop).unwrap_or(0)
                 };
 
-                let remaining_list =
-                    if elements_to_drop_usize >= list.len() { &[] } else { &list[elements_to_drop_usize..] };
+                let remaining_list = list.drop(self.arena, elements_to_drop_usize);
 
-                let constant = Constant::proto_list(self.arena, list_type, remaining_list);
+                let constant = Constant::proto_list_from(self.arena, list_type, remaining_list);
                 let value = Value::con(self.arena, constant);
 
                 Ok(value)
@@ -2289,7 +2281,8 @@ impl<'a> Machine<'a> {
 
                 self.spend_budget(budget)?;
 
-                let constant = Constant::proto_array(self.arena, list_type, list);
+                let array: BumpVec<'_, _> = list.iter().collect_in(self.arena.as_bump());
+                let constant = Constant::proto_array(self.arena, list_type, array.into_bump_slice());
 
                 let value = Value::con(self.arena, constant);
 
@@ -2334,12 +2327,14 @@ impl<'a> Machine<'a> {
                 let mut scalar_buf = blst::blst_scalar::default();
 
                 for i in 0..n {
-                    let Constant::Integer(si) = scalars[i] else {
-                        return Err(MachineError::type_mismatch(Type::Integer, scalars[i]));
+                    let scalar = scalars.get(i).expect("scalar list length must match its cached length");
+                    let Constant::Integer(si) = scalar else {
+                        return Err(MachineError::type_mismatch(Type::Integer, scalar));
                     };
 
-                    let Constant::Bls12_381G1Element(pi) = points[i] else {
-                        return Err(MachineError::type_mismatch(Type::Bls12_381G1Element, points[i]));
+                    let point = points.get(i).expect("point list length must match its cached length");
+                    let Constant::Bls12_381G1Element(pi) = point else {
+                        return Err(MachineError::type_mismatch(Type::Bls12_381G1Element, point));
                     };
 
                     // Validate range even for infinity points.
@@ -2347,7 +2342,7 @@ impl<'a> Machine<'a> {
 
                     // Skip infinity points: scalar * infinity = identity,
                     // and infinity poisons the batch affine conversion.
-                    if unsafe { blst::blst_p1_is_inf(*pi) } {
+                    if unsafe { blst::blst_p1_is_inf(*pi as *const _) } {
                         continue;
                     }
 
@@ -2396,12 +2391,14 @@ impl<'a> Machine<'a> {
                 let mut scalar_buf = blst::blst_scalar::default();
 
                 for i in 0..n {
-                    let Constant::Integer(si) = scalars[i] else {
-                        return Err(MachineError::type_mismatch(Type::Integer, scalars[i]));
+                    let scalar = scalars.get(i).expect("scalar list length must match its cached length");
+                    let Constant::Integer(si) = scalar else {
+                        return Err(MachineError::type_mismatch(Type::Integer, scalar));
                     };
 
-                    let Constant::Bls12_381G2Element(pi) = points[i] else {
-                        return Err(MachineError::type_mismatch(Type::Bls12_381G2Element, points[i]));
+                    let point = points.get(i).expect("point list length must match its cached length");
+                    let Constant::Bls12_381G2Element(pi) = point else {
+                        return Err(MachineError::type_mismatch(Type::Bls12_381G2Element, point));
                     };
 
                     // Validate range even for infinity points.
@@ -2409,7 +2406,7 @@ impl<'a> Machine<'a> {
 
                     // Skip infinity points: scalar * infinity = identity,
                     // and infinity poisons the batch affine conversion.
-                    if unsafe { blst::blst_p2_is_inf(*pi) } {
+                    if unsafe { blst::blst_p2_is_inf(*pi as *const _) } {
                         continue;
                     }
 
