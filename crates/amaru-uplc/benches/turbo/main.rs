@@ -148,7 +148,11 @@ impl Measurement {
         let result = program.eval(arena, costs, ExBudget::max());
 
         let budget = result.info.consumed_budget;
-        let _term = result.term.expect("failed to evaluate");
+
+        assert!(match plutus_version {
+            PlutusVersion::V1 | PlutusVersion::V2 => result.is_success(),
+            PlutusVersion::V3 => result.is_unit(),
+        });
 
         let mem_bytes = arena.used_bytes().saturating_sub(arena_before_eval) as u64;
         let cpu_us = duration::elapsed_and_reset(&mut meter);

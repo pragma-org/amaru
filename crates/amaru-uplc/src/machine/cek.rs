@@ -57,7 +57,7 @@ impl<'a> Machine<'a> {
         }
     }
 
-    pub fn run<V>(&mut self, term: &'a Term<'a, V>) -> Result<&'a Term<'a, V>, MachineError<'a, V>>
+    pub fn run<V>(&mut self, term: &'a Term<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
@@ -71,8 +71,8 @@ impl<'a> Machine<'a> {
             let step = match state {
                 MachineState::Compute(context, env, term) => self.compute(context, env, term),
                 MachineState::Return(context, value) => self.return_compute(context, value),
-                MachineState::Done(term) => {
-                    return Ok(term);
+                MachineState::Done(value) => {
+                    return Ok(value);
                 }
             };
 
@@ -266,9 +266,7 @@ impl<'a> Machine<'a> {
                     self.spend_unbudgeted_steps()?;
                 }
 
-                let term = discharge::value_as_term(self.arena, value);
-
-                let state = MachineState::done(self.arena, term);
+                let state = MachineState::done(self.arena, value);
 
                 Ok(state)
             }

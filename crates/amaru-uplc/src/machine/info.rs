@@ -14,7 +14,7 @@
 
 use super::ExBudget;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MachineInfo {
     pub remaining_budget: ExBudget,
     pub consumed_budget: ExBudget,

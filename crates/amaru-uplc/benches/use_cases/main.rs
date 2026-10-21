@@ -41,7 +41,7 @@ pub fn bench_plutus_use_cases(c: &mut Criterion) {
 
                     let result = program.eval_default(&arena);
 
-                    let _term = result.term.expect("Failed to evaluate");
+                    let _term = result.into_term().expect("Failed to evaluate");
 
                     arena.reset();
                 })
