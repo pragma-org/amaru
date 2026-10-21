@@ -127,17 +127,17 @@ impl<'a, V> Runtime<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn new(arena: &'a Arena, fun: DefaultFunction) -> &'a Self {
-        arena.alloc(Self { args: Arguments::empty(), fun, forces: 0 })
+    pub fn new(fun: DefaultFunction) -> Self {
+        Self { args: Arguments::empty(), fun, forces: 0 }
     }
 
-    pub fn force(&self, arena: &'a Arena) -> &'a Self {
-        arena.alloc(Runtime { args: self.args, fun: self.fun, forces: self.forces + 1 })
+    pub fn force(&self) -> Self {
+        Runtime { args: self.args, fun: self.fun, forces: self.forces + 1 }
     }
 
-    pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> &'a Self {
+    pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> Self {
         let args = self.args.push(arena, arg);
-        arena.alloc(Runtime { args, fun: self.fun, forces: self.forces })
+        Runtime { args, fun: self.fun, forces: self.forces }
     }
 
     pub fn needs_force(&self) -> bool {
@@ -189,7 +189,7 @@ impl<'a> Machine<'a> {
         }
     }
 
-    pub fn call<V>(&mut self, runtime: &'a Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
+    pub fn call<V>(&mut self, runtime: &Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {

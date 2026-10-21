@@ -29,7 +29,7 @@ where
 {
     Con(&'a Constant<'a>),
     Lambda { parameter: &'a V, body: &'a Term<'a, V>, env: &'a Env<'a, V> },
-    Builtin(&'a Runtime<'a, V>),
+    Builtin(Runtime<'a, V>),
     Delay(&'a Term<'a, V>, &'a Env<'a, V>),
     Constr(usize, &'a [&'a Value<'a, V>]),
 }
@@ -60,7 +60,7 @@ where
         arena.alloc(Value::Constr(tag, values))
     }
 
-    pub fn builtin(arena: &'a Arena, runtime: &'a Runtime<'a, V>) -> &'a Value<'a, V> {
+    pub fn builtin(arena: &'a Arena, runtime: Runtime<'a, V>) -> &'a Value<'a, V> {
         arena.alloc(Value::Builtin(runtime))
     }
 
