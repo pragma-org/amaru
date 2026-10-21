@@ -129,11 +129,11 @@ pub struct Args {
     )]
     requested_version: u64,
 
-    /// Extra attempts after a failed handshake-query or session step.
+    /// Extra attempts after a failed connect, step timeout, or wall-clock `--timeout`.
     ///
     /// Optional value via `=`: `COUNT` (1..=32 retries, 500 ms apart) or `COUNT:INTERVAL`
-    /// (e.g. `--retry=2:500ms`). Bare `--retry` retries once after 500 ms. Does not multiply
-    /// `--ping` samples.
+    /// (e.g. `--retry=2:500ms`). Bare `--retry` retries once after 500 ms. Each attempt gets a
+    /// fresh `--timeout` / step-timeout budget. Does not multiply `--ping` samples.
     #[arg(
         long,
         num_args = 0..=1,
@@ -323,11 +323,24 @@ fn parse_count_interval(
     Ok((count, interval))
 }
 
-/// Run `op` once, then up to `retry.count` more times after `retry.interval` on failure.
-async fn with_retries<T, E, F, Fut>(retry: Option<RetrySpec>, mut op: F) -> Result<T, E>
+/// Run `op` once, then up to `retry.count` more times after `retry.interval` on `Err`.
+async fn with_retries<T, E, F, Fut>(retry: Option<RetrySpec>, op: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
+{
+    with_retries_if(retry, |_| false, op).await
+}
+
+/// Like [`with_retries`], but also retries when `Ok(value)` and `retry_ok(&value)` is true.
+///
+/// After retries are exhausted, returns the last `Ok(value)` that failed `retry_ok` (so callers
+/// still see step-timeout details) or the last `Err`.
+async fn with_retries_if<T, E, F, Fut, R>(retry: Option<RetrySpec>, mut retry_ok: R, mut op: F) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    R: FnMut(&T) -> bool,
 {
     let (extra, delay) = match retry {
         Some(spec) => (spec.count, spec.interval),
@@ -336,7 +349,16 @@ where
     let mut attempt = 0u32;
     loop {
         match op().await {
-            Ok(value) => return Ok(value),
+            Ok(value) if !retry_ok(&value) => return Ok(value),
+            Ok(value) => {
+                if attempt < extra {
+                    attempt += 1;
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                // Retries exhausted: keep the last report so step-timeout details are visible.
+                return Ok(value);
+            }
             Err(_err) if attempt < extra => {
                 attempt += 1;
                 tokio::time::sleep(delay).await;
@@ -344,6 +366,10 @@ where
             Err(err) => return Err(err),
         }
     }
+}
+
+fn session_partial_needs_retry(partial: &session::SessionPartial) -> bool {
+    !partial.errors.is_empty()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -571,29 +597,33 @@ async fn probe_one(
     if actions.needs_session() {
         let stream_ping = stream && actions.ping.is_some();
         let mut ping_streamed = false;
-        match with_retries(args.retry, || {
-            run_session_streaming_ping(
-                session::SessionRequest {
-                    peer,
-                    network: args.network,
-                    session_timeout,
-                    connect_timeout,
-                    handshake_timeout,
-                    protocol_timeout,
-                    want_peershare: actions.peer_share,
-                    want_tip: actions.tip,
-                    want_ping: actions.ping.map(|s| (s.count, s.interval)),
-                    ping_progress: None,
-                    want_timetrack: args.time_track,
-                    timetrack_continue: track_clock,
-                    max_n2n_version,
-                    peer_share_amount: 10,
-                },
-                stream_ping,
-                &out,
-                report.ping_interval_ms,
-            )
-        })
+        match with_retries_if(
+            args.retry,
+            |(partial, _)| session_partial_needs_retry(partial),
+            || {
+                run_session_streaming_ping(
+                    session::SessionRequest {
+                        peer,
+                        network: args.network,
+                        session_timeout,
+                        connect_timeout,
+                        handshake_timeout,
+                        protocol_timeout,
+                        want_peershare: actions.peer_share,
+                        want_tip: actions.tip,
+                        want_ping: actions.ping.map(|s| (s.count, s.interval)),
+                        ping_progress: None,
+                        want_timetrack: args.time_track,
+                        timetrack_continue: track_clock,
+                        max_n2n_version,
+                        peer_share_amount: 10,
+                    },
+                    stream_ping,
+                    &out,
+                    report.ping_interval_ms,
+                )
+            },
+        )
         .await
         {
             Ok((partial, streamed)) => {
@@ -659,7 +689,11 @@ async fn probe_one(
             time_track: args.time_track,
         };
         for addr in peers {
-            let check = match with_retries(args.retry, || run_peer_check_one(&addr, check_params)).await {
+            let check = match with_retries_if(args.retry, |c: &session::PeerCheck| !c.ok, || {
+                run_peer_check_one(&addr, check_params)
+            })
+            .await
+            {
                 Ok(check) => check,
                 Err(err) => session::PeerCheck::hard_failure(&addr, format!("{err:#}")),
             };
@@ -1204,5 +1238,37 @@ mod tests {
         .await;
         assert_eq!(result, Err("fail"));
         assert_eq!(tries, 1);
+    }
+
+    #[tokio::test]
+    async fn with_retries_if_retries_ok_failures_then_returns_last() {
+        let mut tries = 0u32;
+        let result = with_retries_if(
+            Some(RetrySpec { count: 2, interval: Duration::from_millis(1) }),
+            |n: &u32| *n < 10,
+            || {
+                tries += 1;
+                async move { Ok::<u32, &str>(tries) }
+            },
+        )
+        .await;
+        assert_eq!(result, Ok(3));
+        assert_eq!(tries, 3);
+    }
+
+    #[tokio::test]
+    async fn with_retries_if_stops_when_ok_succeeds() {
+        let mut tries = 0u32;
+        let result = with_retries_if(
+            Some(RetrySpec { count: 5, interval: Duration::from_millis(1) }),
+            |n: &u32| *n < 2,
+            || {
+                tries += 1;
+                async move { Ok::<u32, &str>(tries) }
+            },
+        )
+        .await;
+        assert_eq!(result, Ok(2));
+        assert_eq!(tries, 2);
     }
 }
