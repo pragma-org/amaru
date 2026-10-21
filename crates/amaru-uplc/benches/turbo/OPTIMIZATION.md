@@ -51,6 +51,26 @@ dominated by arithmetic rather than CEK state transitions. The broad gain on
 the remaining corpus and the absence of a new runtime abstraction justify the
 small mechanical signature change.
 
+### Keep CEK continuation frames in a machine-owned stack
+
+The previous `Context` representation allocated every continuation frame in
+the arena and linked it to its parent. The machine now owns the active frames
+in a private stack and passes the stack depth through `MachineState`. Returning
+from a computation pops the current frame, so the stack retains only active
+continuations while values, environments, terms, and constructor results keep
+their existing arena lifetimes.
+
+On the focused 14-script set, the large integer-multiplication outlier was
+unchanged. Excluding that arithmetic-dominated case, mean CPU fell from
+13.38 ms to 12.58 ms (-6.0%) and mean arena occupancy fell from 4.72 MiB to
+1.70 MiB (-64%). The machine now has one heap-backed active-frame stack, but
+it avoids retaining every historical continuation in the evaluation arena.
+
+| Metric | Change |
+| --- | ---: |
+| CPU-weighted score | 20.5 points |
+| Complexity cost | 3 |
+
 ## Rejected
 
 ### Intern primitive type descriptors
