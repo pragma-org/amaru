@@ -59,3 +59,11 @@ Returning shared descriptors for primitive `Type` variants reduced arena
 occupancy by only 0.1-1.7% on the focused set and did not produce a repeatable
 CPU improvement. It was reverted because the gain was below the cost of
 maintaining another lifetime-sensitive global cache.
+
+### Avoid the `Constant::Data` wrapper for runtime data values
+
+A direct data variant was tested for values returned by data builtins. It
+passed conformance tests, but the focused corpus showed no stable CPU gain and
+less than 0.5% lower arena occupancy in the affected cases. Most of the cost
+comes from the surrounding CEK transitions and data/list operations, so the
+extra representation and compatibility path were reverted.
