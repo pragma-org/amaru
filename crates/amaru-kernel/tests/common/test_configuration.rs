@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 
 use amaru_kernel::ProtocolVersion;
 
-use crate::{AcknowledgedFailures, Corpus, TestKey, corpus_root, read_corpus_root, read_test_data};
+use crate::{
+    AcknowledgedFailures, Corpus, TestKey, corpus_root, normalize_rule_name, read_corpus_root, read_directory,
+    read_test_data,
+};
 
 /// The `AMARU_TEST_FILTER` environment variable selects a subset by passing a substring of `<rule>/<category>/<file-name>`.
 const TEST_FILTER: &str = "AMARU_TEST_FILTER";
@@ -106,8 +109,19 @@ impl TestConfiguration {
 
     /// Read the tests keys for a given rule, filtering them by the substring filter if any.
     pub fn read_tests_for(&self, rule: &str) -> anyhow::Result<Vec<TestKey>> {
-        let rule_dir = self.root.join(rule);
-        assert!(rule_dir.is_dir(), "corpus is missing the rule directory {}", rule_dir.display());
+        let rule_dir = read_directory(&self.root)?
+            .into_iter()
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.is_dir()
+                    && path
+                        .file_name()
+                        .map(|name| normalize_rule_name(&name.to_string_lossy()) == rule)
+                        .unwrap_or(false)
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!("corpus is missing the rule directory {}", self.root.join(rule).display())
+            })?;
         read_test_data(&rule_dir)
             .map(|tests| tests.into_iter().filter(|test_key| test_key.is_included(&self.filter)).collect())
     }

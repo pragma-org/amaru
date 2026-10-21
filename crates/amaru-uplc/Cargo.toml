@@ -54,6 +54,7 @@ pretty_assertions.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sysinfo.workspace = true
 test-case.workspace = true
 
 [features]
@@ -70,6 +71,10 @@ harness = false
 [[bench]]
 name = "turbo"
 harness = false
+
+[[bin]]
+name = "generate-conformance-flats"
+path = "src/bin/generate_conformance_flats.rs"
 
 [package.metadata.cargo-machete]
 ignored = ["amaru-deps"]

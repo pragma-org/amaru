@@ -1,0 +1,123 @@
+name: Conformance Reports
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifact_prefix:
+        description: Prefix used for uploaded report artifacts
+        required: false
+        type: string
+        default: amaru
+  push:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_NIGHTLY_TOOLCHAIN: nightly-2026-09-04
+  RUSTUP_LOG: error
+  TURBO_BENCHMARK_URL: https://pub-2239d82d9a074482b2eb2c886191cb4e.r2.dev/turbo.tar.zst
+  TURBO_BENCHMARK_SHA256: 821af55e3323c826b5598c964d634b46dd468014834d0e97ebdc5edb0a158576
+
+permissions:
+  contents: read
+
+jobs:
+  cbor-decoding:
+    name: CBOR decoding conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - uses: ./.github/actions/fetch-cbor-dataset
+
+      - name: Run the decoding conformance suite
+        id: cbor
+        env:
+          AMARU_TEST_REPORT_DIRECTORY: crates/amaru-kernel/tests/results
+        run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: ${{ inputs.artifact_prefix }}-cbor-conformance
+          path: crates/amaru-kernel/tests/results/*.json
+          if-no-files-found: error
+
+      - name: Preserve suite failure status
+        if: steps.cbor.outcome == 'failure'
+        run: exit 1
+
+  uplc-turbo:
+    name: UPLC turbo benchmarks
+    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Download benchmark data
+        run: curl --fail --show-error --location --retry 3 -o uplc-benchmarks-turbo.tar.zst "$TURBO_BENCHMARK_URL"
+
+      - name: Verify benchmark data
+        run: echo "$TURBO_BENCHMARK_SHA256  uplc-benchmarks-turbo.tar.zst" | sha256sum --check --strict
+
+      - name: Extract benchmark data
+        run: |
+          mkdir -p crates/amaru-uplc/benches/turbo/samples
+          tar --zstd -xf uplc-benchmarks-turbo.tar.zst -C crates/amaru-uplc/benches/turbo/samples
+
+      - name: Generate report
+        run: |
+          make conformance-uplc-turbo > uplc-turbo.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-uplc-turbo
+          path: uplc-turbo.json
+
+  uplc-conformance:
+    name: UPLC conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Run conformance tests
+        id: conformance
+        run: |
+          make conformance-uplc > uplc-conformance.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-uplc-conformance
+          path: uplc-conformance.json
+
+      - name: Preserve suite failure status
+        if: steps.conformance.outcome == 'failure'
+        run: exit 1
+
+  ledger-rules:
+    name: Ledger rules
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+
+      - uses: ./.github/actions/cache
+
+      - name: Run ledger transaction scenarios
+        id: ledger
+        run: |
+          make conformance-ledger-rules > ledger-rules.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
+        with:
+          name: ${{ inputs.artifact_prefix }}-ledger-rules
+          path: ledger-rules.json
+
+      - name: Preserve suite failure status
+        if: steps.ledger.outcome == 'failure'
+        run: exit 1

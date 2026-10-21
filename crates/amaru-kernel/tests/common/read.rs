@@ -33,8 +33,9 @@ const EXPECTED_SUFFIX: &str = ".expected.cbor";
 /// severity directory can be missing, which the corpus means as zero samples at that severity.
 pub fn read_test_data(rule_dir: &Path) -> anyhow::Result<Vec<TestKey>> {
     let mut out = Vec::new();
-    let rule =
-        rule_dir.file_name().ok_or_else(|| anyhow!("rule directory has no name"))?.to_string_lossy().into_owned();
+    let rule = normalize_rule_name(
+        &rule_dir.file_name().ok_or_else(|| anyhow!("rule directory has no name"))?.to_string_lossy(),
+    );
     for entry in read_directory(rule_dir)? {
         let dir = entry.path();
         if !dir.is_dir() {
@@ -84,6 +85,25 @@ pub fn read_corpus_root(corpus: Corpus) -> anyhow::Result<Option<PathBuf>> {
     Ok(Some(root))
 }
 
+/// Normalize a corpus rule name escaped by Cygwin for a Windows filesystem.
+///
+/// Windows reserves several ASCII characters in filenames. Cygwin represents those characters by adding
+/// `0xf000`, so the angle brackets in `%constr<plutus_data>` may be exposed as U+F03C and U+F03E.
+pub fn normalize_rule_name(name: &str) -> String {
+    name.chars()
+        .map(|character| match character {
+            '\u{f022}' => '"',
+            '\u{f02a}' => '*',
+            '\u{f03a}' => ':',
+            '\u{f03c}' => '<',
+            '\u{f03e}' => '>',
+            '\u{f03f}' => '?',
+            '\u{f07c}' => '|',
+            _ => character,
+        })
+        .collect()
+}
+
 /// Return the root of the corpus, e.g. `tests/data/cbor.dataset/conway`.
 pub fn corpus_root(corpus: Corpus) -> PathBuf {
     dataset_dir().join(corpus.to_string())
@@ -109,4 +129,14 @@ pub fn read_directory(path: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
 
 fn io_error(path: &Path, e: std::io::Error) -> String {
     format!("read {}: {e}", path.display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_rule_name;
+
+    #[test]
+    fn normalize_cygwin_escaped_rule_name() {
+        assert_eq!(normalize_rule_name("%constr\u{f03c}plutus_data\u{f03e}"), "%constr<plutus_data>");
+    }
 }

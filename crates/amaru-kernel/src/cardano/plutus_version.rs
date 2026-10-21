@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use crate::cbor;
 
 #[derive(
@@ -39,6 +41,16 @@ pub enum PlutusVersion {
     #[n(2)]
     #[default]
     V3 = 3,
+}
+
+impl fmt::Display for PlutusVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::V1 => "V1",
+            Self::V2 => "V2",
+            Self::V3 => "V3",
+        })
+    }
 }
 
 // TODO: Unify with amaru-plutus::plutus_data::{IsKnownPlutusVersion} #[doc(hidden)]

@@ -24,11 +24,11 @@ use amaru_kernel::{
 };
 use amaru_observability::debug_span;
 use amaru_plutus::{
-    arena_pool::ArenaPool,
     script_context::ToScriptArgs,
     to_plutus_data::{PLUTUS_V1, PLUTUS_V2, PLUTUS_V3, PlutusDataError},
 };
 use amaru_uplc::{
+    arena_pool::ArenaPool,
     binder::Binder,
     constant::Constant,
     data::PlutusData,
@@ -352,7 +352,7 @@ mod tests {
         CostModels, MemoizedTransactionOutput, NetworkName, ProtocolParameters, Transaction, TransactionPointer,
         include_cbor,
     };
-    use amaru_plutus::arena_pool::ArenaPool;
+    use amaru_uplc::arena_pool::ArenaPool;
     use anyhow::Result;
 
     use crate::context::DefaultValidationContext;

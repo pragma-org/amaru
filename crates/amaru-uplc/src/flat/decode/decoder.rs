@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    PlutusVersion, ProtocolVersion,
-    protocol_version::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_11},
-};
+use amaru_kernel::{PROTOCOL_VERSION_9, PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
 use bumpalo::collections::{String as BumpString, Vec as BumpVec};
 
 use super::FlatDecodeError;
-use crate::{arena::Arena, builtin::DefaultFunction, constant::Integer, flat::zigzag::ZigZag, machine::MachineVersion};
+use crate::{
+    arena::Arena,
+    builtin::DefaultFunction,
+    constant::Integer,
+    flat::zigzag::ZigZag,
+    machine::{MachineVersion, Semantics},
+};
 
 pub struct Decoder<'b> {
     pub buffer: &'b [u8],
@@ -39,12 +42,27 @@ pub struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Returns whether the program version is supported by the ledger semantics selected for this
+    /// Plutus language and protocol version.
+    pub fn is_program_version_available(&self) -> bool {
+        match Semantics::new(self.plutus_version, self.protocol_version) {
+            Semantics::A | Semantics::B => self.machine_version == MachineVersion::V1_0_0,
+            Semantics::C | Semantics::D | Semantics::E => {
+                matches!(self.machine_version, MachineVersion::V1_0_0 | MachineVersion::V1_1_0)
+            }
+        }
+    }
+
     /// Returns true when constr/case terms are allowed.
     ///
-    /// Both the protocol version (>= 9, i.e. Conway) and the program version
-    /// (>= 1.1.0) must permit them.
+    /// This has been introduced with the machine version 1.1.0 which landed at different moment for
+    /// different Plutus versions. Plutus V3 has it since PV 9 whereas Plutus V1 and Plutus
+    /// V2 got it only after PV 11.
     pub fn is_constr_case_available(&self) -> bool {
-        let protocol_ok = self.protocol_version >= PROTOCOL_VERSION_10;
+        let protocol_ok = match self.plutus_version {
+            PlutusVersion::V1 | PlutusVersion::V2 => self.protocol_version >= PROTOCOL_VERSION_11,
+            PlutusVersion::V3 => self.protocol_version >= PROTOCOL_VERSION_9,
+        };
         let machine_ok = self.machine_version.is_constr_case_available();
         protocol_ok && machine_ok
     }

@@ -31,7 +31,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BuiltinCosts {
     // Tracing
     pub trace: Costing<TwoArguments>,

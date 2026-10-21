@@ -49,6 +49,21 @@ cabal run -v0 exe:conformance -- validate-phase-one \
 
 The command prints the test case label and either the expected outcome (`PASS` or the expected predicate failure), or a validation mismatch error.
 
+Add `--json-report PATH` when the result must be consumed by another tool. The report uses the
+`ledger-rules` report setup from the node-diversity-conformance repository and is written before a
+validation failure is returned to the caller:
+
+```console
+cabal run -v0 exe:conformance -- validate-phase-one \
+  --test-directory ../../../../amaru-ledger/tests/data/transaction/scenarios \
+  --json-report ledger-rules-cardano-node.json
+```
+
+The JSON report contains only a five-digit fixture id and its observed result:
+`pass` for a successful validation, or the observed predicate failure otherwise.
+Fixture metadata is maintained by the scenario definitions rather than copied
+into each implementation report.
+
 To run the whole suite of fixtures:
 
 ```console

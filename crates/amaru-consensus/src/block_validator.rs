@@ -32,7 +32,7 @@ use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated,
     PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError,
 };
-use amaru_plutus::arena_pool::ArenaPool;
+use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use thiserror::Error;

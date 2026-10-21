@@ -88,6 +88,14 @@ where
 
     let mut ctx = Ctx { arena, machine_version, protocol_version, plutus_version };
 
+    if !ctx.is_program_version_available() {
+        return Err(FlatDecodeError::ProgramVersionNotAvailable {
+            version: machine_version,
+            plutus_version,
+            protocol_version,
+        });
+    }
+
     let term = decode_term(&mut ctx, &mut decoder)?;
 
     decoder.filler()?;
@@ -505,6 +513,23 @@ mod tests {
         }
     }
 
+    #[test_case::test_case(PlutusVersion::V1, PROTOCOL_VERSION_10 => matches Err(FlatDecodeError::ProgramVersionNotAvailable { .. }) ; "V1 1.1 before protocol 11")]
+    #[test_case::test_case(PlutusVersion::V2, PROTOCOL_VERSION_10 => matches Err(FlatDecodeError::ProgramVersionNotAvailable { .. }) ; "V2 1.1 before protocol 11")]
+    #[test_case::test_case(PlutusVersion::V1, PROTOCOL_VERSION_11 => matches Ok(_) ; "V1 1.1 at protocol 11")]
+    #[test_case::test_case(PlutusVersion::V2, PROTOCOL_VERSION_11 => matches Ok(_) ; "V2 1.1 at protocol 11")]
+    #[test_case::test_case(PlutusVersion::V3, PROTOCOL_VERSION_10 => matches Ok(_) ; "V3 1.1 at protocol 10")]
+    fn program_version_availability_is_checked_during_flat_decoding(
+        plutus_version: PlutusVersion,
+        protocol_version: amaru_kernel::ProtocolVersion,
+    ) -> Result<(), FlatDecodeError> {
+        let arena = Arena::new();
+        let program = Program::new(&arena, MachineVersion::V1_1_0, Term::<DeBruijn>::error(&arena));
+        let bytes = crate::flat::encode::encode(program).expect("the program encodes");
+
+        let decoded = Arena::new();
+        decode::<DeBruijn>(&decoded, &bytes, plutus_version, protocol_version).map(|_| ())
+    }
+
     /// `maxBoundsByPV` in plutus-ledger-api leaves a `constr`'s arity unbounded below protocol
     /// version 11 and caps it at 1024 from there on.
     #[test_case::test_case(PROTOCOL_VERSION_10, 1025 => matches Ok(_)  ; "1025 fields before v11")]
@@ -546,7 +571,14 @@ mod tests {
     ) -> Result<(), FlatDecodeError> {
         let arena = Arena::new();
         let term = Term::<DeBruijn>::builtin(&arena, builtin);
-        let program = Program::new(&arena, crate::machine::MachineVersion::V1_1_0, term);
+        let program = Program::new(
+            &arena,
+            match plutus_version {
+                PlutusVersion::V1 | PlutusVersion::V2 => crate::machine::MachineVersion::V1_0_0,
+                PlutusVersion::V3 => crate::machine::MachineVersion::V1_1_0,
+            },
+            term,
+        );
 
         let bytes = crate::flat::encode::encode(program).expect("the program encodes");
 

@@ -22,7 +22,7 @@ use crate::{
     arena::Arena,
     binder::Eval,
     constant::Constant,
-    machine::{MachineVersion, context::Context, env::Env, state::MachineState},
+    machine::{context::Context, env::Env, state::MachineState},
     term::Term,
 };
 
@@ -34,11 +34,10 @@ pub struct Machine<'a> {
     pub(super) costs: CostModel,
     slippage: u8,
     pub(super) logs: Vec<String>,
-    machine_version: MachineVersion,
 }
 
 impl<'a> Machine<'a> {
-    pub fn new(arena: &'a Arena, initial_budget: ExBudget, costs: CostModel, machine_version: MachineVersion) -> Self {
+    pub fn new(arena: &'a Arena, initial_budget: ExBudget, costs: CostModel) -> Self {
         Machine {
             arena,
             initial_budget,
@@ -47,7 +46,6 @@ impl<'a> Machine<'a> {
             costs,
             slippage: 200,
             logs: Vec::new(),
-            machine_version,
         }
     }
 
@@ -63,10 +61,6 @@ impl<'a> Machine<'a> {
     where
         V: Eval<'a>,
     {
-        if !self.costs.semantics.supports_program_version(self.machine_version) {
-            return Err(MachineError::UnavailableProgramVersion(self.machine_version));
-        }
-
         self.spend_budget(self.costs.machine_costs.startup)?;
 
         let initial_context = Context::no_frame(self.arena);

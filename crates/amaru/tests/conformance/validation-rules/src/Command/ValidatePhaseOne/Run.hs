@@ -65,6 +65,7 @@ import Cardano.Slotting.Time
     )
 import Command.ValidatePhaseOne.Error
     ( Error (..)
+    , renderError
     )
 import Command.ValidatePhaseOne.Parse
     ( Options (..)
@@ -122,36 +123,74 @@ import System.Directory
     , listDirectory
     )
 import System.FilePath
-    ( takeExtension
+    ( dropExtension
+    , takeExtension
+    , takeFileName
     , (</>)
     )
 
+import qualified Data.ByteString.Lazy as LazyByteString
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
+import Data.Time.Clock
+    ( UTCTime
+    , getCurrentTime
+    )
 
 run :: Options -> ExceptT Error IO ()
-run Options{target} =
+run Options{target, jsonReport} =
     case target of
         SingleTestCase testCasePath ->
-            runSingleTestCase testCasePath
+            runSingleTestCase testCasePath jsonReport
         TestCaseDirectory directory ->
-            runTestCaseDirectory directory
+            runTestCaseDirectory directory jsonReport
 
-runSingleTestCase :: FilePath -> ExceptT Error IO ()
-runSingleTestCase testCasePath = do
-    (label, validationLabel) <- validateTestCaseAt testCasePath
-    liftIO (putTextLn (label <> ": " <> validationLabel))
+runSingleTestCase :: FilePath -> Maybe FilePath -> ExceptT Error IO ()
+runSingleTestCase testCasePath jsonReport = do
+    result <- liftIO (runExceptT (validateTestCaseAt testCasePath))
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath [(testCasePath, result)])
+    case result of
+        Right (label, validationLabel) -> liftIO (putTextLn (label <> ": " <> validationLabel))
+        Left validationError -> ExceptT (pure (Left validationError))
 
-runTestCaseDirectory :: FilePath -> ExceptT Error IO ()
-runTestCaseDirectory directory = do
+runTestCaseDirectory :: FilePath -> Maybe FilePath -> ExceptT Error IO ()
+runTestCaseDirectory directory jsonReport = do
     testCasePaths <- sort <$> liftIO (findTestCases directory)
     results <- forM testCasePaths $ \testCasePath -> liftIO $ do
         result <- runExceptT (validateTestCaseAt testCasePath)
         putLBSLn (encode (testCaseResult testCasePath result))
         pure (testCasePath, result)
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath results)
     liftIO (Text.IO.hPutStr stderr (renderRunSummary directory results))
     when (any (isLeft . snd) results) (liftIO exitFailure)
+
+writeReport :: FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
+writeReport reportPath results = do
+    generatedAt <- getCurrentTime
+    LazyByteString.writeFile reportPath (encode (report generatedAt results))
+
+report :: UTCTime -> [(FilePath, Either Error (Text, Text))] -> Value
+report generatedAt results =
+    object
+        [ "version" .= ("1" :: Text)
+        , "scenario" .= ("ledger-rules" :: Text)
+        , "generated_at" .= generatedAt
+        , "implementation" .= object ["name" .= ("cardano-node" :: Text)]
+        , "scenarios" .= map scenarioResult results
+        ]
+
+scenarioResult :: (FilePath, Either Error (Text, Text)) -> Value
+scenarioResult (path, result) =
+    object
+        [ "id" .= take 5 (scenarioId path)
+        , "result" .= scenarioResultValue result
+        ]
+  where
+    scenarioId = dropExtension . takeFileName
+    scenarioResultValue (Right (_, "PASS")) = ("pass" :: Text)
+    scenarioResultValue (Right (_, validationLabel)) = validationLabel
+    scenarioResultValue (Left errorValue) = renderError errorValue
 
 renderRunSummary :: FilePath -> [(FilePath, Either Error (Text, Text))] -> Text
 renderRunSummary directory results =

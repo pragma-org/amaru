@@ -32,8 +32,8 @@ use amaru_ledger::{
     state::{State, volatile::VolatileFragment},
     store::{Columns, Store, TransactionalContext},
 };
-use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+use amaru_uplc::arena_pool::ArenaPool;
 use divan::{Bencher, black_box};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tempfile::TempDir;

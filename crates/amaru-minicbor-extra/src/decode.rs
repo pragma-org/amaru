@@ -74,6 +74,9 @@ fn decode_integer_with(
 /// Plutus imposes this limit on the leaves of a serialised `Data` (see
 /// *Note [The 64-byte limit]* in `PlutusCore.Data`) and enforces it per chunk, so a longer value is
 /// legal as long as it arrives split into chunks of at most this size.
+///
+/// Strict decoding enforces this limit for serialized Plutus Data. Runtime Data values are
+/// already decoded and therefore do not pass through this check.
 pub const MAX_BOUNDED_BYTES_CHUNK: usize = 64;
 
 /// Reject a Plutus data byte string chunk above [`MAX_BOUNDED_BYTES_CHUNK`].

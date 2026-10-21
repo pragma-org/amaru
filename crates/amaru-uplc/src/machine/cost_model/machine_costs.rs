@@ -20,7 +20,7 @@ use crate::machine::{
     cost_model::{ParamName, StepKind},
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct MachineCosts {
     pub startup: ExBudget,
     pub constant: ExBudget,

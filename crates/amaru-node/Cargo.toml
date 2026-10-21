@@ -69,11 +69,11 @@ amaru-network.workspace = true
 amaru-observability.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
-amaru-plutus.workspace = true
 amaru-progress-bar = { workspace = true, features = ["terminal"] }
 amaru-protocols.workspace = true
 amaru-pure-stage.workspace = true
 amaru-stores.workspace = true
+amaru-uplc.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

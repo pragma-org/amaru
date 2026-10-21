@@ -35,8 +35,8 @@ use amaru_ledger::{
         columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
     },
 };
-use amaru_plutus::arena_pool::ArenaPool;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
 
 #[expect(clippy::wildcard_enum_match_arm)]

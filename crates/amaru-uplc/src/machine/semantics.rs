@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{PlutusVersion, ProtocolVersion, protocol_version::PROTOCOL_VERSION_11};
-
-use super::MachineVersion;
+use amaru_kernel::{
+    PlutusVersion, ProtocolVersion,
+    protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
+};
 
 /// Ledger builtin semantics variants. The semantic versioning is a little weird and are in-fact
 /// devided in two groups:
@@ -37,6 +38,8 @@ impl Semantics {
             PlutusVersion::V1 | PlutusVersion::V2 => {
                 if protocol_version >= PROTOCOL_VERSION_11 {
                     Self::D
+                } else if protocol_version < PROTOCOL_VERSION_9 {
+                    Self::A
                 } else {
                     Self::B
                 }
@@ -48,14 +51,6 @@ impl Semantics {
                     Self::C
                 }
             }
-        }
-    }
-
-    /// Whether a program declaring this UPLC language version may be evaluated.
-    pub fn supports_program_version(&self, version: MachineVersion) -> bool {
-        match self {
-            Self::A | Self::B => version == MachineVersion::V1_0_0,
-            Self::C | Self::D | Self::E => version == MachineVersion::V1_0_0 || version == MachineVersion::V1_1_0,
         }
     }
 

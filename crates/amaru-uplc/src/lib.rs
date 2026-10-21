@@ -16,6 +16,7 @@
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
 pub mod arena;
+pub mod arena_pool;
 pub mod binder;
 pub mod bls;
 pub mod builtin;
@@ -357,13 +358,11 @@ mod tests {
 
         let program = Program::<DeBruijn>::new(&arena, version, term);
 
-        let costs = CostModel::DEFAULT_V3;
-
         let r10 =
-            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_10, &costs), ExBudget::default());
+            program.eval(&arena, CostModel::default_for(PlutusVersion::V3, PROTOCOL_VERSION_10), ExBudget::default());
 
         let r11 =
-            program.eval(&arena, CostModel::new(PlutusVersion::V3, PROTOCOL_VERSION_11, &costs), ExBudget::default());
+            program.eval(&arena, CostModel::default_for(PlutusVersion::V3, PROTOCOL_VERSION_11), ExBudget::default());
 
         // All should produce the correct result
         assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 4));
@@ -426,14 +425,14 @@ mod tests {
 
             let pre_v11 = program.eval(
                 &arena,
-                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_10, &CostModel::DEFAULT_V2),
+                CostModel::default_for(PlutusVersion::V2, PROTOCOL_VERSION_10),
                 ExBudget::default(),
             );
             assert!(dbg!(pre_v11.term).is_ok(), "{builtin:?}");
 
             let post_v11 = program.eval(
                 &arena,
-                CostModel::new(PlutusVersion::V2, PROTOCOL_VERSION_11, &CostModel::DEFAULT_V2),
+                CostModel::default_for(PlutusVersion::V2, PROTOCOL_VERSION_11),
                 ExBudget::default(),
             );
             assert!(

@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Get the duration since 1st January 1970.
+#[expect(clippy::expect_used)]
+pub fn since_unix_epoch() -> Duration {
+    SystemTime::now().duration_since(UNIX_EPOCH).expect("system clock is before Unix epoch")
+}
 
 /// Measure the time in μs since a previous checkpoint while refreshing the checkpoint.
 pub fn elapsed_and_reset(meter: &mut Instant) -> u64 {

@@ -16,8 +16,7 @@ use amaru_kernel::{
     Address, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Network,
     ProtocolParameters, ProtocolVersion, TransactionInput, Value, size::SCRIPT, utils::string::display_collection,
 };
-use amaru_plutus::arena_pool::ArenaPool;
-use amaru_uplc::{arena::Arena, flat::decode_plutus_script};
+use amaru_uplc::{arena::Arena, arena_pool::ArenaPool, flat::decode_plutus_script};
 use thiserror::Error;
 
 use crate::{

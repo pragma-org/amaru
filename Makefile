@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset conformance-uplc conformance-uplc-turbo conformance-ledger-rules
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -130,14 +130,29 @@ all-ci-checks: ## &test Run all CI checks
 	@cargo test --doc
 	@$(MAKE) coverage-lconv
 
-ledger-conformance-test-vectors: ## &test Download and update the set of test vectors used for ledger conformance tests
-	curl -Ls https://github.com/cardano-scaling/cardano-blueprint/raw/refs/heads/main/src/ledger/conformance-test-vectors/vectors.tar.gz | \
-	tar -xvf - -C "./crates/amaru-ledger/tests/data/rules-conformance"
+conformance-uplc-turbo: ## &test Generate a conformance report for the uplc-turbo non-functional corpus
+	@set -eu; \
+	report="$$(mktemp -t amaru-uplc-conformance)"; \
+	UPLC_TURBO_REPORT="$$report" cargo bench --locked -p amaru-uplc --bench turbo 1>&2; \
+	jq '.' $$report
 
-ledger-conformance-known-failures: ## &test Update the set of 'known conformance failures' from running the tests
-	@export AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH=$$(mktemp); \
-	cargo test -p amaru-ledger --test evaluate_ledger_states -- --test-threads=1; \
-	mv "$$AMARU_UPDATE_LEDGER_CONFORMANCE_SNAPSHOT_PATH" "./crates/amaru-ledger/tests/data/rules-conformance.failures.toml"
+conformance-ledger-rules: ## &test Generate a conformance report for the ledger transaction-rule corpus
+	@set -eu; \
+	report="$$(mktemp -t amaru-ledger-rules)"; \
+	AMARU_LEDGER_CONFORMANCE_REPORT="$$report" cargo test --locked -p amaru-ledger --lib rules::transaction::tests::conformance 1>&2; \
+	jq -s \
+		--arg generated_at "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+		'{version: "1", scenario: "ledger-rules", generated_at: $$generated_at, implementation: {name: "amaru"}, scenarios: (sort_by(.id) | map({id, result}))}' \
+		"$$report"
+
+conformance-uplc: ## &test Generate a conformance report for the uplc functional corpus
+	@set -eu; \
+	report="$$(mktemp -t amaru-uplc-conformance)"; \
+	UPLC_CONFORMANCE_REPORT="$$report" cargo test --locked -p amaru-uplc --test conformance 1>&2; \
+	jq -s \
+		--arg generated_at "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+		'{version: "1", scenario: "uplc-conformance", generated_at: $$generated_at, implementation: {name: "amaru"}, scenarios: sort_by([.id, .plutus_version, .protocol_version])}' \
+		"$$report"
 
 fetch-cbor-dataset: ## &test Fetch the CBOR dataset from https://github.com/r2rationality/cardano-cbor-dataset
 	@./scripts/fetch-cbor-dataset

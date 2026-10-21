@@ -1,0 +1,4 @@
+(program
+  1.0.0
+  (lam i-0 (delay (lam i-1 (lam i-2 [ i-2 [ [ (force i-0) i-1 ] i-2 ] ]))))
+)

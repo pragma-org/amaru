@@ -23,7 +23,7 @@ use amaru_kernel::{
     TransactionId, TransactionIndex, TransactionPointer, TransactionRef, size::SCRIPT,
 };
 use amaru_observability::debug_span;
-use amaru_plutus::arena_pool::ArenaPool;
+use amaru_uplc::arena_pool::ArenaPool;
 use thiserror::Error;
 
 use crate::{

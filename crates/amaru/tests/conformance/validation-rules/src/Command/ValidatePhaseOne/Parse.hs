@@ -16,7 +16,10 @@ import Options.Applicative
     , strOption
     )
 
-newtype Options = Options { target :: Target }
+data Options = Options
+    { target :: Target
+    , jsonReport :: Maybe FilePath
+    }
   deriving (Eq, Show)
 
 data Target
@@ -26,7 +29,16 @@ data Target
 
 optionsParser :: Parser Options
 optionsParser =
-    Options <$> (singleTestCase <|> testCaseDirectory)
+    Options
+        <$> (singleTestCase <|> testCaseDirectory)
+        <*> optional
+            ( strOption
+                ( long "json-report"
+                    <> metavar "PATH"
+                    <> completer (bashCompleter "file")
+                    <> help "Write a complete ledger-rules report as JSON"
+                )
+            )
   where
     singleTestCase =
         SingleTestCase
