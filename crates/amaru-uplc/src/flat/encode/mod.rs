@@ -20,7 +20,14 @@ pub use error::FlatEncodeError;
 use stacksafe::stacksafe;
 
 use super::tag;
-use crate::{binder::Binder, constant::Constant, ledger_value::LedgerValue, program::Program, term::Term, typ::Type};
+use crate::{
+    binder::Binder,
+    constant::{Constant, List},
+    ledger_value::LedgerValue,
+    program::Program,
+    term::Term,
+    typ::Type,
+};
 
 pub fn encode<'a, V>(program: &'a Program<'a, V>) -> Result<Vec<u8>, FlatEncodeError>
 where
@@ -141,7 +148,7 @@ fn encode_constant<'a>(e: &mut Encoder, constant: &'a Constant<'a>) -> Result<()
 
             e.list_with(&type_encodings, encode_constant_tag)?;
 
-            e.list_with(list, encode_constant_value)?;
+            encode_constant_list(e, list)?;
         }
         Constant::ProtoArray(typ, array) => {
             let mut type_encodings = vec![tag::PROTO_ARRAY_ONE, tag::PROTO_ARRAY_TWO];
@@ -220,7 +227,7 @@ fn encode_type(typ: &Type<'_>, bytes: &mut Vec<u8>) -> Result<(), FlatEncodeErro
 }
 
 #[stacksafe]
-fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<(), FlatEncodeError> {
+fn encode_constant_value(e: &mut Encoder, x: &&Constant<'_>) -> Result<(), FlatEncodeError> {
     match *x {
         Constant::Integer(x) => {
             e.integer(x);
@@ -236,7 +243,7 @@ fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<()
             e.bool(*b);
         }
         Constant::ProtoList(_, list) => {
-            e.list_with(list, encode_constant_value)?;
+            encode_constant_list(e, list)?;
         }
         Constant::ProtoArray(_, array) => {
             e.list_with(array, encode_constant_value)?;
@@ -256,6 +263,17 @@ fn encode_constant_value<'a>(e: &mut Encoder, x: &'a &Constant<'a>) -> Result<()
             return Err(FlatEncodeError::BlsElementNotSupported);
         }
     }
+
+    Ok(())
+}
+
+fn encode_constant_list(e: &mut Encoder, list: &List<'_>) -> Result<(), FlatEncodeError> {
+    for item in list {
+        e.one();
+        encode_constant_value(e, &item)?;
+    }
+
+    e.zero();
 
     Ok(())
 }

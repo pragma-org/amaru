@@ -393,8 +393,11 @@ impl<'a> Machine<'a> {
                 if items.is_empty() {
                     Ok((1, 2, empty))
                 } else {
-                    let head = Value::con(self.arena, items[0]);
-                    let tail = Value::con(self.arena, Constant::proto_list(self.arena, ty, &items[1..]));
+                    let head = Value::con(self.arena, items.first().expect("non-empty list"));
+                    let tail = Value::con(
+                        self.arena,
+                        Constant::proto_list_from(self.arena, ty, items.tail(self.arena).expect("non-empty list")),
+                    );
 
                     let mut fields = BumpVec::with_capacity_in(2, self.arena.as_bump());
                     fields.push(head);
