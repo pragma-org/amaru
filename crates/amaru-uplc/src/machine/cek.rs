@@ -173,7 +173,7 @@ impl<'a> Machine<'a> {
             Term::Builtin(fun) => {
                 self.step_and_maybe_spend(StepKind::Builtin)?;
 
-                let runtime = Runtime::new(self.arena, *fun);
+                let runtime = Runtime::new(*fun);
 
                 let value = Value::builtin(self.arena, runtime);
 
@@ -289,7 +289,7 @@ impl<'a> Machine<'a> {
                     let value = if runtime.is_ready() {
                         self.call(runtime)?
                     } else {
-                        Value::builtin(self.arena, runtime.force(self.arena))
+                        Value::builtin(self.arena, runtime.force())
                     };
 
                     let state = MachineState::return_(self.arena, context, value);
@@ -328,7 +328,7 @@ impl<'a> Machine<'a> {
                     let runtime = runtime.push(self.arena, argument);
 
                     let value = if runtime.is_ready() {
-                        self.eval_builtin_app(runtime)?
+                        self.eval_builtin_app(&runtime)?
                     } else {
                         Value::builtin(self.arena, runtime)
                     };
@@ -346,7 +346,7 @@ impl<'a> Machine<'a> {
         }
     }
 
-    fn eval_builtin_app<V>(&mut self, runtime: &'a Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
+    fn eval_builtin_app<V>(&mut self, runtime: &Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
     where
         V: Eval<'a>,
     {
