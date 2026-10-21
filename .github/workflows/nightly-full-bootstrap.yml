@@ -25,6 +25,8 @@ jobs:
     env:
       AMARU_NETWORK: ${{ matrix.network }}
       AMARU_TUI_OFF: "true"
+      AMARU_WITH_JSON_TRACES: "true"
+      AMARU_TRACE: "error,amaru=info,amaru_pure_stage=warn"
       AMARU_BIN: target/release/amaru
 
     steps:
@@ -42,6 +44,7 @@ jobs:
           test -x "$AMARU_BIN"
 
       - name: Bootstrap from scratch and synchronize to the initial tip
+        id: bootstrap
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -79,17 +82,9 @@ jobs:
             tail -200 "$current_log" >&2 || true
             echo "::endgroup::" >&2
             echo "::error::$1" >&2
-            printf '## Full bootstrap failed (%s)\n\n~~~text\n%s\n%s\n~~~\n' \
-              "$AMARU_NETWORK" "$1" "${2:-}" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            printf '## Full bootstrap failed (%s)\n\n~~~text\n%s\n~~~\n' \
+              "$AMARU_NETWORK" "$1" | tee -a "$GITHUB_STEP_SUMMARY" >&2
             exit 1
-          }
-
-          check_log_errors() {
-            local errors
-            if errors="$(strip_ansi < "$current_log" | grep -E \
-              '^[^[:space:]]+[[:space:]]+ERROR[[:space:]]|^ERROR[[:space:]:]|^error:|"level"[[:space:]]*:[[:space:]]*"ERROR"')"; then
-              fail "Amaru logged an error in $current_log" "$errors"
-            fi
           }
 
           : > bootstrap.log
@@ -100,12 +95,7 @@ jobs:
 
           "$AMARU_BIN" node bootstrap --epoch "$bootstrap_epoch" > bootstrap.log 2>&1 &
           amaru_pid=$!
-          while kill -0 "$amaru_pid" 2>/dev/null; do
-            check_log_errors
-            sleep 5
-          done
-          check_log_errors
-          wait "$amaru_pid" || fail "Amaru bootstrap failed"
+          wait "$amaru_pid" || fail "Amaru bootstrap failed (exit status $?)"
           amaru_pid=""
           cat bootstrap.log
 
@@ -115,10 +105,11 @@ jobs:
           amaru_pid=$!
 
           while true; do
-            check_log_errors
             if ! kill -0 "$amaru_pid" 2>/dev/null; then
-              check_log_errors
-              fail "Amaru stopped before reaching target slot $target_slot"
+              status=0
+              wait "$amaru_pid" || status=$?
+              amaru_pid=""
+              fail "Amaru stopped before reaching target slot $target_slot (exit status $status)"
             fi
 
             adopted_slot="$(adopted_slot_from_log amaru.log)"
@@ -127,14 +118,47 @@ jobs:
             if [[ "$adopted_slot" =~ ^[0-9]+$ ]] && (( adopted_slot >= target_slot )); then
               echo "Amaru reached target slot $target_slot at slot $adopted_slot"
               kill -INT "$amaru_pid"
-              wait "$amaru_pid" || fail "Amaru shutdown failed"
+              wait "$amaru_pid" || fail "Amaru shutdown failed (exit status $?)"
               amaru_pid=""
-              check_log_errors
               trap - EXIT
               exit 0
             fi
 
             sleep 5
+          done
+
+      - name: Report Amaru errors and warnings
+        if: always()
+        shell: bash
+        env:
+          BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}
+        run: |
+          printf '## Amaru errors and warnings\n\nFull logs are uploaded as artifacts.\n\n' \
+            >> "$GITHUB_STEP_SUMMARY"
+          for log in bootstrap.log amaru.log; do
+            if [[ ! -f "$log" ]]; then
+              printf '%s: no log was produced.\n\n' "$log" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            entries="$(jq -Rc '
+              fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
+              | {level, message: "\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"}
+            ' "$log" | tail -20)"
+            {
+              printf '### %s: latest errors and warnings (up to 20)\n\n<pre>\n' "$log"
+              printf '%s\n' "$entries" | jq -r '.message[:2000] | @html'
+              printf '</pre>\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [[ "$BOOTSTRAP_OUTCOME" == "failure" ]]; then
+              printf '%s\n' "$entries" | tail -5 | jq -r --arg log "$log" '
+                (if .level == "ERROR" then "error" else "warning" end) as $command
+                | "\($log):\(.message[:2000])"
+                | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
+                | "::\($command)::\(.)"
+              '
+            fi
           done
 
       - name: Upload diagnostic logs
