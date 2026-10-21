@@ -130,6 +130,8 @@ amaru node run --network=mainnet
 
 See [monitoring/README.md](./monitoring/README.md).
 
+To check a remote peer without running a full node, use [`amaru peer probe`](./docs/peer-probe.md) (handshake, tip, peer-share, keep-alive ping).
+
 <hr/>
 
 <p align="center">
