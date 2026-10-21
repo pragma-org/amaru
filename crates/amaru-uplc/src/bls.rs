@@ -17,7 +17,7 @@ use once_cell::sync::Lazy;
 
 use crate::{
     arena::Arena,
-    constant::{Integer, integer_from_bytes},
+    integer::{Integer, Natural},
 };
 
 pub static SCALAR_PERIOD: Lazy<Integer> = Lazy::new(|| {
@@ -25,15 +25,12 @@ pub static SCALAR_PERIOD: Lazy<Integer> = Lazy::new(|| {
         0x73, 0xed, 0xa7, 0x53, 0x29, 0x9d, 0x7d, 0x48, 0x33, 0x39, 0xd8, 0x08, 0x09, 0xa1, 0xd8, 0x05, 0x53, 0xbd,
         0xa4, 0x02, 0xff, 0xfe, 0x5b, 0xfe, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x01,
     ];
-
-    integer_from_bytes(&bytes, true)
+    Integer::from(Natural::from_be_bytes(&bytes))
 });
 
 pub const BLST_P1_COMPRESSED_SIZE: usize = 48;
 
 pub const BLST_P2_COMPRESSED_SIZE: usize = 96;
-
-pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
 
 #[derive(Debug, thiserror::Error)]
 #[error("BLS error: {0:?}")]

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(allocator_api)]
+
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
@@ -23,6 +25,7 @@ pub mod builtin;
 pub mod constant;
 pub mod data;
 pub mod flat;
+pub(crate) mod integer;
 pub mod ledger_value;
 pub mod machine;
 pub mod program;

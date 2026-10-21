@@ -14,10 +14,8 @@
 
 use std::convert::Infallible;
 
-use dashu_base::{Sign, UnsignedAbs};
-use dashu_int::IBig;
 use minicbor as cbor;
-use minicbor::{Encoder, data::Tag};
+use minicbor::Encoder;
 
 /// Encode a field with an optional value.
 pub fn encode_optional<C, T, W>(
@@ -35,48 +33,6 @@ where
     }
 
     Ok(())
-}
-
-/// Encode a Dashu integer using CBOR's native integers where possible and canonical bignum tags otherwise.
-pub fn encode_integer<W: cbor::encode::Write>(
-    e: &mut Encoder<W>,
-    i: &IBig,
-) -> Result<(), cbor::encode::Error<W::Error>> {
-    let (header, tag, bytes) = match i.sign() {
-        Sign::Positive if i == &IBig::ZERO => {
-            e.u8(0)?;
-            return Ok(());
-        }
-        Sign::Positive => (0x00, 2, i.unsigned_abs().to_be_bytes()),
-        Sign::Negative if i == &IBig::NEG_ONE => {
-            e.i8(-1)?;
-            return Ok(());
-        }
-        Sign::Negative => (0x20, 3, ((-i) - IBig::ONE).unsigned_abs().to_be_bytes()),
-    };
-
-    match bytes.len() {
-        1 if bytes[0] <= 0x17 => {
-            put(e, &[header | bytes[0]])?;
-        }
-        len @ 1..=8 => {
-            let width = len.next_power_of_two();
-            put(e, &[header | (24 + width.trailing_zeros() as u8)])?;
-            let mut buf = [0u8; 8];
-            buf[width - len..width].copy_from_slice(&bytes);
-            put(e, &buf[..width])?;
-        }
-        _ => {
-            e.tag(Tag::new(tag))?;
-            encode_bytestring(e, &bytes)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn put<W: minicbor::encode::Write>(e: &mut Encoder<W>, bytes: &[u8]) -> Result<(), minicbor::encode::Error<W::Error>> {
-    e.writer_mut().write_all(bytes).map_err(minicbor::encode::Error::write)
 }
 
 pub fn encode_bytestring<'a, W: minicbor::encode::Write>(
@@ -150,70 +106,5 @@ impl cbor::encode::Write for ByteCounter {
     fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
         self.length += buf.len();
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use dashu_int::UBig;
-
-    use super::*;
-    use crate::decode_integer;
-
-    #[test]
-    fn encode_integer_cases() {
-        for (value, expected) in cases() {
-            assert_eq!(encoded(value.clone()), expected, "encoding {value}");
-        }
-    }
-
-    #[test]
-    fn roundtrip_integer_cases() {
-        for (value, _) in cases() {
-            assert_eq!(decoded(&encoded(value.clone())), value, "roundtrip {value}");
-        }
-    }
-
-    // HELPERS
-
-    /// Interesting values to exercise the encoder: zero, the small-integer boundary (±23),
-    /// the native-integer boundary (±2^64), and arbitrary-precision bignums in both directions.
-    /// Each value is paired with its expected canonical CBOR encoding.
-    fn cases() -> Vec<(IBig, &'static str)> {
-        let two_64: IBig = IBig::from(1u8) << 64usize;
-        vec![
-            (IBig::from(0), "00"),
-            (IBig::from(1), "01"),
-            (IBig::from(2), "02"),
-            (IBig::from(-1), "20"),
-            (IBig::from(-2), "21"),
-            (IBig::from(23), "17"),
-            (IBig::from(65536u32), "1a00010000"),
-            (IBig::from(-65537i32), "3a00010000"),
-            (IBig::from(4294967296u64), "1b0000000100000000"),
-            (IBig::from(281474976710656u64), "1b0001000000000000"),
-            (&two_64 - IBig::ONE, "1bffffffffffffffff"),
-            (two_64.clone(), "c249010000000000000000"),
-            (big(), "c24c033b2e3c9fd0803ce7ffffff"),
-            (-big(), "c34c033b2e3c9fd0803ce7fffffe"),
-            (-two_64, "3bffffffffffffffff"),
-            (IBig::from(-23), "36"),
-        ]
-    }
-
-    /// A very large integer: 999999999999999999999999999
-    fn big() -> IBig {
-        IBig::from(UBig::from_be_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap()))
-    }
-
-    fn encoded(i: IBig) -> String {
-        let mut e = Encoder::new(Vec::new());
-        encode_integer(&mut e, &i).expect("failed to encode integer");
-        hex::encode(e.into_writer())
-    }
-
-    fn decoded(hex_str: &str) -> IBig {
-        let bytes = hex::decode(hex_str).unwrap();
-        decode_integer(&mut cbor::Decoder::new(&bytes)).expect("failed to decode integer")
     }
 }

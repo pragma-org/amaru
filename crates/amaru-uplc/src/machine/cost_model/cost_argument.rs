@@ -14,11 +14,9 @@
 
 use std::cell::OnceCell;
 
-use dashu_base::BitTest;
-
 use crate::{
     binder::Eval,
-    constant::{Constant, Integer, IntegerExt, List, Natural},
+    constant::{Constant, Integer, List, Natural},
     data::PlutusData,
     ledger_value::LedgerValue,
     machine::value::Value,
@@ -142,7 +140,7 @@ impl IntoMachineSize for str {
 
 impl IntoMachineSize for Natural {
     fn size(&self) -> i64 {
-        if self == &Natural::ZERO { 1 } else { 1 + ((self.bit_len() - 1) as i64) / 64 }
+        if self == &Natural::ZERO { 1 } else { 1 + ((self.bits() - 1) as i64) / 64 }
     }
 }
 
@@ -330,7 +328,7 @@ mod tests {
     #[test]
     fn integer_log2_oracle() {
         // Values come from the Haskell implementation.
-        assert_eq!(integer_log2(&Integer::ZERO), 0);
+        assert_eq!(integer_log2(&Integer::from(0)), 0);
         assert_eq!(integer_log2(&Integer::from(1)), 0);
         assert_eq!(integer_log2(&Integer::from(42)), 5);
 

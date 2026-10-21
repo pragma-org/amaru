@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_minicbor_extra::{
-    assert_bounded_chunk, decode_bounded_integer, decode_integer, encode_bytestring, encode_integer,
-    heterogeneous_array,
-};
+use amaru_minicbor_extra::{assert_bounded_chunk, encode_bytestring, heterogeneous_array};
 use bumpalo::collections::Vec as BumpVec;
 use minicbor::data::{IanaTag, Tag};
 use stacksafe::stacksafe;
 
-use crate::{data::PlutusData, flat::SimpleCtx};
+use crate::{data::PlutusData, flat::SimpleCtx, integer::decode_bounded_integer};
 
 impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> {
     #[stacksafe]
@@ -155,7 +152,7 @@ impl<'a, 'b> minicbor::decode::Decode<'b, SimpleCtx<'a>> for &'a PlutusData<'a> 
             | minicbor::data::Type::I32
             | minicbor::data::Type::I64
             | minicbor::data::Type::Int => {
-                let integer = ctx.arena.alloc_integer(decode_integer(decoder)?);
+                let integer = ctx.arena.alloc_integer(decoder.decode()?);
 
                 Ok(PlutusData::integer(ctx.arena, integer))
             }
@@ -229,7 +226,7 @@ impl<C> minicbor::encode::Encode<C> for PlutusData<'_> {
                 }
             }
             PlutusData::Integer(n) => {
-                encode_integer(e, n)?;
+                n.encode(e, ctx)?;
             }
             // we match the haskell implementation by encoding bytestrings longer than 64
             // bytes as indefinite lists of bytes
@@ -258,10 +255,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{
-        arena::Arena,
-        constant::{Integer, integer_from_bytes},
-    };
+    use crate::{arena::Arena, constant::Integer, integer::Natural};
 
     #[test]
     fn encode_empty_record() {
@@ -293,7 +287,7 @@ mod tests {
 
     #[test]
     fn encode_cbor_data_bigint() {
-        let big = integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true);
+        let big: Integer = Natural::from_be_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap()).into();
         let d = PlutusData::Constr { tag: 0, fields: &[&PlutusData::Integer(&big)] };
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
@@ -302,7 +296,8 @@ mod tests {
 
     #[test]
     fn encode_cbor_data_negative_bigint() {
-        let n = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
+        let n =
+            -Integer::from(Natural::from_be_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())) - Integer::ONE;
         let d = PlutusData::Constr { tag: 0, fields: &[&PlutusData::Integer(&n)] };
         let mut v = vec![];
         minicbor::encode(d, &mut v).expect("invalid PlutusData");
@@ -314,13 +309,15 @@ mod tests {
         let cbor = hex::decode("c34c033b2e3c9fd0803ce7ffffff").unwrap();
         let arena = Arena::new();
         let decoded = PlutusData::from_cbor(&arena, &cbor).expect("failed to decode negative bigint");
-        let expected = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
+        let expected =
+            -Integer::from(Natural::from_be_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())) - Integer::ONE;
         assert_eq!(decoded, &PlutusData::Integer(&expected));
     }
 
     #[test]
     fn roundtrip_cbor_data_negative_bigint() {
-        let n = -integer_from_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap(), true) - Integer::from(1);
+        let n =
+            -Integer::from(Natural::from_be_bytes(&hex::decode("033b2e3c9fd0803ce7ffffff").unwrap())) - Integer::ONE;
         let encoded = minicbor::to_vec(PlutusData::Integer(&n)).expect("encode failed");
         let arena = Arena::new();
         let decoded = PlutusData::from_cbor(&arena, &encoded).expect("decode failed");
@@ -330,9 +327,8 @@ mod tests {
     /// Test that the encoding is correct at both 2^64 - 1 and -2^64
     #[test]
     fn encode_integer_word_boundaries() {
-        let one = Integer::from(1);
-        let two_64: Integer = Integer::from(1) << 64;
-        let two_64_minus_one: Integer = &two_64 - &one;
+        let two_64: Integer = Integer::ONE << 64;
+        let two_64_minus_one: Integer = &two_64 - &Integer::ONE;
 
         // Largest values still encoded as native CBOR integers.
         assert_eq!(encode_integer_hex(&two_64_minus_one), "1bffffffffffffffff");
@@ -343,7 +339,7 @@ mod tests {
 
         // Just past the boundary, both directions switch to a bignum.
         assert_eq!(encode_integer_hex(&two_64), "c249010000000000000000");
-        assert_eq!(encode_integer_hex(&(-two_64.clone() - &one)), "c349010000000000000000");
+        assert_eq!(encode_integer_hex(&(-two_64.clone() - &Integer::ONE)), "c349010000000000000000");
     }
 
     #[test]

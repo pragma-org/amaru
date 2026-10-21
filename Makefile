@@ -172,9 +172,10 @@ coverage-html: check-llvm-cov ## &test Run test coverage for Amaru
 		--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
 
 coverage-lconv: ## &test Run test coverage for CI to upload to Codecov
+	# UPLC integer backends are mutually exclusive; the workspace report uses Dashu.
 	cargo llvm-cov \
-		--all-features \
 		--workspace \
+		--features amaru-uplc/dashu \
 		--lcov \
 		--output-path lcov.info
 
@@ -223,7 +224,7 @@ dist: cli-assets ## &dist Stage a distributable Amaru tree under $(DIST_DIR)
 	fi
 	@cp "$(AMARU_BIN)" "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
 	@chmod +x "$(DIST_DIR)/bin/$(DIST_BIN_NAME)"
-	@cp LICENSE README.md CHANGELOG.md "$(DIST_DIR)/share/doc/amaru/"
+	@cp LICENSE README.md CHANGELOG.md THIRD_PARTY_NOTICES.md "$(DIST_DIR)/share/doc/amaru/"
 	@if command -v tree >/dev/null 2>&1; then \
 		tree -h "$(DIST_DIR)"; \
 	else \

@@ -132,6 +132,7 @@ assets = [
   ["../../README.md", "usr/share/doc/amaru/README.md", "644"],
   ["../../CHANGELOG.md", "usr/share/doc/amaru/CHANGELOG.md", "644"],
   ["../../LICENSE", "usr/share/doc/amaru/LICENSE", "644"],
+  ["../../THIRD_PARTY_NOTICES.md", "usr/share/doc/amaru/THIRD_PARTY_NOTICES.md", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -154,4 +155,5 @@ assets = [
   { source = "../../README.md", dest = "/usr/share/doc/amaru/README.md", mode = "0644" },
   { source = "../../CHANGELOG.md", dest = "/usr/share/doc/amaru/CHANGELOG.md", mode = "0644" },
   { source = "../../LICENSE", dest = "/usr/share/doc/amaru/LICENSE", mode = "0644" },
+  { source = "../../THIRD_PARTY_NOTICES.md", dest = "/usr/share/doc/amaru/THIRD_PARTY_NOTICES.md", mode = "0644" },
 ]

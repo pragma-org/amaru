@@ -17,7 +17,6 @@
 use std::{array::TryFromSliceError, str};
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
-use dashu_base::{BitTest, DivRem, RemEuclid, UnsignedAbs, ring::ExtendedGcd};
 
 use super::{Machine, MachineError, RuntimeError, value::Value};
 use crate::{
@@ -25,10 +24,7 @@ use crate::{
     binder::Eval,
     bls::{Compressable, SCALAR_PERIOD},
     builtin::DefaultFunction,
-    constant::{
-        self, Constant, Integer, IntegerExt, Natural, integer_from_bytes, integer_to_u8, integer_to_usize,
-        natural_to_u64,
-    },
+    constant::{self, Constant, Integer, Natural},
     data::PlutusData,
     ledger_value::{self, LedgerValue, ValueError},
     machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, StringSize, integer_log2},
@@ -38,42 +34,18 @@ use crate::{
 mod arguments;
 pub use arguments::Arguments;
 
-pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
 pub const WRITE_BITS_MAXIMUM_INPUT_LENGTH: usize = 4096;
-
-const CARDANO_INTEGER_MAXIMUM_BITS: u64 = 262_143;
-
-/// Return whether an integer is representable by Cardano's bounded arithmetic builtins.
-fn fits_cardano_integer_range(integer: &Integer) -> bool {
-    fits_signed_integer_range(integer, CARDANO_INTEGER_MAXIMUM_BITS)
-}
-
-/// Return whether an integer fits within `[-2^maximum_bits, 2^maximum_bits - 1]`.
-fn fits_signed_integer_range(integer: &Integer, maximum_bits: u64) -> bool {
-    let bits = integer.bits();
-
-    if bits <= maximum_bits {
-        return true;
-    }
-
-    if bits != maximum_bits + 1 || !integer.is_negative() {
-        return false;
-    }
-
-    integer.clone().unsigned_abs() == Natural::from(1u8) << maximum_bits as usize
-}
 
 /// Check that an integer fits in a signed 4096-bit range: [-(2^4095), 2^4095 - 1].
 /// Used by multiScalarMul to limit scalar sizes.
 fn check_multi_scalar_range(int: &Integer) -> Result<(), RuntimeError<'_>> {
-    fits_signed_integer_range(int, 4095).then_some(()).ok_or(RuntimeError::MultiScalarMulScalarOutOfBounds)
+    int.fits_signed_range(4095).then_some(()).ok_or(RuntimeError::MultiScalarMulScalarOutOfBounds)
 }
 
-/// Reduce scalar mod SCALAR_PERIOD, convert to LE bytes, and append to the output buffer.
+/// Reduce scalar mod SCALAR_PERIOD, convert to big-endian bytes, and append to the output buffer.
 /// Caller must validate the scalar range first via `check_multi_scalar_range`.
-fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_bytes: &mut Vec<u8>) {
-    let si = si.rem_euclid(&*SCALAR_PERIOD);
-    let be_bytes = si.to_be_bytes();
+fn prepare_msm_scalar(arena: &Arena, si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_bytes: &mut Vec<u8>) {
+    let be_bytes = si.rem_euclid_bytes(&SCALAR_PERIOD, arena.as_bump());
 
     // Zero-padded big-endian scalar on the stack (always 32 bytes).
     const SIZE: usize = size_of::<blst::blst_scalar>();
@@ -84,33 +56,6 @@ fn prepare_msm_scalar(si: &Integer, scalar_buf: &mut blst::blst_scalar, scalar_b
         blst::blst_scalar_from_bendian(scalar_buf as *mut _, padded.as_ptr() as *const _);
     }
     scalar_bytes.extend_from_slice(&scalar_buf.b);
-}
-
-/// Raise `base` to `exponent` modulo `modulus` without materializing the full power.
-fn modular_pow(mut base: Natural, mut exponent: Natural, modulus: &Natural) -> Natural {
-    let mut result = Natural::from(1u8) % modulus;
-
-    while exponent != Natural::ZERO {
-        if exponent.bit(0) {
-            result = (result * &base) % modulus;
-        }
-
-        exponent >>= 1usize;
-        base = (&base * &base) % modulus;
-    }
-
-    result
-}
-
-/// Divide with a quotient rounded toward negative infinity and a divisor-signed remainder.
-fn floor_div_mod(dividend: &Integer, divisor: &Integer) -> (Integer, Integer) {
-    let (quotient, remainder) = dividend.div_rem(divisor);
-
-    if remainder != Integer::ZERO && dividend.is_negative() != divisor.is_negative() {
-        (quotient - Integer::from(1u8), remainder + divisor)
-    } else {
-        (quotient, remainder)
-    }
 }
 
 #[derive(Debug)]
@@ -160,7 +105,7 @@ where
     fn unwrap_bounded_integer(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>> {
         let integer = value.unwrap_integer()?;
 
-        if self.costs.semantics.enforces_integer_bounds() && !fits_cardano_integer_range(integer) {
+        if self.costs.semantics.enforces_integer_bounds() && !integer.fits_cardano_range() {
             return Err(MachineError::integer_out_of_bounds(integer));
         }
 
@@ -341,10 +286,10 @@ where
                 self.spend_budget(budget)?;
 
                 let byte: u8 = if self.costs.semantics.cons_byte_string_range_checks() {
-                    if *arg1 > Integer::from(255u8) || *arg1 < Integer::ZERO {
+                    if arg1.is_greater_than(255) || arg1.is_negative() {
                         return Err(MachineError::byte_string_cons_not_a_byte(arg1));
                     }
-                    integer_to_u8(arg1).expect("should cast to u8 just fine")
+                    u8::try_from(arg1).expect("should cast to u8 just fine")
                 } else {
                     let wrap = arg1.rem_euclid(&Integer::from(256u16));
                     u8::try_from(&wrap).expect("a value reduced mod 256 fits in a u8")
@@ -426,7 +371,7 @@ where
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (result, _) = floor_div_mod(arg1, arg2);
+                    let (result, _) = arg1.floor_div_mod(arg2);
 
                     let new = self.arena.alloc_integer(result);
 
@@ -815,7 +760,7 @@ where
                 self.spend_budget(budget)?;
 
                 if !arg2.is_zero() {
-                    let (_, result) = floor_div_mod(arg1, arg2);
+                    let (_, result) = arg1.floor_div_mod(arg2);
                     let result = self.arena.alloc_integer(result);
                     let value = Value::integer(self.arena, result);
 
@@ -947,20 +892,20 @@ where
 
                 self.spend_budget(budget)?;
 
-                let skip: usize = if *arg1 < Integer::ZERO {
+                let skip: usize = if arg1.is_negative() {
                     0
-                } else if *arg1 > Integer::from(arg3.len()) {
+                } else if arg1.is_greater_than(arg3.len()) {
                     arg3.len()
                 } else {
-                    integer_to_usize(arg1).expect("should cast to usize just fine")
+                    usize::try_from(arg1).expect("should cast to usize just fine")
                 };
 
-                let take: usize = if *arg2 < Integer::ZERO {
+                let take: usize = if arg2.is_negative() {
                     0
-                } else if *arg2 > Integer::from(arg3.len()) {
+                } else if arg2.is_greater_than(arg3.len()) {
                     arg3.len()
                 } else {
-                    integer_to_usize(arg2).expect("should cast to usize just fine")
+                    usize::try_from(arg2).expect("should cast to usize just fine")
                 };
 
                 let skip_take: usize = if skip + take > arg3.len() { arg3.len() } else { skip + take };
@@ -1332,24 +1277,15 @@ where
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
-                let mut arg1 = arg1.to_be_bytes().into_vec();
-
-                if size_scalar > arg1.len() {
-                    let diff = size_scalar - arg1.len();
-
-                    let mut new_vec = vec![0; diff];
-
-                    new_vec.append(&mut arg1);
-
-                    arg1 = new_vec;
-                }
+                let arg1 = arg1.rem_euclid_bytes(&SCALAR_PERIOD, self.arena.as_bump());
+                let mut padded = [0u8; size_of::<blst::blst_scalar>()];
+                padded[size_scalar - arg1.len()..].copy_from_slice(&arg1);
 
                 let out = self.arena.alloc(blst::blst_p1::default());
                 let scalar = self.arena.alloc(blst::blst_scalar::default());
 
                 unsafe {
-                    blst::blst_scalar_from_bendian(scalar as *mut _, arg1.as_ptr() as *const _);
+                    blst::blst_scalar_from_bendian(scalar as *mut _, padded.as_ptr() as *const _);
 
                     blst::blst_p1_mult(out as *mut _, arg2 as *const _, scalar.b.as_ptr() as *const _, size_scalar * 8);
                 }
@@ -1494,25 +1430,15 @@ where
 
                 let size_scalar = size_of::<blst::blst_scalar>();
 
-                let arg1 = arg1.rem_euclid(&*SCALAR_PERIOD);
-
-                let mut arg1 = arg1.to_be_bytes().into_vec();
-
-                if size_scalar > arg1.len() {
-                    let diff = size_scalar - arg1.len();
-
-                    let mut new_vec = vec![0; diff];
-
-                    new_vec.append(&mut arg1);
-
-                    arg1 = new_vec;
-                }
+                let arg1 = arg1.rem_euclid_bytes(&SCALAR_PERIOD, self.arena.as_bump());
+                let mut padded = [0u8; size_of::<blst::blst_scalar>()];
+                padded[size_scalar - arg1.len()..].copy_from_slice(&arg1);
 
                 let out = self.arena.alloc(blst::blst_p2::default());
                 let scalar = self.arena.alloc(blst::blst_scalar::default());
 
                 unsafe {
-                    blst::blst_scalar_from_bendian(scalar as *mut _, arg1.as_ptr() as *const _);
+                    blst::blst_scalar_from_bendian(scalar as *mut _, padded.as_ptr() as *const _);
 
                     blst::blst_p2_mult(out as *mut _, arg2 as *const _, scalar.b.as_ptr() as *const _, size_scalar * 8);
                 }
@@ -1654,10 +1580,10 @@ where
                     return Err(MachineError::integer_to_byte_string_negative_size(size));
                 }
 
-                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
+                if size.is_greater_than(Integer::MAX_BYTE_STRING_OUTPUT_LENGTH) {
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         size,
-                        INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
+                        Integer::MAX_BYTE_STRING_OUTPUT_LENGTH,
                     ));
                 }
 
@@ -1677,22 +1603,22 @@ where
                 // however happens prior to calling the builtin as part of the costing step. So by
                 // the time we reach this builtin call, the size can be assumed to be
                 //
-                // >= 0 && < INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH
+                // >= 0 && < Integer::MAX_BYTE_STRING_OUTPUT_LENGTH
 
-                if size.is_zero() && integer_log2(input) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if size.is_zero() && integer_log2(input) >= 8 * Integer::MAX_BYTE_STRING_OUTPUT_LENGTH {
                     let required = integer_log2(input) / 8 + 1;
 
                     return Err(MachineError::integer_to_byte_string_size_too_big(
                         constant::integer_from(self.arena, required as i128),
-                        INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
+                        Integer::MAX_BYTE_STRING_OUTPUT_LENGTH,
                     ));
                 }
 
-                if input.is_negative() {
-                    return Err(MachineError::integer_to_byte_string_negative_input(input));
-                }
-
                 let size_unwrapped: usize = size.try_into().unwrap();
+
+                let Some(mut bytes) = input.to_bytes_in(self.arena.as_bump(), endianness) else {
+                    return Err(MachineError::integer_to_byte_string_negative_input(input));
+                };
 
                 if input.is_zero() {
                     let mut new_bytes = BumpVec::with_capacity_in(size_unwrapped, self.arena.as_bump());
@@ -1706,12 +1632,6 @@ where
                     return Ok(value);
                 }
 
-                let mut bytes = if endianness {
-                    integer_to_bytes(self.arena, input, true)
-                } else {
-                    integer_to_bytes(self.arena, input, false)
-                };
-
                 if !size.is_zero() && bytes.len() > size_unwrapped {
                     return Err(MachineError::integer_to_byte_string_size_too_small(size, bytes.len()));
                 }
@@ -1719,13 +1639,12 @@ where
                 if size_unwrapped > 0 {
                     let padding_size = size_unwrapped - bytes.len();
 
-                    let mut padding = BumpVec::with_capacity_in(padding_size, self.arena.as_bump());
+                    let mut padding = Vec::with_capacity_in(padding_size, self.arena.as_bump());
 
                     padding.resize(padding_size, 0);
 
                     if endianness {
                         padding.append(&mut bytes);
-
                         bytes = padding;
                     } else {
                         bytes.append(&mut padding);
@@ -1749,11 +1668,9 @@ where
 
                 self.spend_budget(budget)?;
 
-                let number = self.arena.alloc_integer(if endianness {
-                    integer_from_bytes(bytes, true)
-                } else {
-                    integer_from_bytes(bytes, false)
-                });
+                let number = self.arena.alloc_integer(
+                    if endianness { Natural::from_be_bytes(bytes) } else { Natural::from_le_bytes(bytes) }.into(),
+                );
 
                 let value = Value::integer(self.arena, number);
 
@@ -1873,14 +1790,14 @@ where
                     return Err(MachineError::empty_byte_array());
                 }
 
-                if bit_index < &Integer::ZERO || bit_index >= &Integer::from(bytes.len() * 8) {
+                if bit_index.is_negative() || bit_index >= &Integer::from(bytes.len() * 8) {
                     return Err(MachineError::read_bit_out_of_bounds(bit_index, bytes.len() * 8));
                 }
 
                 let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
-                let bit_offset = integer_to_usize(&bit_offset).unwrap();
+                let bit_offset = usize::try_from(&bit_offset).unwrap();
 
-                let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
+                let flipped_index = bytes.len() - 1 - usize::try_from(&byte_index).unwrap();
                 let byte = bytes[flipped_index];
 
                 let bit_test = (byte >> bit_offset) & 1 == 1;
@@ -1914,13 +1831,13 @@ where
                 for index in indices {
                     let Constant::Integer(bit_index) = index else { unreachable!("bit_index must be an integer") };
 
-                    if *bit_index < &Integer::ZERO || *bit_index >= &Integer::from(bytes.len() * 8) {
+                    if bit_index.is_negative() || *bit_index >= &Integer::from(bytes.len() * 8) {
                         return Err(MachineError::write_bits_out_of_bounds(bit_index, bytes.len() * 8));
                     }
 
                     let (byte_index, bit_offset) = bit_index.div_rem(&Integer::from(8u8));
-                    let bit_offset = integer_to_usize(&bit_offset).unwrap();
-                    let flipped_index = bytes.len() - 1 - integer_to_usize(&byte_index).unwrap();
+                    let bit_offset = usize::try_from(&bit_offset).unwrap();
+                    let flipped_index = bytes.len() - 1 - usize::try_from(&byte_index).unwrap();
                     let bit_mask: u8 = 1 << bit_offset;
 
                     if set_bit {
@@ -1941,10 +1858,10 @@ where
                     return Err(MachineError::replicate_byte_negative_size(size));
                 }
 
-                if *size > Integer::from(INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH) {
+                if size.is_greater_than(Integer::MAX_BYTE_STRING_OUTPUT_LENGTH) {
                     return Err(MachineError::replicate_byte_size_too_big(
                         size,
-                        INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
+                        Integer::MAX_BYTE_STRING_OUTPUT_LENGTH,
                     ));
                 }
 
@@ -1959,12 +1876,12 @@ where
 
                 self.spend_budget(budget)?;
 
-                if size.is_zero() && integer_log2(byte) >= 8 * INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH {
+                if size.is_zero() && integer_log2(byte) >= 8 * Integer::MAX_BYTE_STRING_OUTPUT_LENGTH {
                     let required = integer_log2(byte) / 8 + 1;
 
                     return Err(MachineError::replicate_byte_size_too_big(
                         constant::integer_from(self.arena, required as i128),
-                        INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH,
+                        Integer::MAX_BYTE_STRING_OUTPUT_LENGTH,
                     ));
                 }
 
@@ -2001,17 +1918,19 @@ where
                 result.resize(length, 0);
                 let result = self.arena.alloc(result);
 
-                let shift_abs = shift.clone().unsigned_abs();
+                let shift_abs = shift.unsigned_abs();
 
                 if Natural::from(length) * Natural::from(8u8) <= shift_abs {
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let is_shift_left = shift >= &Integer::ZERO;
-                let byte_shift = natural_to_u64(&(&shift_abs / &Natural::from(8u8)))
+                let is_shift_left = !shift.is_negative();
+                let byte_shift = u64::try_from(&(&shift_abs / &Natural::from(8u8)))
+                    .ok()
                     .and_then(|value| usize::try_from(value).ok())
                     .unwrap();
-                let bit_shift = natural_to_u64(&(shift_abs % Natural::from(8u8)))
+                let bit_shift = u64::try_from(&(shift_abs % Natural::from(8u8)))
+                    .ok()
                     .and_then(|value| usize::try_from(value).ok())
                     .unwrap();
 
@@ -2097,8 +2016,8 @@ where
                     return Ok(Value::byte_string(self.arena, result));
                 }
 
-                let shift = shift.rem_euclid(&Integer::from(length * 8));
-                if shift == Natural::ZERO {
+                let shift = shift.rem_euclid(&Integer::from(length * 8)).unsigned_abs();
+                if shift.is_zero() {
                     return Ok(Value::byte_string(self.arena, result));
                 }
                 let byte_shift = usize::try_from(&(&shift / &Natural::from(8u8))).unwrap();
@@ -2198,34 +2117,34 @@ where
                     .get_cost(DefaultFunction::ExpModInteger, &[base.into(), exponent.into(), modulus_integer.into()]);
                 self.spend_budget(budget)?;
 
-                if modulus_integer <= &Integer::ZERO {
+                if modulus_integer.is_negative() || modulus_integer.is_zero() {
                     return Err(MachineError::division_by_zero(base, modulus_integer));
                 }
 
                 let is_negative_exponent = exponent.is_negative();
-                let modulus = modulus_integer.clone().unsigned_abs();
-                let base_integer = base;
-                let base = base_integer.rem_euclid(modulus_integer);
-                let exponent = exponent.clone().unsigned_abs();
+                let modulus = modulus_integer.unsigned_abs();
+                let normalized_base = base.rem_euclid(modulus_integer);
+                let base = normalized_base.unsigned_abs();
+                let exponent = exponent.unsigned_abs();
                 let result = if is_negative_exponent {
-                    let (gcd, inverse, _) = base_integer.gcd_ext(modulus_integer);
-                    if gcd != Natural::from(1u8) {
+                    let (gcd, inverse, _) = normalized_base.extended_gcd(modulus_integer.clone());
+                    if gcd != Natural::ONE {
                         return Err(MachineError::ExplicitErrorTerm);
                     }
 
-                    modular_pow(inverse.rem_euclid(modulus_integer), exponent, &modulus)
+                    inverse.rem_euclid(modulus_integer).unsigned_abs().mod_pow(exponent, &modulus)
                 } else {
-                    modular_pow(base, exponent, &modulus)
+                    base.mod_pow(exponent, &modulus)
                 };
 
-                let value = Value::integer(self.arena, self.arena.alloc_integer(Integer::from(result)));
+                let value = Value::integer(self.arena, self.arena.alloc_integer(result.into()));
                 Ok(value)
             }
             DefaultFunction::DropList => {
                 let elements_to_drop = runtime.args[0].unwrap_integer()?;
                 let (list_type, list) = runtime.args[1].unwrap_list()?;
 
-                let arg0: i64 = i64::try_from(elements_to_drop.clone().unsigned_abs()).unwrap_or(i64::MAX);
+                let arg0: i64 = i64::try_from(&elements_to_drop.unsigned_abs()).unwrap_or(i64::MAX);
 
                 let budget = self
                     .costs
@@ -2240,7 +2159,7 @@ where
                     return Ok(value);
                 }
 
-                let elements_to_drop_usize = if *elements_to_drop > Integer::from(usize::MAX) {
+                let elements_to_drop_usize = if elements_to_drop.is_greater_than(usize::MAX) {
                     list.len()
                 } else {
                     usize::try_from(elements_to_drop).unwrap_or(0)
@@ -2340,7 +2259,7 @@ where
                         continue;
                     }
 
-                    prepare_msm_scalar(si, &mut scalar_buf, &mut scalar_bytes);
+                    prepare_msm_scalar(self.arena, si, &mut scalar_buf, &mut scalar_bytes);
 
                     proj_points.push(**pi);
                 }
@@ -2404,7 +2323,7 @@ where
                         continue;
                     }
 
-                    prepare_msm_scalar(si, &mut scalar_buf, &mut scalar_bytes);
+                    prepare_msm_scalar(self.arena, si, &mut scalar_buf, &mut scalar_bytes);
 
                     proj_points.push(**pi);
                 }
@@ -2569,12 +2488,4 @@ where
             }
         }
     }
-}
-
-fn integer_to_bytes<'a>(arena: &'a Arena, num: &'a Integer, big_endian: bool) -> BumpVec<'a, u8> {
-    let bytes = constant::integer_to_bytes(num, big_endian);
-
-    let mut result = BumpVec::with_capacity_in(bytes.len(), arena.as_bump());
-    result.extend_from_slice(&bytes);
-    result
 }

@@ -20,7 +20,6 @@ tracing = ["dep:tracing"]
 
 [dependencies]
 anyhow.workspace = true
-dashu-base.workspace = true
 dashu-int.workspace = true
 hex.workspace = true
 minicbor.workspace = true
