@@ -153,11 +153,11 @@ where
     }
 }
 
-impl<'a> Machine<'a> {
-    fn unwrap_bounded_integer<V>(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+impl<'a, V> Machine<'a, V>
+where
+    V: Eval<'a>,
+{
+    fn unwrap_bounded_integer(&self, value: &'a Value<'a, V>) -> Result<&'a Integer, MachineError<'a, V>> {
         let integer = value.unwrap_integer()?;
 
         if self.costs.semantics.enforces_integer_bounds() && !fits_cardano_integer_range(integer) {
@@ -176,10 +176,7 @@ impl<'a> Machine<'a> {
     }
 
     /// The absolute shift amount used for costing, saturated to `i64::MAX` where the semantics allow larger amounts.
-    fn shift_amount_cost<V>(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+    fn shift_amount_cost(&self, shift: &'a Integer) -> Result<i64, MachineError<'a, V>> {
         match i64::try_from(shift) {
             Ok(shift) => Ok(shift.saturating_abs()),
             Err(_) if self.costs.semantics.bounds_shift_amount_to_int64() => {
@@ -189,10 +186,7 @@ impl<'a> Machine<'a> {
         }
     }
 
-    pub fn call<V>(&mut self, runtime: &Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>>
-    where
-        V: Eval<'a>,
-    {
+    pub fn call(&mut self, runtime: &Runtime<'a, V>) -> Result<&'a Value<'a, V>, MachineError<'a, V>> {
         match runtime.fun {
             DefaultFunction::AddInteger => {
                 let arg1 = self.unwrap_bounded_integer(runtime.args[0])?;

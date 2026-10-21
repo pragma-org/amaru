@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{context::Context, env::Env, value::Value};
+use super::{env::Env, value::Value};
 use crate::{binder::Eval, term::Term};
 
 pub enum MachineState<'a, V>
 where
     V: Eval<'a>,
 {
-    Return(&'a Context<'a, V>, &'a Value<'a, V>),
-    Compute(&'a Context<'a, V>, &'a Env<'a, V>, &'a Term<'a, V>),
+    Return(usize, &'a Value<'a, V>),
+    Compute(usize, &'a Env<'a, V>, &'a Term<'a, V>),
     Done(&'a Value<'a, V>),
 }
 
@@ -28,11 +28,11 @@ impl<'a, V> MachineState<'a, V>
 where
     V: Eval<'a>,
 {
-    pub fn compute(context: &'a Context<'a, V>, env: &'a Env<'a, V>, term: &'a Term<'a, V>) -> Self {
+    pub fn compute(context: usize, env: &'a Env<'a, V>, term: &'a Term<'a, V>) -> Self {
         Self::Compute(context, env, term)
     }
 
-    pub fn return_(context: &'a Context<'a, V>, value: &'a Value<'a, V>) -> Self {
+    pub fn return_(context: usize, value: &'a Value<'a, V>) -> Self {
         Self::Return(context, value)
     }
 
