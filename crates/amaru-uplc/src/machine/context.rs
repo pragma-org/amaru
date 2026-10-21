@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bumpalo::collections::Vec as BumpVec;
-
 use super::{env::Env, value::Value};
 use crate::{arena::Arena, binder::Eval, term::Term};
 
@@ -74,8 +72,7 @@ where
         terms: &'a [&'a Term<'a, V>],
         context: &'a Context<'a, V>,
     ) -> &'a Context<'a, V> {
-        let empty = BumpVec::new_in(arena.as_bump());
-        let empty = arena.alloc(empty);
+        let empty: &'a [&'a Value<'a, V>] = &[];
 
         arena.alloc(Context::FrameConstr(env, index, terms, empty, context))
     }

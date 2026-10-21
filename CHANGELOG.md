@@ -49,6 +49,7 @@ Other guiding principles:
 - **amaru-ledger**: transactions spending a Byron redemption-address input or naming one as collateral are rejected for a missing witness.
 - **amaru-ledger**: treasury donations from transactions that fail phase-two script validation are no longer credited to the treasury.
 - **amaru-uplc**: prevent byte-string builtin results from retaining global-allocator buffers after an evaluation arena is reset, reducing memory growth across repeated script evaluations.
+- **amaru-uplc**: optimize out unnecessary allocations of empty vectors.
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 - **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
