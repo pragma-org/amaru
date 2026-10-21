@@ -21,7 +21,7 @@ where
 {
     Return(&'a Context<'a, V>, &'a Value<'a, V>),
     Compute(&'a Context<'a, V>, &'a Env<'a, V>, &'a Term<'a, V>),
-    Done(&'a Term<'a, V>),
+    Done(&'a Value<'a, V>),
 }
 
 impl<'a, V> MachineState<'a, V>
@@ -45,7 +45,7 @@ where
         arena.alloc(MachineState::Return(context, value))
     }
 
-    pub fn done(arena: &'a Arena, term: &'a Term<'a, V>) -> &'a mut MachineState<'a, V> {
-        arena.alloc(MachineState::Done(term))
+    pub fn done(arena: &'a Arena, value: &'a Value<'a, V>) -> &'a mut MachineState<'a, V> {
+        arena.alloc(MachineState::Done(value))
     }
 }
