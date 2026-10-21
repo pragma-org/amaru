@@ -381,7 +381,7 @@ impl<'a> Machine<'a> {
     where
         V: Eval<'a>,
     {
-        let empty: &'a [&'a Value<'a, V>] = self.arena.alloc(BumpVec::new_in(self.arena.as_bump()));
+        let empty: &'a [&'a Value<'a, V>] = &[];
         #[expect(clippy::wildcard_enum_match_arm)]
         match constant {
             Constant::Unit => Ok((0, 1, empty)),
