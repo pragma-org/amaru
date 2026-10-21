@@ -13,15 +13,13 @@
 // limitations under the License.
 
 use std::{
-    env,
     fmt::{self, Display},
-    fs, io,
+    fs,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
 };
 
-use amaru::default_snapshots_dir;
 use amaru_kernel::{
     Epoch, Header, HeaderHash, IsHeader, NetworkName, NetworkPoint, Slot, from_cbor,
     num::{CheckedAdd, CheckedSub},
@@ -46,6 +44,8 @@ use archive::{archive_path_for_target, write_snapshot_archive};
 use config::resolve_config_dir;
 use db_analyser::{ensure_db_analyser_binary, exact_snapshot_dir, run_db_analyser, select_analyse_from_slot};
 use koios::{fetch_current_epoch, fetch_last_block_for_epoch};
+
+use super::{default_snapshot_output_dir, executable_dir};
 
 const PACKAGED_BLOCKS_FILE_NAME: &str = "bootstrap.blocks.json";
 
@@ -190,24 +190,8 @@ impl EpochTarget {
     }
 }
 
-fn executable_dir() -> anyhow::Result<PathBuf> {
-    let executable = env::current_exe().with_context(|| "failed to determine the amaru executable path")?;
-
-    executable.parent().map(Path::to_path_buf).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("amaru executable path has no parent directory: {}", executable.display()),
-        )
-        .into()
-    })
-}
-
 fn default_dist_dir(network: NetworkName) -> anyhow::Result<PathBuf> {
     Ok(executable_dir()?.join("data").join(network.to_string().to_lowercase()).join("epoch-snapshots"))
-}
-
-pub(super) fn default_snapshot_output_dir(network: NetworkName) -> anyhow::Result<PathBuf> {
-    Ok(executable_dir()?.join(default_snapshots_dir(network)))
 }
 
 fn create_directory(path: &Path, purpose: &str) -> anyhow::Result<()> {
