@@ -14,8 +14,7 @@
 
 #![expect(clippy::unwrap_used, clippy::expect_used, clippy::wildcard_enum_match_arm)]
 
-use core::str;
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, str};
 
 use bumpalo::collections::{CollectIn, String as BumpString, Vec as BumpVec};
 use dashu_base::{BitTest, DivRem, RemEuclid, UnsignedAbs, ring::ExtendedGcd};
@@ -35,6 +34,9 @@ use crate::{
     machine::cost_model::cost_argument::{DataNodeCount, FixedSize, ListLength, StringSize, integer_log2},
     typ::Type,
 };
+
+mod arguments;
+pub use arguments::Arguments;
 
 pub const INTEGER_TO_BYTE_STRING_MAXIMUM_OUTPUT_LENGTH: i64 = 8192;
 pub const WRITE_BITS_MAXIMUM_INPUT_LENGTH: usize = 4096;
@@ -116,7 +118,7 @@ pub struct Runtime<'a, V>
 where
     V: Eval<'a>,
 {
-    pub args: BumpVec<'a, &'a Value<'a, V>>,
+    pub args: Arguments<'a, V>,
     pub fun: DefaultFunction,
     pub forces: usize,
 }
@@ -126,19 +128,15 @@ where
     V: Eval<'a>,
 {
     pub fn new(arena: &'a Arena, fun: DefaultFunction) -> &'a Self {
-        arena.alloc(Self { args: BumpVec::new_in(arena.as_bump()), fun, forces: 0 })
+        arena.alloc(Self { args: Arguments::empty(), fun, forces: 0 })
     }
 
     pub fn force(&self, arena: &'a Arena) -> &'a Self {
-        arena.alloc(Runtime { args: self.args.clone(), fun: self.fun, forces: self.forces + 1 })
+        arena.alloc(Runtime { args: self.args, fun: self.fun, forces: self.forces + 1 })
     }
 
     pub fn push(&self, arena: &'a Arena, arg: &'a Value<'a, V>) -> &'a Self {
-        // `BumpVec::clone` has no spare capacity, so appending to it allocates and copies the arguments twice.
-        let mut args = BumpVec::with_capacity_in(self.args.len() + 1, arena.as_bump());
-        args.extend_from_slice(&self.args);
-        args.push(arg);
-
+        let args = self.args.push(arena, arg);
         arena.alloc(Runtime { args, fun: self.fun, forces: self.forces })
     }
 
