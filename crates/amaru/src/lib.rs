@@ -195,6 +195,9 @@ pub mod value_names {
     /// Host and mandatory TCP port for node-to-node peering.
     pub const HOST_PORT: &str = "IP:PORT";
 
+    /// One or more peer-probe targets (`IP:PORT`, `HOSTNAME:PORT`, or CIP-0155 SRV DNS name).
+    pub const PEER_TARGETS: &str = "TARGET[,TARGET]...";
+
     /// For filepaths on the file-system.
     pub const FILEPATH: &str = "FILEPATH";
 

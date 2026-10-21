@@ -213,7 +213,11 @@ impl TipInfo {
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct ProbeReport {
+    /// Target as given on the CLI (`IP:PORT`, `HOSTNAME:PORT`, or CIP-0155 SRV DNS name).
     pub address: String,
+    /// Dialed socket after A/AAAA or CIP-0155 SRV resolution; omitted when already a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
     pub network: String,
     /// Present only when ping samples were collected (`--ping` / `--all`).
     /// Values are milliseconds (fractional; keep-alive RTT can be sub-ms on LAN).

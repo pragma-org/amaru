@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! One-shot N2N probe against a live peer.
+//! One-shot N2N probe against one or more live peers.
+//!
+//! Prefer `amaru peer probe <TARGETS> [OPTIONS]` so optional-value flags like `--ping` are not
+//! fed a target address. Values for those flags use `=` (e.g. `--ping=5`).
 //!
 //! Business output goes to stdout (EDR-0019); silence Clippy print lints for this CLI.
 
@@ -32,17 +35,21 @@ use amaru::{
     lifecycle::{Runnable, RuntimeKind},
     observability::Color,
 };
-use amaru_kernel::{NetworkName, Peer, utils::duration};
-use amaru_observability::info;
+use amaru_kernel::{NetworkName, Peer, PeerCandidate, utils::duration};
+use amaru_network::resolve::{init_resolver, resolve_peer_candidate};
 use amaru_protocols::protocol_messages::version_number::VersionNumber;
 use anyhow::{Context, bail};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
+#[command(override_usage = "amaru peer probe <TARGETS> [OPTIONS]")]
 pub struct Args {
-    /// Remote node address (`IP:PORT`).
-    #[arg(value_name = amaru::value_names::HOST_PORT)]
-    address: String,
+    /// Peer target(s), comma-separated.
+    ///
+    /// Each entry is `IP:PORT`, `HOSTNAME:PORT` (A/AAAA lookup), or a bare DNS name for a
+    /// CIP-0155 Cardano SRV lookup (`_cardano._tcp.<name>`). Targets are probed in order.
+    #[arg(value_name = amaru::value_names::PEER_TARGETS)]
+    targets: String,
 
     /// Cardano network (selects handshake network magic).
     #[arg(
@@ -89,11 +96,13 @@ pub struct Args {
 
     /// Measure keep-alive mini-protocol RTT after TCP connect + N2N handshake.
     ///
-    /// Optional value: `COUNT` (1..=86400, one ping per second) or `COUNT:INTERVAL`
-    /// (e.g. `20:5s` = 20 pings, 5s apart). Bare `--ping` runs once.
+    /// Optional value via `=`: `COUNT` (1..=86400, one ping per second) or `COUNT:INTERVAL`
+    /// (e.g. `--ping=20:5s` = 20 pings, 5s apart). Bare `--ping` runs once. Use `=` so the
+    /// next token is not taken as a ping count (write targets before options).
     #[arg(
         long,
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "1",
         value_name = "COUNT|COUNT:INTERVAL",
         display_order = 0,
@@ -111,13 +120,14 @@ pub struct Args {
     /// After peer-share, check each returned peer on one TCP session (connect + N2N handshake).
     ///
     /// Bare `--ps-check` stops after a successful Accept. Optional semicolon-separated extras
-    /// run on the same connection after handshake: `ping`, `tip`, `peer-share`
-    /// (e.g. `--ps-check tip;ping`). Peer-share extras report returned addresses
-    /// but those addresses are not ps-checked again (one level only). Uses the same timeouts,
-    /// `--requested-version`, `--time-track`, and `--retry` as the primary probe.
+    /// via `=`: `ping`, `tip`, `peer-share` (e.g. `--ps-check=tip;ping`). Peer-share extras
+    /// report returned addresses but those addresses are not ps-checked again (one level only).
+    /// Uses the same timeouts, `--requested-version`, `--time-track`, and `--retry` as the
+    /// primary probe.
     #[arg(
         long = "ps-check",
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "",
         value_name = "TESTS",
         display_order = 0,
@@ -138,12 +148,13 @@ pub struct Args {
 
     /// Extra attempts after a failed handshake-query or session step.
     ///
-    /// Optional value: `COUNT` (1..=32 retries, 500 ms apart) or `COUNT:INTERVAL`
-    /// (e.g. `2:500ms` = retry twice, 500 ms between attempts). Bare `--retry` retries once
-    /// after 500 ms. Does not multiply `--ping` samples.
+    /// Optional value via `=`: `COUNT` (1..=32 retries, 500 ms apart) or `COUNT:INTERVAL`
+    /// (e.g. `--retry=2:500ms`). Bare `--retry` retries once after 500 ms. Does not multiply
+    /// `--ping` samples.
     #[arg(
         long,
         num_args = 0..=1,
+        require_equals = true,
         default_missing_value = "1:500ms",
         value_name = "COUNT|COUNT:INTERVAL",
         env = amaru::env_vars::PROBE_RETRY,
@@ -364,45 +375,64 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
+/// Split a comma-separated target list into [`PeerCandidate`]s.
+fn parse_targets(raw: &str) -> anyhow::Result<Vec<PeerCandidate>> {
+    let targets: Vec<PeerCandidate> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            part.parse::<PeerCandidate>()
+                .with_context(|| format!("invalid peer target '{part}' (expected IP:PORT, HOST:PORT, or CIP-0155 DNS name)"))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    if targets.is_empty() {
+        bail!("at least one peer target is required");
+    }
+    Ok(targets)
+}
+
 async fn run(args: Args) -> anyhow::Result<()> {
+    let candidates = parse_targets(&args.targets)?;
+    // Needed for CIP-0155 SRV lookups; host A/AAAA uses tokio lookup and is unaffected.
+    init_resolver().context("failed to initialise DNS resolver for peer probe")?;
+
     let actions = Actions::from_args(&args);
-    let peer: Peer = args.address.parse().context("invalid IP:PORT address")?;
-    let connect_timeout = args.connect_timeout;
-    let handshake_timeout = args.handshake_timeout;
-    let protocol_timeout = args.protocol_timeout;
     let max_n2n_version = resolve_requested_version(args.requested_version)?;
     let color = color_enabled();
-    let out = HumanOut::new(color);
     // Stream long-running human steps as they complete; JSON stays one final document.
     let stream = !args.json;
 
-    info!(
-        cli::peer::PROBE,
-        address = args.address.as_str(),
-        network = args.network,
-        connect_timeout = duration::format(&args.connect_timeout),
-        handshake_timeout = duration::format(&args.handshake_timeout),
-        protocol_timeout = duration::format(&args.protocol_timeout),
-        ping = args
-            .ping
-            .map(|p| format!("{}:{}", p.count, duration::format(&p.interval)))
-            .unwrap_or_else(|| "off".to_string()),
-        handshake = actions.handshake,
-        peer_share = actions.peer_share,
-        ps_check = actions.ps_check.map(|s| s.display()).unwrap_or_else(|| "off".to_string()),
-        tip = actions.tip,
-        all = args.all,
-        time_track = args.time_track,
-        retry = args
-            .retry
-            .map(|r| format!("{}:{}", r.count, duration::format(&r.interval)))
-            .unwrap_or_else(|| "off".to_string()),
-        requested_version = args.requested_version,
-        json = args.json,
-    );
+    let mut reports = Vec::with_capacity(candidates.len());
+    for candidate in &candidates {
+        let report = probe_one(candidate, &args, actions, max_n2n_version, stream, color).await;
+        reports.push(report);
+    }
+
+    if args.json {
+        emit_json(&reports)?;
+    }
+
+    if reports.iter().any(|r| !r.errors.is_empty()) {
+        bail!("probe completed with errors");
+    }
+    Ok(())
+}
+
+async fn probe_one(
+    candidate: &PeerCandidate,
+    args: &Args,
+    actions: Actions,
+    max_n2n_version: VersionNumber,
+    stream: bool,
+    color: bool,
+) -> session::ProbeReport {
+    let out = HumanOut::new(color);
+    let address = candidate.to_string();
 
     let mut report = session::ProbeReport {
-        address: args.address.clone(),
+        address: address.clone(),
+        resolved: None,
         network: args.network.to_string(),
         ping_rtts_ms: Vec::new(),
         ping_interval_ms: None,
@@ -413,6 +443,28 @@ async fn run(args: Args) -> anyhow::Result<()> {
         timetrack: Vec::new(),
         errors: Vec::new(),
     };
+
+    let Some(peer) = resolve_peer_candidate(candidate).await else {
+        let kind = match candidate {
+            PeerCandidate::Socket(_) => "socket",
+            PeerCandidate::Host { .. } => "host",
+            PeerCandidate::Srv { .. } => "CIP-0155 SRV",
+        };
+        report.errors.push(format!("failed to resolve {kind} target '{address}'"));
+        if stream {
+            out.probe_header(&report);
+            out.errors(&report.errors);
+        }
+        return report;
+    };
+
+    if candidate.needs_resolution() {
+        report.resolved = Some(peer.to_string());
+    }
+
+    let connect_timeout = args.connect_timeout;
+    let handshake_timeout = args.handshake_timeout;
+    let protocol_timeout = args.protocol_timeout;
 
     // Shared timeline clock across query + session when `--time-track` is set.
     let mut track_clock: Option<(Instant, Instant)> = None;
@@ -565,18 +617,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
         }
     }
 
-    if args.json {
-        emit(&report, true, color)?;
-    } else if !stream {
-        // Should not happen: stream is `!json`. Kept for clarity.
-        emit(&report, false, color)?;
-    }
-    // Human streaming already printed each section as it completed.
-
-    if !report.errors.is_empty() {
-        bail!("probe completed with errors");
-    }
-    Ok(())
+    report
 }
 
 /// Shared probe settings applied to each `--ps-check` session.
@@ -620,22 +661,12 @@ async fn run_pscheck_one(addr: &str, params: PsCheckParams) -> anyhow::Result<se
     Ok(session::PeerCheck::from_session(addr, partial, params.extras))
 }
 
-fn emit(report: &session::ProbeReport, json: bool, color: bool) -> anyhow::Result<()> {
-    if json {
-        println!("{}", serde_json::to_string_pretty(report)?);
+/// One object for a single target; a JSON array when several targets were probed.
+fn emit_json(reports: &[session::ProbeReport]) -> anyhow::Result<()> {
+    if reports.len() == 1 {
+        println!("{}", serde_json::to_string_pretty(&reports[0])?);
     } else {
-        let out = HumanOut::new(color);
-        out.probe_header(report);
-        if let Some(hs) = &report.handshake {
-            out.handshake(hs);
-        }
-        if !report.ping_rtts_ms.is_empty() {
-            out.ping(report);
-        }
-        out.session_sections(report, /*include_pscheck*/ true, /*skip_handshake*/ true);
-        if !report.timetrack.is_empty() {
-            out.timetrack(&report.timetrack);
-        }
+        println!("{}", serde_json::to_string_pretty(reports)?);
     }
     Ok(())
 }
@@ -704,10 +735,24 @@ impl HumanOut {
     }
 
     fn probe_header(&self, report: &session::ProbeReport) {
-        println!(
-            "{}probe{} {}{}{} ({})",
-            self.p.bold, self.p.reset, self.p.cyan, report.address, self.p.reset, report.network
-        );
+        match &report.resolved {
+            Some(resolved) => println!(
+                "{}probe{} {}{}{} -> {}{}{} ({})",
+                self.p.bold,
+                self.p.reset,
+                self.p.cyan,
+                report.address,
+                self.p.reset,
+                self.p.cyan,
+                resolved,
+                self.p.reset,
+                report.network
+            ),
+            None => println!(
+                "{}probe{} {}{}{} ({})",
+                self.p.bold, self.p.reset, self.p.cyan, report.address, self.p.reset, report.network
+            ),
+        }
         self.flush();
     }
 
@@ -924,6 +969,41 @@ fn resolve_requested_version(raw: u64) -> anyhow::Result<VersionNumber> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_targets_splits_comma_separated_socket_host_and_srv() {
+        let targets = parse_targets("10.0.0.1:3001, relay.example:3002, pool.example").unwrap();
+        assert_eq!(targets.len(), 3);
+        assert!(matches!(targets[0], PeerCandidate::Socket(_)));
+        assert!(matches!(targets[1], PeerCandidate::Host { .. }));
+        assert!(matches!(targets[2], PeerCandidate::Srv { .. }));
+    }
+
+    #[test]
+    fn parse_targets_rejects_empty_list() {
+        assert!(parse_targets(" , , ").is_err());
+    }
+
+    #[test]
+    fn parse_targets_rejects_literal_ip_without_port() {
+        let err = parse_targets("10.0.0.1").unwrap_err().to_string();
+        assert!(err.contains("10.0.0.1"));
+    }
+
+    #[test]
+    fn clap_keeps_target_when_bare_ping_precedes_address() {
+        // `--ping` requires `=` for a value, so the following token is the target.
+        let args = Args::try_parse_from(["probe", "--ping", "1.2.3.4:5678"]).unwrap();
+        assert_eq!(args.targets, "1.2.3.4:5678");
+        assert_eq!(args.ping.map(|p| p.count), Some(1));
+    }
+
+    #[test]
+    fn clap_accepts_targets_before_options() {
+        let args = Args::try_parse_from(["probe", "relay.example:3001,pool.example", "--ping=2"]).unwrap();
+        assert_eq!(args.targets, "relay.example:3001,pool.example");
+        assert_eq!(args.ping.map(|p| p.count), Some(2));
+    }
 
     #[test]
     fn ps_check_spec_bare_is_handshake_only() {

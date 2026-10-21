@@ -1007,34 +1007,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
-## target: `amaru::cli::peer`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `probe` | `event` | info | public | Effective configuration for \`amaru peer probe\` | address, network, connect_timeout, handshake_timeout, protocol_timeout, ping, handshake, peer_share, ps_check, tip, all, time_track, retry, requested_version, json |  |
-
-<details><summary>event: `probe`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `address` | `string` | ✓ |
-| `network` | `string` | ✓ |
-| `connect_timeout` | `string` | ✓ |
-| `handshake_timeout` | `string` | ✓ |
-| `protocol_timeout` | `string` | ✓ |
-| `ping` | `string` | ✓ |
-| `handshake` | `boolean` | ✓ |
-| `peer_share` | `boolean` | ✓ |
-| `ps_check` | `string` | ✓ |
-| `tip` | `boolean` | ✓ |
-| `all` | `boolean` | ✓ |
-| `time_track` | `boolean` | ✓ |
-| `retry` | `string` | ✓ |
-| `requested_version` | `integer` | ✓ |
-| `json` | `boolean` | ✓ |
-
-</details>
-
 ## target: `amaru::cli::snapshot`
 
 | name | kind | levels | public | description | required fields | optional fields |

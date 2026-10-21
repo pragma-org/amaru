@@ -19,7 +19,7 @@ pub(crate) mod probe;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PeerCommand {
-    /// Probe a remote node over node-to-node (handshake, tip, peer-share, keep-alive ping).
+    /// Probe one or more remote nodes over node-to-node (handshake, tip, peer-share, keep-alive ping).
     Probe(probe::Args),
 }
 
