@@ -43,14 +43,20 @@ where
             return None;
         }
 
-        match self {
-            Env::Empty => None,
-            Env::Cons { data, next: parent } => {
-                if index == 1 {
-                    return Some(data);
-                }
+        let mut env = self;
+        let mut index = index;
 
-                parent.lookup(index - 1)
+        loop {
+            match env {
+                Env::Empty => return None,
+                Env::Cons { data, next } => {
+                    if index == 1 {
+                        return Some(data);
+                    }
+
+                    index -= 1;
+                    env = next;
+                }
             }
         }
     }

@@ -71,6 +71,21 @@ it avoids retaining every historical continuation in the evaluation arena.
 | CPU-weighted score | 20.5 points |
 | Complexity cost | 3 |
 
+### Traverse de Bruijn environments iteratively
+
+Environment lookup walked the linked environment recursively for every
+variable. The representation is unchanged; lookup now uses an equivalent
+loop, avoiding a call frame for each de Bruijn step.
+
+The large 13,882-term case improved from 16.45 ms to 13.95 ms (-15.2%).
+Data-heavy cases with shallow environments were unchanged, so this is a
+targeted improvement rather than a general reduction in evaluation time.
+
+| Metric | Change |
+| --- | ---: |
+| CPU-weighted score | 11.4 points |
+| Complexity cost | 1 |
+
 ## Rejected
 
 ### Intern primitive type descriptors
