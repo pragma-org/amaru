@@ -51,10 +51,21 @@ pub enum InitiatorMessage {
     Close,
 }
 
-/// Cookie echoed by the remote keep-alive response.
+/// Outcomes delivered from the keep-alive protocol machine to [`StageState`].
+///
+/// [`InitiatorResult::Bootstrap`] is synthetic (`ProtocolState::init`) and must never be
+/// treated as a wire `ResponseKeepAlive` — doing so races with a pending send and reports a
+/// zero RTT (the cookie is also 0, matching the first real ping).
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InitiatorResult {
-    pub cookie: Cookie,
+pub enum InitiatorResult {
+    Bootstrap,
+    /// A `ResponseKeepAlive` was observed. `round_trip` is filled by the stage when a matching
+    /// send was outstanding (and optionally forwarded to `report_to`).
+    Response {
+        cookie: Cookie,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        round_trip: Option<Duration>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -65,11 +76,41 @@ pub struct KeepAliveInitiator {
     sent_at: Option<(Cookie, Instant)>,
     muxer: StageRef<MuxMessage>,
     pending_close: bool,
+    /// When false, the caller drives `SendKeepAlive` (probe one-shot); no 30s auto-schedule.
+    auto_schedule: bool,
+    /// Optional sink for measured RTTs (e.g. `amaru peer probe --ping`).
+    #[serde(skip, default)]
+    report_to: Option<StageRef<InitiatorResult>>,
 }
 
 impl KeepAliveInitiator {
     pub fn new(peer: Peer, conn_id: ConnectionId, muxer: StageRef<MuxMessage>) -> (State, Self) {
-        (State::Idle, Self { cookie: Cookie::new(), peer, conn_id, sent_at: None, muxer, pending_close: false })
+        (
+            State::Idle,
+            Self {
+                cookie: Cookie::new(),
+                peer,
+                conn_id,
+                sent_at: None,
+                muxer,
+                pending_close: false,
+                auto_schedule: true,
+                report_to: None,
+            },
+        )
+    }
+
+    /// Probe / one-shot mode: caller sends [`InitiatorMessage::SendKeepAlive`], RTTs go to `report_to`.
+    pub fn oneshot(
+        peer: Peer,
+        conn_id: ConnectionId,
+        muxer: StageRef<MuxMessage>,
+        report_to: StageRef<InitiatorResult>,
+    ) -> (State, Self) {
+        let (_, mut stage) = Self::new(peer, conn_id, muxer);
+        stage.auto_schedule = false;
+        stage.report_to = Some(report_to);
+        (State::Idle, stage)
     }
 }
 
@@ -105,40 +146,59 @@ impl StageState<State, Initiator> for KeepAliveInitiator {
         input: InitiatorResult,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        // After receiving a response, increment cookie and schedule next send
-        let cookie = input.cookie.as_u16();
-
-        async move {
-            let received_at = eff.clock().await;
-            if let Some((sent_cookie, sent_at)) = self.sent_at.take()
-                && sent_cookie == input.cookie
-            {
-                let round_trip = received_at.saturating_since(sent_at);
-                let round_trip_micros = round_trip.as_micros() as u64;
-                debug!(
-                    protocols::keepalive::peer::ROUND_TRIP,
-                    peer = &self.peer,
-                    conn_id = self.conn_id.as_u64(),
-                    round_trip_micros
-                );
-                PeerTrack::new(eff).record_keepalive_rtt(self.peer, round_trip, received_at).await;
+        match input {
+            InitiatorResult::Bootstrap => {
+                // Kick off the periodic schedule (node path). Probe oneshot ignores this.
+                if self.auto_schedule {
+                    let cookie = self.cookie.as_u16();
+                    async move {
+                        // Haskell nodes expect the first keep-alive within five seconds.
+                        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), Duration::from_secs(1))
+                            .await;
+                        Ok((None, self))
+                    }
+                    .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie).into())
+                    .await
+                } else {
+                    Ok((None, self))
+                }
             }
-            self.cookie = input.cookie.next();
-            if self.pending_close {
-                return Ok((Some(InitiatorAction::Done), self));
+            InitiatorResult::Response { cookie, .. } => {
+                let cookie_u16 = cookie.as_u16();
+                async move {
+                    let received_at = eff.clock().await;
+                    if let Some((sent_cookie, sent_at)) = self.sent_at.take()
+                        && sent_cookie == cookie
+                    {
+                        let rtt = received_at.saturating_since(sent_at);
+                        let round_trip_micros = rtt.as_micros() as u64;
+                        debug!(
+                            protocols::keepalive::peer::ROUND_TRIP,
+                            peer = &self.peer,
+                            conn_id = self.conn_id.as_u64(),
+                            round_trip_micros
+                        );
+                        PeerTrack::new(eff).record_keepalive_rtt(self.peer, rtt, received_at).await;
+                        if let Some(report_to) = &self.report_to {
+                            eff.send(report_to, InitiatorResult::Response { cookie, round_trip: Some(rtt) }).await;
+                        }
+                    }
+                    self.cookie = cookie.next();
+                    if self.pending_close {
+                        return Ok((Some(InitiatorAction::Done), self));
+                    }
+                    if self.auto_schedule {
+                        eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), Duration::from_secs(30))
+                            .await;
+                    }
+                    Ok((None, self))
+                }
+                .instrument(
+                    debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie = cookie_u16).into(),
+                )
+                .await
             }
-            let delay = if u16::from(input.cookie) == 0 {
-                // this is only for the very first keep-alive message, which the Haskell node expects within the first
-                // five seconds
-                Duration::from_secs(1)
-            } else {
-                Duration::from_secs(30)
-            };
-            eff.schedule_after(Inputs::Local(InitiatorMessage::SendKeepAlive), delay).await;
-            Ok((None, self))
         }
-        .instrument(debug_span!(protocols::keepalive::initiator::KEEPALIVE_INITIATOR_STAGE, cookie).into())
-        .await
     }
 
     fn muxer(&self) -> &StageRef<MuxMessage> {
@@ -153,8 +213,8 @@ impl ProtocolState<Initiator> for State {
     type Error = Void;
 
     fn init(&self) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
-        // On init, trigger the first KeepAlive send via the StageState to set timers in motion
-        Ok((outcome().result(InitiatorResult { cookie: Cookie::new() }), *self))
+        // Synthetic bootstrap only — never a stand-in for ResponseKeepAlive.
+        Ok((outcome().result(InitiatorResult::Bootstrap), *self))
     }
 
     fn network(&self, input: Self::WireMsg) -> anyhow::Result<(Outcome<Self::WireMsg, Self::Out, Self::Error>, Self)> {
@@ -166,7 +226,9 @@ impl ProtocolState<Initiator> for State {
         use State::*;
 
         Ok(match (self, input) {
-            (Waiting, Message::ResponseKeepAlive(cookie)) => (outcome().result(InitiatorResult { cookie }), Idle),
+            (Waiting, Message::ResponseKeepAlive(cookie)) => {
+                (outcome().result(InitiatorResult::Response { cookie, round_trip: None }), Idle)
+            }
             (this, input) => anyhow::bail!("invalid state: {:?} <- {:?}", this, input),
         })
     }

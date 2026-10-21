@@ -69,6 +69,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Keys(cmd::keys::KeysCommand),
 
+    /// Probe remote peers (handshake, tip, peer-share).
+    #[command(subcommand)]
+    Peer(cmd::peer::PeerCommand),
+
     /// Manage bootstrap snapshots.
     #[command(subcommand)]
     Snapshot(cmd::snapshot::SnapshotCommand),
@@ -95,6 +99,7 @@ impl Command {
         match self {
             Command::Node(cmd) => cmd.into_runnable(),
             Command::Keys(cmd) => cmd.into_runnable(),
+            Command::Peer(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
             #[cfg(feature = "mithril")]
             Command::Mithril(cmd) => cmd.into_runnable(),
@@ -121,7 +126,8 @@ impl Command {
     pub(crate) fn skip_logging(&self) -> bool {
         matches!(
             self,
-            Command::Dev(cmd::dev::DevCommand::Env(_))
+            Command::Peer(_)
+                | Command::Dev(cmd::dev::DevCommand::Env(_))
                 | Command::Snapshot(cmd::snapshot::SnapshotCommand::Epochs(_))
                 | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Dump(_)))
                 | Command::Dev(cmd::dev::DevCommand::Traces(cmd::dev::traces::TracesCommand::Schema(_)))

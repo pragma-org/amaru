@@ -1789,6 +1789,29 @@ define_schemas! {
                     }
                 }
             }
+            peer {
+                tags: cli
+                /// Effective configuration for `amaru peer probe`
+                public event PROBE {
+                    levels: info
+                    required address: String
+                    required network: %amaru_kernel::NetworkName
+                    required connect_timeout: String
+                    required handshake_timeout: String
+                    required protocol_timeout: String
+                    required ping: String
+                    required handshake: bool
+                    required peer_share: bool
+                    /// `off`, `handshake`, or semicolon-joined extras (`ping;tip;peer-share`)
+                    required ps_check: String
+                    required tip: bool
+                    required all: bool
+                    required time_track: bool
+                    required retry: String
+                    required requested_version: u64
+                    required json: bool
+                }
+            }
             node {
                 tags: setup
                 /// The effective configuration a node run starts with

@@ -12,7 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    net::SocketAddr,
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_observability::{Instrument, debug, debug_span, info};
@@ -41,6 +50,10 @@ pub struct Connection {
     local_addr: SocketAddr,
     reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
+    /// Cumulative application bytes written via [`ConnectionProvider::send`].
+    bytes_sent: AtomicU64,
+    /// Cumulative application bytes delivered via [`ConnectionProvider::recv`].
+    bytes_recv: AtomicU64,
 }
 
 impl Connection {
@@ -54,11 +67,17 @@ impl Connection {
             local_addr,
             reader: Arc::new(AsyncMutex::new((reader, BytesMut::with_capacity(read_buf_size)))),
             writer: Arc::new(AsyncMutex::new(writer)),
+            bytes_sent: AtomicU64::new(0),
+            bytes_recv: AtomicU64::new(0),
         })
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
         self.peer_addr
+    }
+
+    fn byte_counts(&self) -> (u64, u64) {
+        (self.bytes_sent.load(Ordering::Relaxed), self.bytes_recv.load(Ordering::Relaxed))
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -149,6 +168,14 @@ impl TokioConnections {
             outbound_bind: Mutex::new(None),
         });
         Self { inner }
+    }
+
+    /// Cumulative TCP application bytes `(sent, received)` for an open connection.
+    ///
+    /// Counts payload delivered through [`ConnectionProvider::send`] /
+    /// [`ConnectionProvider::recv`] (mux SDUs), not pure TCP/IP headers.
+    pub fn byte_counts(&self, conn: ConnectionId) -> Option<(u64, u64)> {
+        self.inner.connections.lock().get(&conn).map(Connection::byte_counts)
     }
 
     pub fn new(read_buf_size: usize) -> Self {
@@ -318,14 +345,18 @@ impl ConnectionProvider for TokioConnections {
         let resource = self.inner.clone();
         Box::pin(
             async move {
-                let connection = resource
+                let len = data.len().get() as u64;
+                let writer = resource
                     .connections
                     .lock()
                     .get(&conn)
                     .ok_or_else(|| std::io::Error::other(format!("connection {conn} not found for send")))?
                     .writer
                     .clone();
-                tokio::time::timeout(Duration::from_secs(100), connection.lock().await.write_all(&data)).await??;
+                tokio::time::timeout(Duration::from_secs(100), writer.lock().await.write_all(&data)).await??;
+                if let Some(connection) = resource.connections.lock().get(&conn) {
+                    connection.bytes_sent.fetch_add(len, Ordering::Relaxed);
+                }
                 Ok(())
             }
             .instrument(debug_span!(network::connection::SEND,).into()),
@@ -352,7 +383,12 @@ impl ConnectionProvider for TokioConnections {
                     };
                 }
                 #[expect(clippy::expect_used)]
-                Ok(buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize"))
+                let out: NonEmptyBytes = buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize");
+                drop(guard);
+                if let Some(connection) = resource.connections.lock().get(&conn) {
+                    connection.bytes_recv.fetch_add(out.len().get() as u64, Ordering::Relaxed);
+                }
+                Ok(out)
             }
             .instrument(debug_span!(network::connection::RECV,).into()),
         )

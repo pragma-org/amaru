@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: `amaru peer probe` checks TCP connect, N2N handshake (default max version 15), tip, peer-share, and optional keep-alive ping RTT against `IP:PORT`. Use `--ps-check` to handshake each shared peer on its own session; optional extras are `ping`, `tip`, and `peer-share`.
 - **amaru**: conformance reports for uplc, uplc turbo, ledger rules and cbor decoding as release artifacts.
 
 ### Changed

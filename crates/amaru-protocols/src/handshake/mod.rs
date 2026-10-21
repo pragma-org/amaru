@@ -21,10 +21,10 @@ mod tests;
 use amaru_kernel::NetworkMagic;
 pub use messages::Message;
 
+pub use crate::protocol_messages::handshake::{HandshakeResult, RefuseReason};
 use crate::{
     protocol::{ProtoSpec, ProtocolState, RoleT},
     protocol_messages::{
-        handshake::{HandshakeResult, RefuseReason},
         version_data::{PeerSharing, VersionData},
         version_number::VersionNumber,
         version_table::VersionTable,

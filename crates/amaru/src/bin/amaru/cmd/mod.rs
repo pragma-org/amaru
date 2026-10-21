@@ -21,6 +21,7 @@ pub(crate) mod keys;
 #[cfg(feature = "mithril")]
 pub(crate) mod mithril;
 pub(crate) mod node;
+pub(crate) mod peer;
 pub(crate) mod shell_completions;
 pub(crate) mod snapshot;
 

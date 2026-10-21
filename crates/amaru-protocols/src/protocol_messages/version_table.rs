@@ -42,8 +42,16 @@ impl VersionTable<VersionData> {
     }
 
     pub fn query(network_magic: NetworkMagic) -> VersionTable<VersionData> {
+        Self::query_through(VersionNumber::CURRENT, network_magic)
+    }
+
+    /// Handshake **query** offer from V11 through `max` (`query = true`).
+    ///
+    /// The peer replies with [`crate::handshake::Message::QueryReply`] listing every version it
+    /// speaks; the connection does not become a diffusion session.
+    pub fn query_through(max: VersionNumber, network_magic: NetworkMagic) -> VersionTable<VersionData> {
         let data = VersionData::new(network_magic, false, PeerSharing::Disabled, true);
-        Self::from_v11_through(VersionNumber::CURRENT, data)
+        Self::from_v11_through(max, data)
     }
 
     /// Handshake offer from V11 through [`VersionNumber::CURRENT`] (V15).
