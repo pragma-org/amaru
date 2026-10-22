@@ -262,6 +262,7 @@ pub(super) enum Predicate {
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
     DisallowedVoters,
+    ExUnitsTooBigUTxO,
     ExtraneousScriptWitnessesUTXOW,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
@@ -413,6 +414,7 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::ExtraneousScriptWitnessesUTXOW
             }
             PhaseOneError::Scripts(InvalidScripts::MissingRequiredScripts(_)) => Predicate::MissingScriptWitnessesUTXOW,
+            PhaseOneError::Scripts(InvalidScripts::TooManyExUnits { .. }) => Predicate::ExUnitsTooBigUTxO,
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
             }

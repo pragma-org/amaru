@@ -451,6 +451,8 @@ normalizeUtxoFailure = \case
         "InputSetEmptyUTxO"
     FeeTooSmallUTxO{} ->
         "FeeTooSmallUTxO"
+    ExUnitsTooBigUTxO{} ->
+        "ExUnitsTooBigUTxO"
     ValueNotConservedUTxO{} ->
         "ValueNotConservedUTxO"
     WrongNetwork{} ->
