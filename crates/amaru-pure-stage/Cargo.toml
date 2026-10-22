@@ -29,6 +29,7 @@ pretty_assertions.workspace = true
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive", "alloc", "rc"] }
 serde_json.workspace = true
+smallvec.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 tracing-subscriber.workspace = true

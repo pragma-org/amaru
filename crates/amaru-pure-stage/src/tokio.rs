@@ -34,6 +34,7 @@ use std::{
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
+use smallvec::SmallVec;
 use tokio::{
     runtime::Handle,
     sync::{
@@ -140,12 +141,16 @@ fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>, failures: &mut Vec<J
 
 const DEADLOCK_GRACE: Duration = Duration::from_secs(1);
 
+// NOTE: generations only ever grow, so an unchanged (target, generation) pair after the
+// grace period proves the same send was blocked the whole time; a send that completed and
+// blocked again re-registers under a new generation and fails the validation.
 struct SendMark {
     to: Name,
     generation: u64,
     msg: String,
 }
 
+/// Blocked sends, indexed by the name of the sending stage.
 #[derive(Default)]
 struct SendRegistry {
     marks: BTreeMap<Name, SendMark>,
@@ -170,16 +175,25 @@ fn mark_blocked_send(inner: &TokioInner, from: &Name, to: &Name, msg: &dyn SendD
     let generation = registry.generation;
     registry.marks.insert(from.clone(), SendMark { to: to.clone(), generation, msg: format!("{msg:?}") });
 
-    let mut edges = vec![SendEdge { from: from.clone(), to: to.clone(), generation }];
-    let mut current = to.clone();
+    let marks = &registry.marks;
+    let mut edges: SmallVec<[(&Name, &SendMark); 4]> = SmallVec::new();
+    let mut current = from;
     loop {
-        if let Some(at) = edges.iter().position(|edge| edge.from == current) {
-            return Some(edges.split_off(at));
+        if let Some(at) = edges.iter().position(|(sender, _)| *sender == current) {
+            return Some(
+                edges[at..]
+                    .iter()
+                    .map(|(sender, mark)| SendEdge {
+                        from: (*sender).clone(),
+                        to: mark.to.clone(),
+                        generation: mark.generation,
+                    })
+                    .collect(),
+            );
         }
-        let mark = registry.marks.get(&current)?;
-        let next = mark.to.clone();
-        edges.push(SendEdge { from: current, to: next.clone(), generation: mark.generation });
-        current = next;
+        let mark = marks.get(current)?;
+        edges.push((current, mark));
+        current = &mark.to;
     }
 }
 
@@ -839,8 +853,8 @@ async fn interpreter(
                         if let Some(cycle) = mark_blocked_send(inner, name, &target, msg.as_ref()) {
                             spawn_deadlock_validation(inner, cycle);
                         }
-                        let _mark = DropGuard::new((inner.clone(), name.clone()), |(inner, name)| {
-                            inner.sending.lock().marks.remove(&name);
+                        let _mark = DropGuard::new((inner, name), |(inner, name)| {
+                            inner.sending.lock().marks.remove(name);
                         });
                         poll_with_ingress(tx.send(msg), timers, cancel_senders, timeouts, msgs).await.ok();
                     }

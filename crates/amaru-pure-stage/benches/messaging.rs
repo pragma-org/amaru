@@ -15,30 +15,34 @@
 //! Message throughput of the Tokio runtime's stage-to-stage send path, with roomy
 //! mailboxes (every send takes the uncontended path) and with mailbox size 1 (sends
 //! regularly hit a full mailbox and take the blocked-send bookkeeping path).
+//!
+//! Each round measures the whole `input -> first -> second -> output` pipeline, and the
+//! input sender and output receiver have performance characteristics of their own, so the
+//! result does not isolate the cost of a single stage-to-stage send. It is meant for
+//! comparing two revisions of the runtime on the same pipeline, not for absolute numbers.
 
 #![expect(clippy::unwrap_used)]
 
 use std::time::Duration;
 
 use amaru_pure_stage::{
-    Receiver, Sender, StageGraph, StageRef,
+    Effects, Receiver, Sender, StageGraph, StageRef,
     tokio::{TokioBuilder, TokioRunning},
 };
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 const MESSAGES: usize = 1_000;
 
+async fn forward(next: StageRef<u64>, msg: u64, eff: Effects<u64>) -> StageRef<u64> {
+    eff.send(&next, msg).await;
+    next
+}
+
 fn pipeline(mailbox_size: usize) -> (tokio::runtime::Runtime, TokioRunning, Sender<u64>, Receiver<u64>) {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let mut network = TokioBuilder::default().with_mailbox_size(mailbox_size);
-    let first = network.stage("first", async |next: StageRef<u64>, msg: u64, eff| {
-        eff.send(&next, msg).await;
-        next
-    });
-    let second = network.stage("second", async |out: StageRef<u64>, msg: u64, eff| {
-        eff.send(&out, msg).await;
-        out
-    });
+    let first = network.stage("first", forward);
+    let second = network.stage("second", forward);
     let (out, rx) = network.output::<u64>("out", MESSAGES);
     let first_ref = first.sender();
     let second_ref = second.sender();
