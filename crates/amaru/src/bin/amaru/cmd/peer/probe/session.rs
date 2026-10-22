@@ -31,8 +31,7 @@ use amaru_protocols::{
     peer_sharing::{ShareResult, register_peer_sharing_initiator_oneshot},
     peer_tracking::InMemoryPeerTracking,
     protocol::{
-        Inputs, PROTO_HANDSHAKE, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE, PROTO_N2N_PEER_SHARE, Role,
-        ingress_limit,
+        Inputs, PROTO_HANDSHAKE, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE, PROTO_N2N_PEER_SHARE, Role, ingress_limit,
     },
     protocol_messages::{version_data::PeerSharing, version_number::VersionNumber, version_table::VersionTable},
     store_effects::ResourceHeaderStore,
@@ -469,6 +468,7 @@ fn offered_versions_from_table(
 }
 
 /// Handshake **query** (`query = true`): list every N2N version the remote speaks, then hang up.
+#[expect(clippy::too_many_arguments)]
 pub async fn run_version_query(
     peer: Peer,
     network: NetworkName,
@@ -698,9 +698,7 @@ async fn driver_stage(mut state: Driver, msg: DriverMsg, eff: Effects<DriverMsg>
                 (PROTO_N2N_KEEP_ALIVE.erase(), ingress_limit(PROTO_N2N_KEEP_ALIVE)),
                 (PROTO_N2N_PEER_SHARE.erase(), ingress_limit(PROTO_N2N_PEER_SHARE)),
             ];
-            let muxer = eff
-                .wire_up(muxer, mux::State::new(state.conn_id, &early, Role::Initiator, state.peer))
-                .await;
+            let muxer = eff.wire_up(muxer, mux::State::new(state.conn_id, &early, Role::Initiator, state.peer)).await;
 
             let versions = match state.handshake_mode {
                 HandshakeMode::Query => VersionTable::query_through(state.max_n2n_version, state.magic),
@@ -1046,5 +1044,4 @@ mod tests {
         assert_eq!(check.negotiated_version, Some(14));
         assert!(check.failed_at.is_none());
     }
-
 }

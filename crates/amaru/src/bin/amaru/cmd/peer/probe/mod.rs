@@ -21,7 +21,6 @@
 
 #![expect(clippy::print_stdout)]
 #![expect(clippy::print_literal)]
-#![expect(clippy::wildcard_enum_match_arm)]
 
 mod session;
 
@@ -228,6 +227,7 @@ struct PeerCheckSpec {
     extras: session::PsCheckExtras,
 }
 
+#[cfg(test)]
 impl PeerCheckSpec {
     fn display(&self) -> String {
         let mut parts = Vec::new();
@@ -443,8 +443,9 @@ fn parse_targets(raw: &str) -> anyhow::Result<Vec<PeerCandidate>> {
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .map(|part| {
-            part.parse::<PeerCandidate>()
-                .with_context(|| format!("invalid peer target '{part}' (expected IP:PORT, HOST:PORT, or CIP-0155 DNS name)"))
+            part.parse::<PeerCandidate>().with_context(|| {
+                format!("invalid peer target '{part}' (expected IP:PORT, HOST:PORT, or CIP-0155 DNS name)")
+            })
         })
         .collect::<anyhow::Result<_>>()?;
     if targets.is_empty() {
@@ -472,8 +473,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
             continue;
         }
         for peer in peers {
-            let report =
-                probe_one(candidate, peer, &args, actions, max_n2n_version, stream, color).await;
+            let report = probe_one(candidate, peer, &args, actions, max_n2n_version, stream, color).await;
             reports.push(report);
         }
     }
@@ -488,12 +488,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn probe_resolve_failed(
-    candidate: &PeerCandidate,
-    args: &Args,
-    stream: bool,
-    color: bool,
-) -> session::ProbeReport {
+fn probe_resolve_failed(candidate: &PeerCandidate, args: &Args, stream: bool, color: bool) -> session::ProbeReport {
     let out = HumanOut::new(color);
     let address = candidate.to_string();
     let kind = match candidate {
@@ -704,9 +699,11 @@ async fn probe_one(
             time_track: args.time_track,
         };
         for addr in peers {
-            let check = match with_retries_if(args.retry, |c: &session::PeerCheck| !c.ok, || {
-                run_peer_check_one(&addr, check_params)
-            })
+            let check = match with_retries_if(
+                args.retry,
+                |c: &session::PeerCheck| !c.ok,
+                || run_peer_check_one(&addr, check_params),
+            )
             .await
             {
                 Ok(check) => check,
@@ -1096,7 +1093,6 @@ impl HumanOut {
             }
         }
     }
-
 }
 
 fn format_peer_check_summary(check: &session::PeerCheck) -> String {
@@ -1275,10 +1271,7 @@ mod tests {
     fn session_timeout_adds_inter_ping_gaps() {
         let base = Duration::from_secs(5);
         assert_eq!(session_timeout_for(base, None), base);
-        assert_eq!(
-            session_timeout_for(base, Some(PingSpec { count: 1, interval: Duration::from_secs(5) })),
-            base
-        );
+        assert_eq!(session_timeout_for(base, Some(PingSpec { count: 1, interval: Duration::from_secs(5) })), base);
         assert_eq!(
             session_timeout_for(base, Some(PingSpec { count: 20, interval: Duration::from_secs(5) })),
             Duration::from_secs(5 + 19 * 5)
@@ -1287,14 +1280,7 @@ mod tests {
 
     #[test]
     fn all_preserves_explicit_ping_and_peer_check() {
-        let args = Args::try_parse_from([
-            "probe",
-            "1.2.3.4:3001",
-            "--all",
-            "--ping=3:2s",
-            "--peer-check=tip",
-        ])
-        .unwrap();
+        let args = Args::try_parse_from(["probe", "1.2.3.4:3001", "--all", "--ping=3:2s", "--peer-check=tip"]).unwrap();
         let actions = Actions::from_args(&args);
         assert_eq!(actions.ping.map(|p| (p.count, p.interval)), Some((3, Duration::from_secs(2))));
         assert!(actions.peer_check.is_some());

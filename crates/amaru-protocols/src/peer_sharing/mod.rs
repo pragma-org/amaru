@@ -120,6 +120,7 @@ pub async fn register_peer_sharing_initiator<M: amaru_pure_stage::SendData>(
 }
 
 /// Register a one-shot peer-sharing initiator for probes: one request, one [`ShareResult`], then Done.
+#[expect(clippy::too_many_arguments)]
 pub async fn register_peer_sharing_initiator_oneshot<M: amaru_pure_stage::SendData>(
     muxer: &StageRef<MuxMessage>,
     peer: Peer,
