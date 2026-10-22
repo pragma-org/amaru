@@ -197,7 +197,7 @@ fn main() {
     let report = json!({
         "version": "1",
         "scenario": "uplc-turbo",
-        "generated_at": duration::since_unix_epoch(),
+        "generated_at": duration::since_unix_epoch().as_millis() as u64,
         "implementation": { "name": "amaru" },
         "machine": machine(),
         "benchmarks": benchmarks,

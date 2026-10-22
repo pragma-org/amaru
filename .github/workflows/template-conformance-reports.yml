@@ -9,8 +9,6 @@ on:
         required: false
         type: string
         default: amaru
-  push:
-    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,7 +40,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: ${{ inputs.artifact_prefix }}-cbor-conformance
+          name: ${{ inputs.artifact_prefix || 'amaru' }}-cbor-conformance
           path: crates/amaru-kernel/tests/results/*.json
           if-no-files-found: error
 
@@ -75,7 +73,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
-          name: ${{ inputs.artifact_prefix }}-uplc-turbo
+          name: ${{ inputs.artifact_prefix || 'amaru' }}-uplc-turbo
           path: uplc-turbo.json
 
   uplc-conformance:
@@ -93,7 +91,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
-          name: ${{ inputs.artifact_prefix }}-uplc-conformance
+          name: ${{ inputs.artifact_prefix || 'amaru' }}-uplc-conformance
           path: uplc-conformance.json
 
       - name: Preserve suite failure status
@@ -115,7 +113,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
         with:
-          name: ${{ inputs.artifact_prefix }}-ledger-rules
+          name: ${{ inputs.artifact_prefix || 'amaru' }}-ledger-rules
           path: ledger-rules.json
 
       - name: Preserve suite failure status

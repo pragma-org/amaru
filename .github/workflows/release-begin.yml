@@ -10,6 +10,7 @@ on:
         default: false
   schedule:
     - cron: "0 1 * * *"
+    - cron: "0 14 * * 4"
   push:
     branches: ["release/*"]
 
@@ -52,7 +53,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUESTED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.release && 'true' || 'false' }}
+          REQUESTED_RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.release) || (github.event_name == 'schedule' && github.event.schedule == '0 14 * * 4') }}
         run: |
           set -euo pipefail
 
