@@ -113,8 +113,8 @@ confidence-threshold = 0.8
 exceptions = [
     # Each entry is the crate and version constraint, and its specific allow
     # list
-    { allow = ["LGPL-3.0"], crate = "malachite-base@0.14.0" },
-    { allow = ["LGPL-3.0"], crate = "malachite-nz@0.14.0" },
+    { allow = ["LGPL-3.0-only"], crate = "malachite-base@0.14.0" },
+    { allow = ["LGPL-3.0-only"], crate = "malachite-nz@0.14.0" },
 ]
 
 # Some crates don't have (easily) machine readable licensing information,
