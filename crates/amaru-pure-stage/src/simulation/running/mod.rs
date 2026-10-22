@@ -1844,7 +1844,7 @@ fn parked_send<'a>(stages: &'a BTreeMap<Name, StageData>, from: &Name, to: &Name
 }
 
 /// Stages that lie on a cycle in the blocked-send graph.
-fn send_cycle(blocks: &[SendBlock]) -> BTreeSet<Name> {
+pub(crate) fn send_cycle(blocks: &[SendBlock]) -> BTreeSet<Name> {
     let mut adj: BTreeMap<Name, Vec<Name>> = BTreeMap::new();
     for block in blocks {
         adj.entry(block.from.clone()).or_default().push(block.to.clone());

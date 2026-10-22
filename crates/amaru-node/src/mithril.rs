@@ -868,7 +868,10 @@ async fn shutdown_replay(
     tokio_running.request_abort();
     let mut unexpected_exits = match tokio_running.join().await {
         Ok(report) => {
-            report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
+            let mut exits: Vec<_> =
+                report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect();
+            exits.extend(report.deadlock.map(|deadlock| ComponentFailure::Deadlock(deadlock.description)));
+            exits
         }
         Err(error) => vec![ComponentFailure::Stage(error.to_string())],
     };

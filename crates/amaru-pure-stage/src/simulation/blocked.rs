@@ -39,7 +39,7 @@ pub enum Blocked {
     Terminated(Name),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendBlock {
     pub from: Name,
     pub to: Name,

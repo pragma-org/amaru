@@ -20,6 +20,7 @@
 use std::{
     any::Any,
     collections::{BTreeMap, VecDeque},
+    fmt::Write as _,
     future::{Future, poll_fn},
     marker::PhantomData,
     sync::{
@@ -33,6 +34,7 @@ use std::{
 use either::Either::{Left, Right};
 use futures_util::{FutureExt, StreamExt, stream::FuturesUnordered};
 use parking_lot::Mutex;
+use smallvec::SmallVec;
 use tokio::{
     runtime::Handle,
     sync::{
@@ -52,7 +54,7 @@ use crate::{
     resources::Resources,
     sender::StageRefExtra,
     serde::NoDebug,
-    simulation::Transition,
+    simulation::{SendBlock, Transition, running::send_cycle},
     stage_name,
     stage_ref::StageStateRef,
     stagegraph::StageGraphRunning,
@@ -72,6 +74,8 @@ struct TokioInner {
     handles: Mutex<Vec<JoinHandle<()>>>,
     failures: Mutex<Vec<JoinError>>,
     unexpected_exits: Mutex<Vec<Name>>,
+    sending: Mutex<SendRegistry>,
+    deadlock: Mutex<Option<DeadlockReport>>,
     stopping: AtomicBool,
     clock: Arc<dyn Clock + Send + Sync>,
     global_epoch_offset: Duration,
@@ -90,6 +94,8 @@ impl TokioInner {
             handles: Default::default(),
             failures: Default::default(),
             unexpected_exits: Default::default(),
+            sending: Default::default(),
+            deadlock: Default::default(),
             stopping: AtomicBool::new(false),
             clock: Arc::new(TokioClock),
             global_epoch_offset: Duration::ZERO,
@@ -131,6 +137,123 @@ fn reap_finished_handles(handles: &mut Vec<JoinHandle<()>>, failures: &mut Vec<J
         }
         false
     });
+}
+
+const DEADLOCK_GRACE: Duration = Duration::from_secs(1);
+
+// NOTE: generations only ever grow, so an unchanged (target, generation) pair after the
+// grace period proves the same send was blocked the whole time; a send that completed and
+// blocked again re-registers under a new generation and fails the validation.
+struct SendMark {
+    to: Name,
+    generation: u64,
+    msg: String,
+}
+
+/// Blocked sends, indexed by the name of the sending stage.
+#[derive(Default)]
+struct SendRegistry {
+    marks: BTreeMap<Name, SendMark>,
+    generation: u64,
+}
+
+struct SendEdge {
+    from: Name,
+    to: Name,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct DeadlockReport {
+    pub blocks: Vec<SendBlock>,
+    pub description: String,
+}
+
+fn mark_blocked_send(inner: &TokioInner, from: &Name, to: &Name, msg: &dyn SendData) -> Option<Vec<SendEdge>> {
+    let mut registry = inner.sending.lock();
+    registry.generation += 1;
+    let generation = registry.generation;
+    registry.marks.insert(from.clone(), SendMark { to: to.clone(), generation, msg: format!("{msg:?}") });
+
+    let marks = &registry.marks;
+    let mut edges: SmallVec<[(&Name, &SendMark); 4]> = SmallVec::new();
+    let mut current = from;
+    loop {
+        if let Some(at) = edges.iter().position(|(sender, _)| *sender == current) {
+            return Some(
+                edges[at..]
+                    .iter()
+                    .map(|(sender, mark)| SendEdge {
+                        from: (*sender).clone(),
+                        to: mark.to.clone(),
+                        generation: mark.generation,
+                    })
+                    .collect(),
+            );
+        }
+        let mark = marks.get(current)?;
+        edges.push((current, mark));
+        current = &mark.to;
+    }
+}
+
+fn spawn_deadlock_validation(inner: &Arc<TokioInner>, cycle: Vec<SendEdge>) {
+    let inner2 = inner.clone();
+    let handle = tokio::spawn(async move {
+        let inner = inner2;
+        tokio::time::sleep(DEADLOCK_GRACE).await;
+        if inner.stopping.load(Ordering::SeqCst) {
+            return;
+        }
+        let report = {
+            let registry = inner.sending.lock();
+            let confirmed = cycle.iter().all(|edge| {
+                registry
+                    .marks
+                    .get(&edge.from)
+                    .is_some_and(|mark| mark.to == edge.to && mark.generation == edge.generation)
+            });
+            confirmed.then(|| deadlock_report(&registry, &inner.senders.lock()))
+        };
+        let Some(report) = report else {
+            return;
+        };
+        tracing::error!("stage messaging deadlock detected, aborting the stage graph:\n{}", report.description);
+        inner.deadlock.lock().get_or_insert(report);
+        inner.request_abort();
+    });
+    inner.push_handle(handle);
+}
+
+fn deadlock_report(
+    registry: &SendRegistry,
+    senders: &BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>,
+) -> DeadlockReport {
+    let blocks = registry
+        .marks
+        .iter()
+        .map(|(from, mark)| SendBlock { from: from.clone(), to: mark.to.clone(), is_call: false })
+        .collect::<Vec<_>>();
+    let cycle = send_cycle(&blocks);
+    let mut description = String::new();
+    let _ = writeln!(description, "blocked sends:");
+    for (from, mark) in &registry.marks {
+        let tag = if cycle.contains(from) && cycle.contains(&mark.to) { " [cycle]" } else { "" };
+        let _ = writeln!(description, "  {from} -> {}{tag}: {}", mark.to, mark.msg);
+    }
+    let _ = writeln!(description, "cycle mailbox occupancy:");
+    for name in &cycle {
+        match senders.get(name) {
+            Some(tx) => {
+                let max = tx.max_capacity();
+                let _ = writeln!(description, "  {name}: {}/{max}", max - tx.capacity());
+            }
+            None => {
+                let _ = writeln!(description, "  {name}: <stage gone>");
+            }
+        }
+    }
+    DeadlockReport { blocks, description }
 }
 
 struct TokioClock;
@@ -723,7 +846,19 @@ async fn interpreter(
                     #[expect(clippy::expect_used)]
                     senders.get(&target).expect("stage ref contained unknown name").clone()
                 };
-                poll_with_ingress(tx.send(msg), timers, cancel_senders, timeouts, msgs).await.ok();
+                match tx.try_reserve() {
+                    Ok(permit) => permit.send(msg),
+                    Err(mpsc::error::TrySendError::Closed(())) => {}
+                    Err(mpsc::error::TrySendError::Full(())) => {
+                        if let Some(cycle) = mark_blocked_send(inner, name, &target, msg.as_ref()) {
+                            spawn_deadlock_validation(inner, cycle);
+                        }
+                        let _mark = DropGuard::new((inner, name), |(inner, name)| {
+                            inner.sending.lock().marks.remove(name);
+                        });
+                        poll_with_ingress(tx.send(msg), timers, cancel_senders, timeouts, msgs).await.ok();
+                    }
+                }
                 StageResponse::Unit
             }
             StageEffect::TrySend(target, msg) => {
@@ -919,6 +1054,7 @@ async fn interpreter(
 #[must_use = "inspect unexpected_exits even when no task panicked"]
 pub struct TokioJoinReport {
     pub unexpected_exits: Vec<Name>,
+    pub deadlock: Option<DeadlockReport>,
 }
 
 /// Handle to the running stages.
@@ -979,7 +1115,10 @@ impl TokioRunning {
         if let Some(error) = self.inner.failures.lock().drain(..).next() {
             return Err(error);
         }
-        Ok(TokioJoinReport { unexpected_exits: std::mem::take(&mut *self.inner.unexpected_exits.lock()) })
+        Ok(TokioJoinReport {
+            unexpected_exits: std::mem::take(&mut *self.inner.unexpected_exits.lock()),
+            deadlock: self.inner.deadlock.lock().take(),
+        })
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
