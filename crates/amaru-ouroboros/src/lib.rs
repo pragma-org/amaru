@@ -22,6 +22,7 @@ pub mod praos;
 mod serde_util;
 pub mod vrf;
 
+pub use amaru_kernel::cardano::text_envelope::TextEnvelopeError;
 pub use amaru_ouroboros_traits::*;
 pub use credentials::{
     ColdVerificationKeyError, OperationalCertificateError, ensure_operational_certificate_accepted,

@@ -18,15 +18,20 @@
 //! unencrypted text envelopes cardano-cli already writes. The cold key stays in
 //! the certificate file; it is not loaded on its own.
 
-use std::{fmt, fs, path::Path, sync::Mutex};
+use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, cbor, ed25519,
-    protocol_version::PROTOCOL_VERSION_12, size::BLOCK_BODY,
+    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
+    cardano::{
+        fixed_bytes::FixedBytes,
+        text_envelope::{self, TextEnvelopeError},
+    },
+    cbor, ed25519,
+    protocol_version::PROTOCOL_VERSION_12,
+    size::BLOCK_BODY,
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
-use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
@@ -220,23 +225,8 @@ fn header_parented_on(parent: HeaderHash) -> Header {
 pub fn load_operational_certificate(
     path: impl AsRef<Path>,
 ) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
-    let bytes = fs::read(path)?;
-    let envelope: OperationalCertificateEnvelope = serde_json::from_slice(&bytes)?;
-    if envelope.r#type != OPERATIONAL_CERTIFICATE_ENVELOPE {
-        return Err(OperationalCertificateError::UnexpectedEnvelopeType {
-            expected: OPERATIONAL_CERTIFICATE_ENVELOPE,
-            found: envelope.r#type,
-        });
-    }
-    let payload = hex::decode(envelope.cbor_hex)?;
+    let payload = text_envelope::read_envelope(path, OPERATIONAL_CERTIFICATE_ENVELOPE)?;
     decode_operational_certificate(&payload)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OperationalCertificateEnvelope {
-    r#type: String,
-    cbor_hex: String,
 }
 
 fn decode_operational_certificate(
@@ -294,8 +284,8 @@ pub enum CertificateRejected {
 /// The operational-certificate text envelope could not be read.
 #[derive(Debug, Error)]
 pub enum OperationalCertificateError {
-    #[error("unexpected operational certificate envelope type: expected {expected}, found {found}")]
-    UnexpectedEnvelopeType { expected: &'static str, found: String },
+    #[error(transparent)]
+    Envelope(#[from] TextEnvelopeError),
     #[error("operational certificate CBOR must be a definite two-element array")]
     IndefiniteArray,
     #[error("operational certificate CBOR must be a two-element array, found {0} elements")]
@@ -304,12 +294,6 @@ pub enum OperationalCertificateError {
     TrailingBytes(usize),
     #[error("operational certificate CBOR is malformed: {0}")]
     Cbor(String),
-    #[error("failed to read operational certificate file: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("malformed operational certificate envelope: {0}")]
-    Envelope(#[from] serde_json::Error),
-    #[error("operational certificate hex is malformed: {0}")]
-    Hex(#[from] hex::FromHexError),
 }
 
 impl OperationalCertificateError {
@@ -325,15 +309,7 @@ const COLD_VERIFICATION_KEY_ENVELOPE: &str = "StakePoolVerificationKey_ed25519";
 /// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
 /// [`VerificationKey`] suitable for pool ID derivation.
 pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ColdVerificationKeyError> {
-    let bytes = fs::read(path)?;
-    let envelope: OperationalCertificateEnvelope = serde_json::from_slice(&bytes)?;
-    if envelope.r#type != COLD_VERIFICATION_KEY_ENVELOPE {
-        return Err(ColdVerificationKeyError::UnexpectedEnvelopeType {
-            expected: COLD_VERIFICATION_KEY_ENVELOPE,
-            found: envelope.r#type,
-        });
-    }
-    let payload = hex::decode(envelope.cbor_hex)?;
+    let payload = text_envelope::read_envelope(path, COLD_VERIFICATION_KEY_ENVELOPE)?;
     let mut decoder = cbor::Decoder::new(&payload);
     let mut ctx = PROTOCOL_VERSION_12;
     let cold: VerificationKey = decoder.decode_with(&mut ctx).map_err(ColdVerificationKeyError::cbor)?;
@@ -346,18 +322,12 @@ pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<Verification
 /// The cold verification key file could not be read or decoded.
 #[derive(Debug, Error)]
 pub enum ColdVerificationKeyError {
-    #[error("unexpected cold verification key envelope type: expected {expected}, found {found}")]
-    UnexpectedEnvelopeType { expected: &'static str, found: String },
+    #[error(transparent)]
+    Envelope(#[from] TextEnvelopeError),
     #[error("cold verification key CBOR has {0} trailing bytes")]
     TrailingBytes(usize),
     #[error("cold verification key CBOR is malformed: {0}")]
     Cbor(String),
-    #[error("failed to read cold verification key file: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("malformed cold verification key envelope: {0}")]
-    Envelope(#[from] serde_json::Error),
-    #[error("cold verification key hex is malformed: {0}")]
-    Hex(#[from] hex::FromHexError),
 }
 
 impl ColdVerificationKeyError {
@@ -368,7 +338,7 @@ impl ColdVerificationKeyError {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     use amaru_kernel::{IsHeader, Slot, cbor, ed25519::Signer};
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
@@ -618,7 +588,7 @@ mod tests {
         let path = dir.path().join("node.cert");
         fs::write(&path, wrong).unwrap();
         let err = load_operational_certificate(&path).unwrap_err();
-        assert!(matches!(err, OperationalCertificateError::UnexpectedEnvelopeType { .. }), "{err}");
+        assert!(matches!(err, OperationalCertificateError::Envelope(_)), "{err}");
 
         let truncated = envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, "8200");
         fs::write(&path, truncated).unwrap();
@@ -772,7 +742,7 @@ mod tests {
         let path = dir.path().join("bad.vkey");
         fs::write(&path, envelope("SomeOtherType", "5820aabbcc")).unwrap();
         let err = load_cold_verification_key(&path).unwrap_err();
-        assert!(matches!(err, ColdVerificationKeyError::UnexpectedEnvelopeType { .. }), "{err}");
+        assert!(matches!(err, ColdVerificationKeyError::Envelope(_)), "{err}");
     }
 
     #[test]

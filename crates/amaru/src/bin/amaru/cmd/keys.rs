@@ -19,11 +19,10 @@ use std::{
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::{Hasher, hash::size::POOL_COLD_KEY};
+use amaru_kernel::{Hasher, MAINNET_GLOBAL_PARAMETERS, hash::size::POOL_COLD_KEY};
 use amaru_ouroboros::{kes::SecretKey, load_cold_verification_key, load_operational_certificate};
 use anyhow::{Context, ensure};
 use clap::{Args, Subcommand};
-use serde::Serialize;
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Subcommand)]
@@ -32,7 +31,7 @@ pub(crate) enum KeysCommand {
     #[command(subcommand)]
     Kes(KesCommand),
 
-    /// Inspect and verify operational certificates.
+    /// Inspect operational certificates.
     #[command(subcommand)]
     Opcert(OpcertCommand),
 
@@ -69,7 +68,7 @@ pub(crate) struct CreateArgs {
 #[derive(Debug, Args)]
 pub(crate) struct PeriodArgs {
     /// Operational certificate used to determine the KES period at which the key was issued.
-    #[arg(long, value_name = amaru::value_names::FILEPATH, env = amaru::env_vars::OPERATOR_OPERATIONAL_CERTIFICATE)]
+    #[arg(long, value_name = amaru::value_names::FILEPATH, env = amaru::env_vars::OPERATOR_CERT)]
     opcert: PathBuf,
 
     /// Current slot number.
@@ -78,14 +77,14 @@ pub(crate) struct PeriodArgs {
 
     /// Number of slots per KES period.
     ///
-    /// Defaults to the Cardano mainnet value of 129600.
-    #[arg(long, value_name = amaru::value_names::UINT, default_value_t = 129_600)]
+    /// Defaults to the Cardano mainnet value.
+    #[arg(long, value_name = amaru::value_names::UINT, default_value_t = MAINNET_GLOBAL_PARAMETERS.slots_per_kes_period)]
     slots_per_kes_period: u64,
 
     /// Maximum number of KES evolutions before key rotation is required.
     ///
-    /// Defaults to the Cardano mainnet value of 62.
-    #[arg(long, value_name = amaru::value_names::UINT, default_value_t = 62)]
+    /// Defaults to the Cardano mainnet value.
+    #[arg(long, value_name = amaru::value_names::UINT, default_value_t = MAINNET_GLOBAL_PARAMETERS.max_kes_evolution as u64)]
     max_kes_evolutions: u64,
 }
 
@@ -120,22 +119,6 @@ impl KeysCommand {
     }
 }
 
-#[derive(Serialize)]
-struct OpcertInfo {
-    pool_id: String,
-    sequence_number: u64,
-    kes_period: u64,
-    hot_verification_key: String,
-}
-
-#[derive(Serialize)]
-struct KesPeriodInfo {
-    current_kes_period: u64,
-    opcert_kes_period: u64,
-    periods_used: u64,
-    periods_remaining: u64,
-}
-
 #[expect(clippy::print_stdout)]
 fn opcert_inspect(args: InspectArgs) -> anyhow::Result<()> {
     let (cert, cold) = load_operational_certificate(&args.opcert)
@@ -143,12 +126,12 @@ fn opcert_inspect(args: InspectArgs) -> anyhow::Result<()> {
 
     let pool_id = Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice());
 
-    let info = OpcertInfo {
-        pool_id: hex::encode(pool_id.as_ref()),
-        sequence_number: cert.operational_cert_sequence_number,
-        kes_period: u64::from(cert.operational_cert_kes_period),
-        hot_verification_key: hex::encode(cert.operational_cert_hot_verification_key.as_slice()),
-    };
+    let info = serde_json::json!({
+        "pool_id": hex::encode(pool_id.as_ref()),
+        "sequence_number": cert.operational_cert_sequence_number,
+        "kes_period": u64::from(cert.operational_cert_kes_period),
+        "hot_verification_key": hex::encode(cert.operational_cert_hot_verification_key.as_slice()),
+    });
 
     println!("{}", serde_json::to_string_pretty(&info)?);
     Ok(())
@@ -156,6 +139,8 @@ fn opcert_inspect(args: InspectArgs) -> anyhow::Result<()> {
 
 #[expect(clippy::print_stdout)]
 fn kes_period(args: PeriodArgs) -> anyhow::Result<()> {
+    ensure!(args.slots_per_kes_period > 0, "--slots-per-kes-period must be greater than zero");
+
     let (cert, _) = load_operational_certificate(&args.opcert)
         .with_context(|| format!("failed to load operational certificate: {}", args.opcert.display()))?;
 
@@ -164,7 +149,12 @@ fn kes_period(args: PeriodArgs) -> anyhow::Result<()> {
     let periods_used = current_kes_period.saturating_sub(opcert_kes_period);
     let periods_remaining = args.max_kes_evolutions.saturating_sub(periods_used);
 
-    let info = KesPeriodInfo { current_kes_period, opcert_kes_period, periods_used, periods_remaining };
+    let info = serde_json::json!({
+        "current_kes_period": current_kes_period,
+        "opcert_kes_period": opcert_kes_period,
+        "periods_used": periods_used,
+        "periods_remaining": periods_remaining,
+    });
 
     println!("{}", serde_json::to_string_pretty(&info)?);
     Ok(())
