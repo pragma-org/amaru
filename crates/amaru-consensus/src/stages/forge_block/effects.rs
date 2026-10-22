@@ -228,7 +228,7 @@ mod tests {
         let effect = LeaderScheduleEffect::new(
             Epoch::from(2),
             Nonce::from([1u8; 32]),
-            Hash::new([0u8; 28]),
+            PoolId::new([0u8; 28]),
             Slot::from(0),
             Slot::from(10),
         );

@@ -29,6 +29,9 @@ pub static HRP_ADDR_VKH: LazyLock<Hrp> = LazyLock::new(|| Hrp::parse("addr_vkh")
 pub static HRP_ADDR_SHARED_VKH: LazyLock<Hrp> = LazyLock::new(|| Hrp::parse("addr_shared_vkh").unwrap());
 
 #[expect(clippy::unwrap_used, reason = "safe hard-coded Human-readable part")]
+pub static HRP_POOL: LazyLock<Hrp> = LazyLock::new(|| Hrp::parse("pool").unwrap());
+
+#[expect(clippy::unwrap_used, reason = "safe hard-coded Human-readable part")]
 pub static HRP_STAKE: LazyLock<Hrp> = LazyLock::new(|| Hrp::parse("stake").unwrap());
 
 #[expect(clippy::unwrap_used, reason = "safe hard-coded Human-readable part")]

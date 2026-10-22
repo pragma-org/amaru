@@ -60,7 +60,7 @@ pub fn output(rng: &mut impl Rng) -> MemoizedTransactionOutput {
 }
 
 pub fn pool_id(rng: &mut impl Rng) -> PoolId {
-    hash28(rng)
+    hash28(rng).into()
 }
 
 pub fn pool_params(rng: &mut impl Rng) -> PoolParams {

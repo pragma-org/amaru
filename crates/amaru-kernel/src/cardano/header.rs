@@ -175,7 +175,7 @@ impl Header {
     }
 
     pub fn pool_id(&self) -> PoolId {
-        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.body().issuer_verification_key[..])
+        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.body().issuer_verification_key[..]).into()
     }
 
     pub fn op_cert_seq(&self) -> u64 {

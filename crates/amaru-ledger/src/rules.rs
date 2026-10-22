@@ -170,7 +170,7 @@ pub(crate) mod tests {
 
     use amaru_kernel::{
         Credential, DRep, Hash, MemoizedTransactionOutput, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-        PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, ProtocolParameters, TransactionInput,
+        PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PoolId, ProtocolParameters, TransactionInput,
         cardano::network_block::CONWAY_BLOCK, cbor, hash,
     };
     use amaru_uplc::arena_pool::ArenaPool;
@@ -264,11 +264,11 @@ pub(crate) mod tests {
         let dev_key = hash!("93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8");
         let proposal_key = hash!("22222222222222222222222222222222222222222222222222222222");
 
-        let pool = Hash::try_from(hex::decode("11".repeat(28)).unwrap().as_slice()).unwrap();
+        let pool = PoolId::try_from(hex::decode("11".repeat(28)).unwrap().as_slice()).unwrap();
         let drep = Hash::try_from(hex::decode("22".repeat(28)).unwrap().as_slice()).unwrap();
         let cc_cold = Hash::try_from(hex::decode("33".repeat(28)).unwrap().as_slice()).unwrap();
         let cc_hot = Hash::try_from(hex::decode("55".repeat(28)).unwrap().as_slice()).unwrap();
-        let voting_pool = Hash::try_from(hex::decode("66".repeat(28)).unwrap().as_slice()).unwrap();
+        let voting_pool = PoolId::try_from(hex::decode("66".repeat(28)).unwrap().as_slice()).unwrap();
 
         // spent, collateral and reference inputs all have to be resolvable
         assert_eq!(

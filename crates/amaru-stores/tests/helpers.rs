@@ -23,8 +23,8 @@ use std::{
 use amaru_kernel::{
     Anchor, Block, BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Epoch, EraHistory,
     GlobalParameters, Hash, Header, HeaderHash, MaxString128, NetworkName, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, Pots, ProposalId, ProposalsRoots, ProtocolParameters, Slot,
-    cardano::network_block::make_block, cbor, make_header, to_cbor,
+    PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots,
+    ProtocolParameters, Slot, cardano::network_block::make_block, cbor, make_header, to_cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -247,7 +247,7 @@ pub fn empty_block_at(slot: u64) -> Block {
 /// Forward the ledger to a given point
 #[expect(clippy::expect_used)]
 pub fn forward_to(state: &mut State<MockStore, RocksDBHistoricalStores>, point: Point) {
-    let issuer = Hash::new([0u8; 28]);
+    let issuer = PoolId::new([0u8; 28]);
     state.push_fragment(VolatileFragment::default().anchor(point, issuer)).expect("forward");
 }
 

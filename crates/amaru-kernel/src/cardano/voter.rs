@@ -18,8 +18,8 @@ use std::fmt;
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
 
 use crate::{
-    Hash, cbor,
-    size::{KEY, POOL_COLD_KEY, SCRIPT},
+    Hash, PoolId, cbor,
+    size::{KEY, SCRIPT},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -28,7 +28,7 @@ pub enum Voter {
     ConstitutionalCommitteeKey(Hash<{ KEY }>),
     DRepScript(Hash<{ SCRIPT }>),
     DRepKey(Hash<{ KEY }>),
-    StakePoolKey(Hash<{ POOL_COLD_KEY }>),
+    StakePoolKey(PoolId),
 }
 
 impl fmt::Display for Voter {
@@ -38,7 +38,7 @@ impl fmt::Display for Voter {
             Self::ConstitutionalCommitteeKey(hash) => write!(f, "constitutional-committee(key({hash}))"),
             Self::DRepScript(hash) => write!(f, "drep(script({hash}))"),
             Self::DRepKey(hash) => write!(f, "drep(key({hash}))"),
-            Self::StakePoolKey(hash) => write!(f, "stake-pool(key({hash}))"),
+            Self::StakePoolKey(pool) => write!(f, "stake-pool({pool})"),
         }
     }
 }
@@ -110,7 +110,7 @@ impl Arbitrary for Voter {
             any::<Hash<SCRIPT>>().prop_map(Voter::ConstitutionalCommitteeScript),
             any::<Hash<KEY>>().prop_map(Voter::DRepKey),
             any::<Hash<SCRIPT>>().prop_map(Voter::DRepScript),
-            any::<Hash<POOL_COLD_KEY>>().prop_map(Voter::StakePoolKey),
+            any::<PoolId>().prop_map(Voter::StakePoolKey),
         ]
         .boxed()
     }

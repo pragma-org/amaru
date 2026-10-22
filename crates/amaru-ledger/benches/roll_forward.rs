@@ -19,7 +19,7 @@ use std::{cell::RefCell, sync::LazyLock};
 
 use amaru_kernel::{
     Address, Block, BlockHeight, Credential, Epoch, EraHistory, GlobalParameters, Hash, Hasher, Lovelace,
-    MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName, NonEmptyVec, Point, ProposalsRoots,
+    MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName, NonEmptyVec, Point, PoolId, ProposalsRoots,
     ProtocolParameters, ShelleyAddress, Transaction, TransactionBody, TransactionInput, Value, VerificationKey,
     VerificationKeyWitness, WitnessSet, block,
     cbor::WithSize,
@@ -149,7 +149,7 @@ impl Bench {
 
         for block_height in 1..=max_height {
             let point = Point::Specific(block_height.into(), Hash::new([block_height as u8; 32]), block_height.into());
-            let result = state.push_fragment(VolatileFragment::default().anchor(point, Hash::new([0; 28])));
+            let result = state.push_fragment(VolatileFragment::default().anchor(point, PoolId::new([0; 28])));
             assert!(matches!(result, Ok(None)), "warming must not flush a volatile fragment");
         }
 

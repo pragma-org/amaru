@@ -33,8 +33,8 @@ impl AsHash<28> for Voter {
             Self::DRepKey(hash)
             | Self::DRepScript(hash)
             | Self::ConstitutionalCommitteeKey(hash)
-            | Self::ConstitutionalCommitteeScript(hash)
-            | Self::StakePoolKey(hash) => *hash,
+            | Self::ConstitutionalCommitteeScript(hash) => *hash,
+            Self::StakePoolKey(pool) => **pool,
         }
     }
 }

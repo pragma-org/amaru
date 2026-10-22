@@ -175,7 +175,7 @@ where
         Certificate::PoolRegistration(params) => {
             let params = *params;
 
-            context.require_verification_key_witness(params.id);
+            context.require_verification_key_witness(*params.id);
 
             // https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/shelley/impl/src/Cardano/Ledger/Shelley/UTxO.hs#L250-L256
             // The Haskell node requires both the owners and the operators, which may be the same pkh.
@@ -227,7 +227,7 @@ where
         }
 
         Certificate::PoolRetirement(id, retirement_epoch) => {
-            context.require_verification_key_witness(id);
+            context.require_verification_key_witness(*id);
 
             // NOTE: Some conformance tests fail this check because the Haskell imp tests run on
             // a synthetic test chain whose epoch/slot mapping differs from our era_history. Our

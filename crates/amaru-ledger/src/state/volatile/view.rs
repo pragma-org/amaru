@@ -259,7 +259,7 @@ mod test {
         fragment.accounts.unregister(credential(2));
 
         let mut volatile = VolatileDB::default();
-        volatile.push_back(fragment.anchor(tip(), Hash::new([0; 28])));
+        volatile.push_back(fragment.anchor(tip(), PoolId::new([0; 28])));
 
         let mut view = VolatileView::new(&volatile, &stable);
 
