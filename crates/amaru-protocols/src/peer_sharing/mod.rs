@@ -31,7 +31,7 @@ use std::time::Duration;
 use amaru_kernel::Peer;
 use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef};
-pub use initiator::{PeerSharingInitiator, PeerSharingMessage, initiator};
+pub use initiator::{PeerSharingInitiator, PeerSharingMessage, ShareResult, initiator};
 
 /// Delay after the maintenance group starts before the first share request.
 pub const SHARE_REQUEST_INITIAL_DELAY: Duration = Duration::from_secs(300);
@@ -103,6 +103,37 @@ pub async fn register_peer_sharing_initiator<M: amaru_pure_stage::SendData>(
     use crate::protocol::Inputs;
 
     let (state, stage) = PeerSharingInitiator::new(muxer.clone(), peer, conn_id, amount, initial_delay, interval);
+    let ps = eff.stage("peer_sharing", initiator()).await;
+    let ps = eff.supervise(ps, tombstone);
+    let ps = eff.wire_up(ps, (state, stage)).await;
+    eff.send(
+        muxer,
+        MuxMessage::Register {
+            protocol: PROTO_N2N_PEER_SHARE.erase(),
+            frame: Frame::OneCborItem,
+            handler: ps.contramap(Inputs::<PeerSharingMessage>::Network),
+            max_buffer: ingress_limit(PROTO_N2N_PEER_SHARE),
+        },
+    )
+    .await;
+    ps.contramap(Inputs::<PeerSharingMessage>::Local)
+}
+
+/// Register a one-shot peer-sharing initiator for probes: one request, one [`ShareResult`], then Done.
+#[expect(clippy::too_many_arguments)]
+pub async fn register_peer_sharing_initiator_oneshot<M: amaru_pure_stage::SendData>(
+    muxer: &StageRef<MuxMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
+    amount: u8,
+    initial_delay: Duration,
+    report_to: StageRef<ShareResult>,
+    eff: &Effects<M>,
+    tombstone: M,
+) -> StageRef<PeerSharingMessage> {
+    use crate::protocol::Inputs;
+
+    let (state, stage) = PeerSharingInitiator::oneshot(muxer.clone(), peer, conn_id, amount, initial_delay, report_to);
     let ps = eff.stage("peer_sharing", initiator()).await;
     let ps = eff.supervise(ps, tombstone);
     let ps = eff.wire_up(ps, (state, stage)).await;

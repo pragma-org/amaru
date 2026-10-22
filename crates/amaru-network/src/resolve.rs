@@ -14,13 +14,18 @@
 
 //! Name resolution for [`PeerCandidate`].
 //!
-//! Yields at most one [`Peer`]. Host lookups take the first viable A/AAAA. SRV lookups try records
-//! in RFC 2782 priority order (lower first) and stop at the first viable target address.
+//! [`resolve_peer_candidate`] yields at most one [`Peer`] (node dial path): host lookups take the
+//! first viable A/AAAA; SRV lookups try records in RFC 2782 priority order (lower first) and stop
+//! at the first viable target address.
+//!
+//! [`resolve_all_peers`] collects every viable dial address (probe path): each usable SRV record
+//! that resolves, in priority order, without stopping early; duplicates are dropped.
 //!
 //! SRV uses the system DNS resolver, which [`init_resolver`] loads at Tokio node start. A missing
 //! or unreadable system config is fatal there; lookup failures remain per-candidate.
 
 use std::{
+    collections::BTreeSet,
     fmt,
     net::{IpAddr, SocketAddr},
     sync::OnceLock,
@@ -66,7 +71,19 @@ pub async fn resolve_peer_candidate(candidate: &PeerCandidate) -> Option<Peer> {
     match candidate {
         PeerCandidate::Socket(peer) => Some(*peer),
         PeerCandidate::Host { host, port } => resolve_host(host.as_str(), *port).await,
-        PeerCandidate::Srv { name } => resolve_srv(name).await,
+        PeerCandidate::Srv { name } => resolve_srv(name, /*all*/ false).await.into_iter().next(),
+    }
+}
+
+/// Resolve a bootstrap candidate to every viable dialable [`Peer`].
+///
+/// Socket and host candidates still yield at most one address (first viable A/AAAA). CIP-0155 SRV
+/// candidates yield one peer per usable SRV record that resolves, in RFC 2782 priority order.
+pub async fn resolve_all_peers(candidate: &PeerCandidate) -> Vec<Peer> {
+    match candidate {
+        PeerCandidate::Socket(peer) => vec![*peer],
+        PeerCandidate::Host { host, port } => resolve_host(host.as_str(), *port).await.into_iter().collect(),
+        PeerCandidate::Srv { name } => resolve_srv(name, /*all*/ true).await,
     }
 }
 
@@ -108,7 +125,12 @@ fn resolver() -> &'static TokioResolver {
     RESOLVER.get().expect("init_resolver must succeed before SRV lookups")
 }
 
-async fn resolve_srv(name: &DnsName) -> Option<Peer> {
+/// Look up CIP-0155 `_cardano._tcp.<name>` SRV records.
+///
+/// When `all` is false, returns at most the first viable peer (dial path). When `all` is true,
+/// returns every usable SRV target that resolves to a peer, preserving priority order and dropping
+/// duplicate addresses.
+async fn resolve_srv(name: &DnsName, all: bool) -> Vec<Peer> {
     let query = PeerCandidate::cardano_srv_name(name);
     let resolver = resolver();
     let lookup = match resolver.srv_lookup(query.as_str()).await {
@@ -119,21 +141,30 @@ async fn resolve_srv(name: &DnsName) -> Option<Peer> {
                 candidate = query.as_str(),
                 reason = error.to_string()
             );
-            return None;
+            return Vec::new();
         }
     };
     let records = ordered_usable_srv(lookup.answers().iter().filter_map(srv_choice));
+    let mut peers = Vec::new();
+    let mut seen = BTreeSet::new();
     for record in records {
-        if let Some(peer) = resolve_host(&record.target, record.port).await {
-            return Some(peer);
+        if let Some(peer) = resolve_host(&record.target, record.port).await
+            && seen.insert(peer)
+        {
+            peers.push(peer);
+            if !all {
+                break;
+            }
         }
     }
-    warn!(
-        protocols::peer_selection::peer::RESOLVE_FAILED,
-        candidate = query.as_str(),
-        reason = "no viable SRV address"
-    );
-    None
+    if peers.is_empty() {
+        warn!(
+            protocols::peer_selection::peer::RESOLVE_FAILED,
+            candidate = query.as_str(),
+            reason = "no viable SRV address"
+        );
+    }
+    peers
 }
 
 async fn resolve_host(host: &str, port: u16) -> Option<Peer> {

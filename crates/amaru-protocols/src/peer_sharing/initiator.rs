@@ -46,7 +46,15 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<(State, PeerSharingInitiator)>().boxed(),
         amaru_pure_stage::register_data_deserializer::<PeerSharingMessage>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Inputs<PeerSharingMessage>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<ShareResult>().boxed(),
     ]
+}
+
+/// One share reply delivered to a probe / oneshot caller (not used by the node path).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ShareResult {
+    pub peer: Peer,
+    pub peers: Vec<SocketAddr>,
 }
 
 pub fn initiator() -> Miniprotocol<State, PeerSharingInitiator, Initiator> {
@@ -79,6 +87,9 @@ pub struct PeerSharingInitiator {
     in_flight: bool,
     /// Close arrived while a request was in flight.
     closing: bool,
+    /// Optional oneshot sink for the first share reply (e.g. `amaru peer probe --peer-share`).
+    #[serde(skip, default)]
+    report_to: Option<StageRef<ShareResult>>,
 }
 
 impl PeerSharingInitiator {
@@ -102,8 +113,23 @@ impl PeerSharingInitiator {
                 timer: None,
                 in_flight: false,
                 closing: false,
+                report_to: None,
             },
         )
+    }
+
+    /// Probe / one-shot: first request after `initial_delay`, deliver peers to `report_to`, then Done.
+    pub fn oneshot(
+        muxer: StageRef<MuxMessage>,
+        peer: Peer,
+        conn_id: ConnectionId,
+        amount: u8,
+        initial_delay: Duration,
+        report_to: StageRef<ShareResult>,
+    ) -> (State, Self) {
+        let (_, mut stage) = Self::new(muxer, peer, conn_id, amount, initial_delay, Duration::from_secs(3600));
+        stage.report_to = Some(report_to);
+        (State::Idle, stage)
     }
 
     async fn arm_timer(&mut self, delay: Duration, eff: &Effects<Inputs<PeerSharingMessage>>) -> anyhow::Result<()> {
@@ -201,6 +227,13 @@ impl StageState<State, Initiator> for PeerSharingInitiator {
                         eff.terminate().await;
                     }
                     self.in_flight = false;
+                    if let Some(reply_to) = self.report_to.take() {
+                        if let Some(id) = self.timer.take() {
+                            eff.cancel_schedule(id).await;
+                        }
+                        eff.send(&reply_to, ShareResult { peer: self.peer, peers }).await;
+                        return Ok((Some(InitiatorAction::Done), self));
+                    }
                     let now = eff.clock().await;
                     let peers_list = peers.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
                     let recorded = PeerTrack::new(eff).record_shared_peers(self.peer, peers, now).await;

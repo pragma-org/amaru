@@ -192,6 +192,12 @@ pub mod value_names {
     /// _authority_.
     pub const ENDPOINT: &str = "HOSTNAME[:PORT]";
 
+    /// Host and mandatory TCP port for node-to-node peering.
+    pub const HOST_PORT: &str = "IP:PORT";
+
+    /// One or more peer-probe targets (`IP:PORT`, `HOSTNAME:PORT`, or CIP-0155 SRV DNS name).
+    pub const PEER_TARGETS: &str = "TARGET[,TARGET]...";
+
     /// For filepaths on the file-system.
     pub const FILEPATH: &str = "FILEPATH";
 
@@ -261,6 +267,12 @@ pub mod env_vars {
     pub const PEERS_REMOVAL_COOLDOWN: &str = "AMARU_PEERS_REMOVAL_COOLDOWN";
     pub const PEERS_SNAPSHOT: &str = "AMARU_PEERS_SNAPSHOT";
     pub const PID_EXPORT: &str = "AMARU_PID_EXPORT";
+    pub const PROBE_TIMEOUT: &str = "AMARU_PROBE_TIMEOUT";
+    pub const PROBE_TIMEOUT_CONNECT: &str = "AMARU_PROBE_TIMEOUT_CONNECT";
+    pub const PROBE_TIMEOUT_HANDSHAKE: &str = "AMARU_PROBE_TIMEOUT_HANDSHAKE";
+    pub const PROBE_TIMEOUT_PROTOCOL: &str = "AMARU_PROBE_TIMEOUT_PROTOCOL";
+    pub const PROBE_REQUESTED_VERSION: &str = "AMARU_PROBE_REQUESTED_VERSION";
+    pub const PROBE_RETRY: &str = "AMARU_PROBE_RETRY";
     pub const S3_BUCKET: &str = "AMARU_S3_BUCKET";
     pub const S3_ENDPOINT: &str = "AMARU_S3_ENDPOINT";
     pub const S3_PUBLIC_URL: &str = "AMARU_S3_PUBLIC_URL";
