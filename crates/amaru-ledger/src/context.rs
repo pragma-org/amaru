@@ -106,7 +106,7 @@ pub enum ContextHydratationError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError<ROLE, K> {
-    #[error("already registered entity: {1:?}")] // TODO: Use Display
+    #[error("already registered entity: {1}")]
     AlreadyRegistered(PhantomData<ROLE>, K),
 }
 
@@ -118,7 +118,7 @@ impl<ROLE, K: fmt::Debug> From<volatile::RegisterError<K>> for RegisterError<ROL
 
 #[derive(thiserror::Error, Debug)]
 pub enum UnregisterError<ROLE, K> {
-    #[error("unknown entity: {1:?}")] // TODO: Use Display
+    #[error("unknown entity: {1}")]
     Unknown(PhantomData<ROLE>, K),
 }
 
@@ -130,10 +130,10 @@ impl<ROLE, K: fmt::Debug> From<volatile::BindError<K>> for UnregisterError<ROLE,
 
 #[derive(thiserror::Error, Debug)]
 pub enum DelegateError<S, T> {
-    #[error("unknown source entity: {0:?}")] // TODO: Use Display
+    #[error("unknown source entity: {0}")]
     UnknownSource(S),
 
-    #[error("unknown target entity: {0:?}")] // TODO: Use Display
+    #[error("unknown target entity: {0}")]
     UnknownTarget(T),
 
     #[error("member has already resigned")]
@@ -148,7 +148,7 @@ impl<S: fmt::Debug, T: fmt::Debug> From<volatile::BindError<S>> for DelegateErro
 
 #[derive(thiserror::Error, Debug)]
 pub enum UpdateError<S> {
-    #[error("unknown source entity: {0:?}")] // TODO: Use Display
+    #[error("unknown source entity: {0}")]
     UnknownSource(S),
 }
 
