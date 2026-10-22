@@ -45,6 +45,10 @@ Other guiding principles:
 
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
 
+### Removed
+
+- **amaru**: remove the `amaru dev ledger` command group, including `convert`, `states`, `nonces`, and the hidden `reset` command. Use `amaru node rollback --epoch` to reset to an epoch.
+
 ### Fixed
 
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.

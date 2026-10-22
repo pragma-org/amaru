@@ -682,20 +682,6 @@ fn store_chain_state(db: &dyn ChainStore, state: ChainState) -> anyhow::Result<(
     Ok(())
 }
 
-pub async fn import_snapshots(
-    network: NetworkName,
-    global_parameters: &GlobalParameters,
-    snapshots: &[PathBuf],
-    ledger_dir: &Path,
-) -> anyhow::Result<()> {
-    info!(bootstrap::snapshots::IMPORT, count = snapshots.len());
-    let cancellation = BootstrapCancellation::new();
-    for snapshot in snapshots {
-        import_snapshot(network, global_parameters, snapshot, ledger_dir, None, &cancellation).await?;
-    }
-    Ok(())
-}
-
 struct ImportedSnapshot {
     epoch: Epoch,
     chain_state: Option<ChainState>,

@@ -140,12 +140,12 @@ fn mithril_sync_help_shows_all_options() -> anyhow::Result<()> {
 }
 
 #[test]
-fn removed_dev_ledger_mithril_commands_are_rejected() -> anyhow::Result<()> {
+fn removed_dev_ledger_command_is_rejected() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
-    for command in ["mithril", "sync"] {
-        let output = Command::new(&amaru).args(["dev", "ledger", command, "--help"]).output()?;
-        assert!(!output.status.success(), "removed 'dev ledger {command}' command should be rejected");
-    }
+    let output = Command::new(amaru).args(["dev", "ledger", "--help"]).output()?;
+    assert!(!output.status.success(), "removed 'dev ledger' command should be rejected");
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("unrecognized subcommand 'ledger'"), "got {stderr}");
     Ok(())
 }
 
@@ -183,7 +183,7 @@ fn dev_help_shows_subcommands() -> anyhow::Result<()> {
     let help = amaru_help(&["dev"])?;
     assert!(help.contains("chain"), "dev help should show 'chain'");
     assert!(help.contains("env"), "dev help should show 'env'");
-    assert!(help.contains("ledger"), "dev help should show 'ledger'");
+    assert!(!help.contains("ledger"), "dev help should NOT show removed 'ledger'");
     assert!(help.contains("traces"), "dev help should show 'traces'");
     Ok(())
 }

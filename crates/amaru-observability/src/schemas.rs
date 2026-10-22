@@ -1568,13 +1568,6 @@ define_schemas! {
                     required snapshot_era: %amaru_kernel::EraName
                 }
             }
-            snapshots {
-                /// Import all snapshots
-                public event IMPORT {
-                    levels: info
-                    required count: usize
-                }
-            }
             stake_pools {
                 /// Import stake pools from a snapshot
                 public event IMPORT {
@@ -1600,76 +1593,6 @@ define_schemas! {
             }
             dev {
                 tags: cli
-                ledger {
-                    /// Convert a cardano-node snapshot into an Amaru ledger database.
-                    public event CONVERT {
-                        levels: info
-                        required input: String
-                        required db_ledger: String
-                        required network: %amaru_kernel::NetworkName
-                    }
-
-                    /// Reset an Amaru ledger database to a snapshot epoch.
-                    public event RESET {
-                        levels: info
-                        required epoch: amaru_kernel::Epoch
-                        required db_ledger: String
-                        required network: %amaru_kernel::NetworkName
-                    }
-
-                    nonces {
-                        /// Look up the nonces associated with a block.
-                        public event GET {
-                            levels: info
-                            required block: String
-                            required db_chain: String
-                            required network: %amaru_kernel::NetworkName
-                        }
-
-                        /// Set the nonces associated with a block.
-                        public event SET {
-                            levels: info
-                            required block: String
-                            required db_chain: String
-                            required network: %amaru_kernel::NetworkName
-                        }
-                    }
-
-                    state {
-                        /// Import ledger state snapshots.
-                        public event IMPORT {
-                            levels: info
-                            required count: usize
-                            required db_ledger: String
-                            required network: %amaru_kernel::NetworkName
-                        }
-
-                        /// List ledger state snapshots.
-                        public event LIST {
-                            levels: info
-                            required db_ledger: String
-                            required network: %amaru_kernel::NetworkName
-                        }
-
-                        /// Removing ledger state
-                        public event REMOVE {
-                            levels: info
-                            required db_ledger: String
-                            required network: %amaru_kernel::NetworkName
-                        }
-                    }
-
-                    /// A ledger snapshot was removed.
-                    public event SNAPSHOT_REMOVED {
-                        levels: info
-                        required epoch: u64
-                    }
-
-                    /// A ledger snapshot to remove does not exist.
-                    public event SNAPSHOT_NOT_FOUND {
-                        levels: warn
-                        required epoch: u64
-                    }                }
                 chain {
                     /// Walk back from a given point showing block height, presence, validation status and best chain flag.
                     public event ANCESTORS {
