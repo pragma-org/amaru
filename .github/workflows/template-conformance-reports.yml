@@ -36,7 +36,7 @@ jobs:
       - name: Run the decoding conformance suite
         id: cbor
         env:
-          AMARU_TEST_REPORT_DIRECTORY: crates/amaru-kernel/tests/results
+          AMARU_TEST_REPORT_DIRECTORY: tests/results
         run: cargo test --locked -p amaru-kernel --test test_cbor_dataset -- --nocapture
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # https://github.com/actions/upload-artifact/releases/tag/v7.0.1
