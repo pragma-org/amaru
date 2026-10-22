@@ -78,6 +78,10 @@ Other guiding principles:
 - **amaru-tui**: the peers title shows maintenance peers as a dimmer `+N` after each diffusion count, as in `10+3 up / 8+1 dn`. A side with no maintenance peers shows only the diffusion count.
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
 
+### Removed
+
+- **amaru**: remove the `amaru dev ledger` command group, including `convert`, `states`, `nonces`, and the hidden `reset` command. Use `amaru node rollback --epoch` to reset to an epoch.
+
 ### Fixed
 
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.

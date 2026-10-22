@@ -17,7 +17,6 @@ use clap::Subcommand;
 
 pub(crate) mod chain;
 pub(crate) mod env;
-pub(crate) mod ledger;
 pub(crate) mod traces;
 
 #[derive(Debug, Subcommand)]
@@ -30,10 +29,6 @@ pub(crate) enum DevCommand {
     #[command(subcommand)]
     Chain(chain::ChainCommand),
 
-    /// Ledger store operations.
-    #[command(subcommand)]
-    Ledger(ledger::LedgerCommand),
-
     /// Observability and trace operations.
     #[command(subcommand)]
     Traces(traces::TracesCommand),
@@ -44,7 +39,6 @@ impl DevCommand {
         match self {
             Self::Chain(cmd) => cmd.into_runnable(),
             Self::Env(cmd) => cmd.into_runnable(),
-            Self::Ledger(cmd) => cmd.into_runnable(),
             Self::Traces(cmd) => cmd.into_runnable(),
         }
     }

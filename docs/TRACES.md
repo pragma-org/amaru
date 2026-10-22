@@ -449,20 +449,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
-## target: `amaru::bootstrap::snapshots`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `import` | `event` | info | public | Import all snapshots | count |  |
-
-<details><summary>event: `import`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `count` | `integer` | ✓ |
-
-</details>
-
 ## target: `amaru::bootstrap::stake_pools`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -745,114 +731,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | field | type | required |
 | --- | --- | --- |
 | `header_hash` | `string` | ✓ |
-
-</details>
-
-## target: `amaru::cli::dev::ledger`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `convert` | `event` | info | public | Convert a cardano-node snapshot into an Amaru ledger database. | input, db_ledger, network |  |
-| `reset` | `event` | info | public | Reset an Amaru ledger database to a snapshot epoch. | epoch, db_ledger, network |  |
-| `snapshot_not_found` | `event` | warn | public | A ledger snapshot to remove does not exist. | epoch |  |
-| `snapshot_removed` | `event` | info | public | A ledger snapshot was removed. | epoch |  |
-
-<details><summary>event: `convert`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `input` | `string` | ✓ |
-| `db_ledger` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>event: `reset`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `integer` | ✓ |
-| `db_ledger` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>event: `snapshot_not_found`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `integer` | ✓ |
-
-</details>
-
-<details><summary>event: `snapshot_removed`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `epoch` | `integer` | ✓ |
-
-</details>
-
-## target: `amaru::cli::dev::ledger::nonces`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `get` | `event` | info | public | Look up the nonces associated with a block. | block, db_chain, network |  |
-| `set` | `event` | info | public | Set the nonces associated with a block. | block, db_chain, network |  |
-
-<details><summary>event: `get`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `block` | `string` | ✓ |
-| `db_chain` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>event: `set`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `block` | `string` | ✓ |
-| `db_chain` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-## target: `amaru::cli::dev::ledger::state`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `import` | `event` | info | public | Import ledger state snapshots. | count, db_ledger, network |  |
-| `list` | `event` | info | public | List ledger state snapshots. | db_ledger, network |  |
-| `remove` | `event` | info | public | Removing ledger state | db_ledger, network |  |
-
-<details><summary>event: `import`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `count` | `integer` | ✓ |
-| `db_ledger` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>event: `list`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `db_ledger` | `string` | ✓ |
-| `network` | `string` | ✓ |
-
-</details>
-
-<details><summary>event: `remove`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `db_ledger` | `string` | ✓ |
-| `network` | `string` | ✓ |
 
 </details>
 

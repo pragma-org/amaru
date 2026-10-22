@@ -101,9 +101,6 @@
 //!
 //! Not every bootstrap-related task goes through [`bootstrap()`]:
 //!
-//! - **[`import_snapshots`]** — import
-//!   already-downloaded snapshot archives into a ledger dir only
-//!   (`amaru dev ledger states import`, convert helpers). No CDN fetch.
 //! - **[`validate_publishable_snapshot_archive`]** — check an archive before
 //!   upload (`amaru snapshot create` / `publish`).
 //! - **[`fetch_headers_from_points`]** — pull headers from a live peer
@@ -134,7 +131,7 @@ pub use aws::{
 };
 pub use bootstrap::{
     BOOTSTRAP_HEADERS_PER_POINT, BootstrapCancellation, BootstrapError, BootstrapReport, bootstrap, bootstrap_epochs,
-    bootstrap_with_observer, fetch_headers_from_points, import_snapshots, validate_publishable_snapshot_archive,
+    bootstrap_with_observer, fetch_headers_from_points, validate_publishable_snapshot_archive,
 };
 pub use progress::{BootstrapObserver, BootstrapProgress, BootstrapStage};
 
