@@ -10,7 +10,9 @@ on:
         default: false
   schedule:
     - cron: "0 1 * * *"
+      timezone: "Etc/UTC"
     - cron: "0 14 * * 4"
+      timezone: "Etc/UTC"
   push:
     branches: ["release/*"]
 
