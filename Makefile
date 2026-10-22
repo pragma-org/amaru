@@ -132,13 +132,13 @@ all-ci-checks: ## &test Run all CI checks
 
 conformance-uplc-turbo: ## &test Generate a conformance report for the uplc-turbo non-functional corpus
 	@set -eu; \
-	report="$$(mktemp -t amaru-uplc-conformance)"; \
+	report="$$(mktemp -t amaru-uplc-turbo.XXXXXX)"; \
 	UPLC_TURBO_REPORT="$$report" cargo bench --locked -p amaru-uplc --bench turbo 1>&2; \
 	jq '.' $$report
 
 conformance-ledger-rules: ## &test Generate a conformance report for the ledger transaction-rule corpus
 	@set -eu; \
-	report="$$(mktemp -t amaru-ledger-rules)"; \
+	report="$$(mktemp -t amaru-ledger-rules.XXXXXX)"; \
 	AMARU_LEDGER_CONFORMANCE_REPORT="$$report" cargo test --locked -p amaru-ledger --lib rules::transaction::tests::conformance 1>&2; \
 	jq -s \
 		--arg generated_at "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
@@ -147,7 +147,7 @@ conformance-ledger-rules: ## &test Generate a conformance report for the ledger 
 
 conformance-uplc: ## &test Generate a conformance report for the uplc functional corpus
 	@set -eu; \
-	report="$$(mktemp -t amaru-uplc-conformance)"; \
+	report="$$(mktemp -t amaru-uplc-conformance.XXXXXX)"; \
 	UPLC_CONFORMANCE_REPORT="$$report" cargo test --locked -p amaru-uplc --test conformance 1>&2; \
 	jq -s \
 		--arg generated_at "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
