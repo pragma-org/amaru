@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: PRAGMA.Amaru
+PackageVersion: 10.11.20261022
+InstallerType: wix
+ReleaseDate: 2026-10-22
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/pragma-org/amaru/releases/download/v10.11.20261022/amaru-10.11.20261022-windows-x86_64.msi
+    InstallerSha256: 8B26D09BFCD3A65D3DBB506931946712FF3F0A150AA046240DC76C654F64EEDF
+ManifestType: installer
+ManifestVersion: 1.12.0
