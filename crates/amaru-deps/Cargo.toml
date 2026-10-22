@@ -23,12 +23,11 @@ ignored = [
   "bytes",
   "clap",
   "clap_builder",
-  "crc32fast",
   "console",
+  "crc32fast",
   "criterion",
   "crossbeam-epoch",
   "crossbeam-utils",
-  "digest",
   "digest-93f6ce9d446188ac",
   "digest-a6292c17cd707f01",
   "ed25519",
@@ -40,16 +39,14 @@ ignored = [
   "futures-channel",
   "futures-core",
   "futures-executor",
-  "futures-sink",
   "futures-util",
   "getrandom-468e82937335b1c9",
   "getrandom-6f8ce4dd05d13bba",
   "hashbrown",
-  "hyper",
-  "hyper-util",
   "insta",
-  "itertools",
-  "libc",
+  "itertools-582f2526e08bb6a0",
+  "itertools-594e8ee84c453af0",
+  "libm",
   "log",
   "memchr",
   "num-bigint",
@@ -63,7 +60,6 @@ ignored = [
   "ppv-lite86",
   "proc-macro2",
   "quote",
-  "rand",
   "rand-274715c4dabd11b0",
   "rand_chacha-274715c4dabd11b0",
   "rand_chacha-468e82937335b1c9",
@@ -77,25 +73,18 @@ ignored = [
   "serde",
   "serde_core",
   "serde_json",
-  "sha2",
   "sha2-93f6ce9d446188ac",
   "sha2-a6292c17cd707f01",
   "slab",
   "smallvec",
   "socket2",
-  "socket2-3b31131e45eafb45",
-  "socket2-d8f496e17d97b5cb",
   "subtle",
-  "syn",
   "syn-7b89eefb6aaa9bf3",
   "thiserror",
   "tokio",
   "tokio-util",
-  "tower",
   "tracing",
   "tracing-core",
-  "tracing-log",
-  "tracing-subscriber",
   "url",
   "uuid",
   "zerocopy",
@@ -138,7 +127,9 @@ getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-f
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 insta = { version = "1", features = ["yaml"] }
-itertools = { version = "0.13" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libm = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }
@@ -192,7 +183,9 @@ futures-core = { version = "0.3" }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
-itertools = { version = "0.13" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libm = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }

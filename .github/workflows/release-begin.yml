@@ -199,7 +199,7 @@ jobs:
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             ${{ matrix.environments.setup || 'echo "no setup needed..."' }}
           fi
-          cargo ${{ matrix.environments.build }} --release --locked --target ${{ matrix.environments.target }}
+          cargo ${{ matrix.environments.build }} --release --locked --target ${{ matrix.environments.target }} --features amaru-uplc/malachite
 
       - name: Update README installation snippets
         continue-on-error: true

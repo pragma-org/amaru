@@ -43,6 +43,7 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-uplc**: release builds now explicitly use the faster LGPL-licensed Malachite backend for integer arithmetic, while regular builds continue to use Dashu. See `THIRD_PARTY_NOTICES.md` for the applicable notices.
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
 - **amaru-uplc**: turn runtime arguments into a chain of pointers, rather than a vec.
 

@@ -16,6 +16,7 @@ use super::FlatEncodeError;
 use crate::{
     constant::{Integer, integer_to_u8},
     flat::zigzag::ZigZag,
+    integer::integer_is_zero,
 };
 
 #[derive(Default)]
@@ -174,12 +175,12 @@ impl Encoder {
 
             d >>= 7;
 
-            if d != Integer::ZERO {
+            if !integer_is_zero(&d) {
                 w |= 128;
             }
             self.bits(8, w);
 
-            if d == Integer::ZERO {
+            if integer_is_zero(&d) {
                 break;
             }
         }

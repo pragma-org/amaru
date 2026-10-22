@@ -190,7 +190,7 @@ fn parse_value<'a>(arena: &'a Arena, list: BumpVec<'a, TempConstant<'a>>) -> Opt
                 return None;
             };
 
-            if qty.is_zero() {
+            if crate::integer::integer_is_zero(qty) {
                 return None;
             }
 

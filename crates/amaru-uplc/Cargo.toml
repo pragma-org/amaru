@@ -24,8 +24,8 @@ blst.workspace = true
 bumpalo = { workspace = true, features = ["collections"] }
 chumsky = { workspace = true, features = ["pratt"] }
 ed25519-dalek.workspace = true
-dashu-base.workspace = true
-dashu-int.workspace = true
+dashu-base = { workspace = true, optional = true }
+dashu-int = { workspace = true, optional = true }
 hamming.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std"] }
@@ -36,6 +36,8 @@ sha2.workspace = true
 sha3.workspace = true
 stacksafe.workspace = true
 thiserror.workspace = true
+malachite-base = { workspace = true, optional = true }
+malachite-nz = { workspace = true, optional = true }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
@@ -58,6 +60,9 @@ sysinfo.workspace = true
 test-case.workspace = true
 
 [features]
+default = ["dashu"]
+dashu = ["dep:dashu-base", "dep:dashu-int"]
+malachite = ["dep:malachite-base", "dep:malachite-nz"]
 alloc_profiler = []
 
 [[bench]]

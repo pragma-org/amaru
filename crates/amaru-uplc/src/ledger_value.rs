@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use bumpalo::collections::Vec as BumpVec;
-use dashu_base::UnsignedAbs;
 
 use crate::{
     arena::Arena,
     constant::{Integer, IntegerExt, Natural, integer},
     data::PlutusData,
+    integer::integer_unsigned_abs,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -134,14 +134,14 @@ impl<'a> LedgerValue<'a> {
                             }
                             std::cmp::Ordering::Equal => {
                                 found_tok = true;
-                                if !qty.is_zero() {
+                                if !crate::integer::integer_is_zero(qty) {
                                     token_entries.push(TokenEntry { name: tok, quantity: qty });
                                 }
                             }
                             std::cmp::Ordering::Greater => {
                                 if !found_tok {
                                     found_tok = true;
-                                    if !qty.is_zero() {
+                                    if !crate::integer::integer_is_zero(qty) {
                                         token_entries.push(TokenEntry { name: tok, quantity: qty });
                                     }
                                 }
@@ -149,7 +149,7 @@ impl<'a> LedgerValue<'a> {
                             }
                         }
                     }
-                    if !found_tok && !qty.is_zero() {
+                    if !found_tok && !crate::integer::integer_is_zero(qty) {
                         token_entries.push(TokenEntry { name: tok, quantity: qty });
                     }
 
@@ -161,7 +161,7 @@ impl<'a> LedgerValue<'a> {
                 std::cmp::Ordering::Greater => {
                     if !found_ccy {
                         found_ccy = true;
-                        if !qty.is_zero() {
+                        if !crate::integer::integer_is_zero(qty) {
                             let tokens: &'a [TokenEntry<'a>] = arena.alloc([TokenEntry { name: tok, quantity: qty }]);
                             currency_entries.push(CurrencyEntry { currency: ccy, tokens });
                         }
@@ -171,7 +171,7 @@ impl<'a> LedgerValue<'a> {
             }
         }
 
-        if !found_ccy && !qty.is_zero() {
+        if !found_ccy && !crate::integer::integer_is_zero(qty) {
             let tokens: &'a [TokenEntry<'a>] = arena.alloc([TokenEntry { name: tok, quantity: qty }]);
             currency_entries.push(CurrencyEntry { currency: ccy, tokens });
         }
@@ -283,7 +283,7 @@ impl<'a> LedgerValue<'a> {
         scalar: &'a Integer,
         v: &'a LedgerValue<'a>,
     ) -> Result<&'a LedgerValue<'a>, ValueError> {
-        if scalar.is_zero() {
+        if crate::integer::integer_is_zero(scalar) {
             return Ok(LedgerValue::empty(arena));
         }
 
@@ -296,7 +296,7 @@ impl<'a> LedgerValue<'a> {
                 let result = token.quantity * scalar;
                 check_quantity_range(&result).map_err(|_| ValueError::ScaleValueQuantityOutOfBounds)?;
 
-                if !result.is_zero() {
+                if !crate::integer::integer_is_zero(&result) {
                     let qty = arena.alloc_integer(result);
                     token_entries.push(TokenEntry { name: token.name, quantity: qty });
                 }
@@ -409,7 +409,7 @@ impl<'a> LedgerValue<'a> {
                     _ => return Err(UnValueDataError::NonIntegerConstructor.into()),
                 };
 
-                if qty.is_zero() {
+                if crate::integer::integer_is_zero(qty) {
                     return Err(UnValueDataError::InvalidQuantity.into());
                 }
 
@@ -464,7 +464,7 @@ fn merge_tokens<'a>(
             std::cmp::Ordering::Equal => {
                 let sum = t1[i].quantity + t2[j].quantity;
                 check_quantity_range(&sum).map_err(|_| ValueError::UnionValueQuantityOutOfBounds)?;
-                if !sum.is_zero() {
+                if !crate::integer::integer_is_zero(&sum) {
                     let qty = arena.alloc_integer(sum);
                     result.push(TokenEntry { name: t1[i].name, quantity: qty });
                 }
@@ -499,7 +499,7 @@ pub fn check_quantity_range(int: &Integer) -> Result<(), ValueError> {
     if !int.is_negative() {
         return Err(ValueError::QuantityOutOfBounds);
     }
-    let magnitude = int.clone().unsigned_abs();
+    let magnitude = integer_unsigned_abs(int);
     let two_pow_127 = Natural::from(1u8) << 127;
     if magnitude == two_pow_127 { Ok(()) } else { Err(ValueError::QuantityOutOfBounds) }
 }
