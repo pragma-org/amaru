@@ -106,7 +106,7 @@ pub enum ContextHydratationError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError<ROLE, K> {
-    #[error("already registered entity: {0:?}")] // TODO: Use Display
+    #[error("already registered entity: {1:?}")] // TODO: Use Display
     AlreadyRegistered(PhantomData<ROLE>, K),
 }
 
@@ -118,7 +118,7 @@ impl<ROLE, K: fmt::Debug> From<volatile::RegisterError<K>> for RegisterError<ROL
 
 #[derive(thiserror::Error, Debug)]
 pub enum UnregisterError<ROLE, K> {
-    #[error("unknown entity: {0:?}")] // TODO: Use Display
+    #[error("unknown entity: {1:?}")] // TODO: Use Display
     Unknown(PhantomData<ROLE>, K),
 }
 

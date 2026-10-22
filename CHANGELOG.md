@@ -44,7 +44,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
-- **amaru-ledger**: transactions with delegations for an unregistered credential are now rejected, as expected.
+- **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
