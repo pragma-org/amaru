@@ -16,7 +16,7 @@ use std::{borrow::Cow, collections::BTreeMap, ops::Deref, time::SystemTime};
 
 use amaru_kernel::{
     Address, AssetName, BorrowedScript, Bytes, Credential, CurrencySymbol, EMPTY_ASSET_NAME, Epoch, HasScriptHash,
-    Hash, Int, KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData,
+    Hash, Int, KeyValuePairs, MemoizedDatum, MemoizedScript, NonEmptyKeyValuePairs, NonZeroInt, PlutusData, PoolId,
     ProtocolVersion, Set, StakeReference, TimeRange, TransactionId, Value, plutus_data::BigInt,
 };
 use thiserror::Error;
@@ -487,6 +487,15 @@ where
 {
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         self.as_ref().to_plutus_data()
+    }
+}
+
+impl<const V: u8> ToPlutusData<V> for PoolId
+where
+    PlutusVersion<V>: IsKnownPlutusVersion,
+{
+    fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        self.deref().to_plutus_data()
     }
 }
 

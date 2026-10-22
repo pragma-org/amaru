@@ -794,7 +794,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(point))?;
 
-            let issuer = Hasher::<224>::hash(&block.header.body().issuer_verification_key[..]);
+            let issuer = PoolId::from(Hasher::<224>::hash(&block.header.body().issuer_verification_key[..]));
 
             let metrics = self.new_metrics(&point, block, issuer);
 
@@ -842,7 +842,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         })
     }
 
-    fn new_metrics(&self, point: &Point, block: &Block, issuer: Hash<28>) -> LedgerMetrics {
+    fn new_metrics(&self, point: &Point, block: &Block, issuer: PoolId) -> LedgerMetrics {
         let slot = point.slot_or_default();
 
         let prev_hash = block.header.body().prev_hash;

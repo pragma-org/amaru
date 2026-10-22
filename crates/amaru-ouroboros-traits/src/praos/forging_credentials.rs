@@ -98,7 +98,7 @@ pub trait ForgingCredentials: Send + Sync {
 
     /// Pool id: blake2b-224 of the cold verification key.
     fn pool_id(&self) -> PoolId {
-        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.issuer_verification_key()[..])
+        Hasher::<{ 8 * POOL_COLD_KEY }>::hash(&self.issuer_verification_key()[..]).into()
     }
 
     /// 32-byte VRF signing seed. The leader-schedule effect turns this into proofs;

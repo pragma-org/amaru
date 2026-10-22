@@ -167,7 +167,9 @@ mod tests {
         assert_eq!(credentials.issuer_verification_key().as_slice(), cold.verifying_key().as_bytes());
         assert_eq!(
             credentials.pool_id(),
-            amaru_kernel::Hasher::<224>::hash(credentials.issuer_verification_key().as_slice())
+            amaru_kernel::PoolId::from(amaru_kernel::Hasher::<224>::hash(
+                credentials.issuer_verification_key().as_slice()
+            ))
         );
         AssertOperationalCertificateError::new(credentials.operational_cert(), &cold.verifying_key(), None).unwrap();
     }

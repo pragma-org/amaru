@@ -35,6 +35,12 @@ Other guiding principles:
   ```
 -->
 
+## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
+
+### Changed
+
+- **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
+
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
 ### Added

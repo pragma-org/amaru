@@ -188,7 +188,7 @@ impl AnchoredVolatileFragment {
         use amaru_kernel::{BlockHeight, Hash};
 
         let tip = Point::Specific(Slot::from(slot), Hash::new([0u8; 32]), BlockHeight::from(slot));
-        let pool = Hash::new([pool_id; 28]);
+        let pool = PoolId::new([pool_id; 28]);
 
         Self { anchor: (tip, pool), fragment: VolatileFragment::default() }
     }

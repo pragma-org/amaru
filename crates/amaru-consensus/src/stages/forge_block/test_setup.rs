@@ -15,7 +15,7 @@
 use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{
-    ConsensusParameters, KesPeriod, NULL_HASH28, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, ProtocolVersion,
+    ConsensusParameters, KesPeriod, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PoolId, ProtocolVersion,
 };
 use amaru_ouroboros_traits::{ForgingCredentials, Nonces, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::ResourceHeaderStore;
@@ -61,7 +61,7 @@ pub fn test_prep() -> TestPrep {
             consensus_parameters,
             PREPROD_GLOBAL_PARAMETERS.system_start,
             PREPROD_GLOBAL_PARAMETERS.consensus_security_param,
-            NULL_HASH28,
+            PoolId::new([0; 28]),
             ProtocolVersion::new(11, 0),
             credentials.issuer_fields(),
         ),

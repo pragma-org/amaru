@@ -549,14 +549,14 @@ mod tests {
         DRepsSlice::unregister(&mut ctx, drep, registration.deposit, deregistration);
         assert!(DRepsSlice::lookup(&ctx, &drep).is_none());
 
-        let update = VolatileFragment::from(ctx).anchor(Point::Origin, Hash::new([0; 28])).into_store_update();
+        let update = VolatileFragment::from(ctx).anchor(Point::Origin, PoolId::new([0; 28])).into_store_update();
         assert_eq!(update.add.dreps.count(), 0);
         assert_eq!(update.remove.dreps.count(), 0);
     }
 
     #[test]
     fn lookup_layers_an_in_block_delegation_over_the_block_start_state() {
-        let pool = Hash::new([9; 28]);
+        let pool = PoolId::new([9; 28]);
         let mut ctx = DefaultValidationContext {
             pools: BTreeSet::from([pool]),
             accounts: BTreeMap::from([(cred(1), account(7))]),

@@ -34,9 +34,8 @@ impl HasOwnership for ShelleyAddress {
 impl HasOwnership for Voter {
     fn owner(&self) -> Credential {
         match self {
-            Self::ConstitutionalCommitteeKey(hash) | Self::DRepKey(hash) | Self::StakePoolKey(hash) => {
-                Credential::KeyHash(*hash)
-            }
+            Self::ConstitutionalCommitteeKey(hash) | Self::DRepKey(hash) => Credential::KeyHash(*hash),
+            Self::StakePoolKey(pool) => Credential::KeyHash(**pool),
             Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => Credential::ScriptHash(*hash),
         }
     }
@@ -60,8 +59,8 @@ impl HasOwnership for Certificate {
             | Self::RegDRepCert(stake_credential, _, _)
             | Self::UnRegDRepCert(stake_credential, _)
             | Self::UpdateDRepCert(stake_credential, _) => *stake_credential,
-            Self::PoolRetirement(id, _) => Credential::KeyHash(*id),
-            Self::PoolRegistration(params) => Credential::KeyHash(params.id),
+            Self::PoolRetirement(id, _) => Credential::KeyHash(**id),
+            Self::PoolRegistration(params) => Credential::KeyHash(*params.id),
         }
     }
 }
