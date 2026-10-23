@@ -1511,11 +1511,12 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `forge_failed` | `event` | error | public | Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
+| `forge_failed` | `event` | error | public | Forging the header or storing it failed. Signing failures miss the slot; missing credentials, validation failures, and storage failures shut down the node. Step ∈ {sign_header, validate_header, store_header, store_block}. | slot, step, error |  |
 | `forged` | `event` | info | public | A block was forged and stored, and its tip sent to chain selection. | slot, header_hash, parent |  |
-| `kes_period` | `event` | info | public | The in-memory KES key moved to a new period. | period |  |
+| `kes_period` | `event` | info | public | The KES key used for signing moved to a new period. | period |  |
 | `missed_slot` | `event` | warn | public | A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}. | slot, reason |  |
 | `schedule` | `event` | debug, info | public | Leader schedules still held, with how many led slots remain in each epoch and how many of k blocks since freeze have been adopted. \`next_slot\` is the UTC onset of the next armed led slot, \`YYYY-MM-DDTHH:MM:SS.ffffffZ\`. | slots, freeze_depth, settled | next_slot |
+| `signer_status` | `event` | info, warn | public | Status of the separate KES signer process. | status, detail |  |
 
 <details><summary>event: `forge_failed`</summary>
 
@@ -1562,6 +1563,15 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `freeze_depth` | `integer` | ✓ |
 | `settled` | `boolean` | ✓ |
 | `next_slot` | `["string","null"]` |  |
+
+</details>
+
+<details><summary>event: `signer_status`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `status` | `string` | ✓ |
+| `detail` | `string` | ✓ |
 
 </details>
 

@@ -40,6 +40,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
+- **amaru**: block forging loads the KES signing key in a separate process. Install `amaru-kes-signer` beside `amaru`. Startup checks the signer's verification key against the operational certificate and fails after 5 seconds if the signer does not answer. Signing failures miss the slot while the node continues running; a signer that exits or stops answering is terminated and restarted.
 
 ### Fixed
 

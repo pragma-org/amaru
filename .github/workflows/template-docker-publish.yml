@@ -111,7 +111,7 @@ jobs:
 
       - name: Validate distribution
         shell: bash
-        run: test -x dist/bin/amaru
+        run: test -x dist/bin/amaru && test -x dist/bin/amaru-kes-signer
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # https://github.com/docker/setup-qemu-action/releases/tag/v4.3.0

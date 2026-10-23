@@ -154,6 +154,8 @@ cat > "$output" <<EOF
             mkdir -p "\$out/bin" "\$out/share"
             cp "bin/amaru" "\$out/bin/amaru"
             chmod +x "\$out/bin/amaru"
+            cp "bin/amaru-kes-signer" "\$out/bin/amaru-kes-signer"
+            chmod +x "\$out/bin/amaru-kes-signer"
             if [ -d "share/doc" ]; then
               mkdir -p "\$out/share/doc"
               cp -R "share/doc/." "\$out/share/doc/"
