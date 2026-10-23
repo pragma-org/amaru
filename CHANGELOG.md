@@ -52,8 +52,6 @@ Other guiding principles:
   `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
 - **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
 - **amaru**: `amaru dev env generate` to generate a (curated) list of environment variables available for Amaru main commands, acting as a configuration file.
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
 - **amaru**: `snapshot epochs` lists available starting epochs from published bootstrap snapshots, in ascending order, for use with `node bootstrap --epoch`.
 - **amaru**: conformance reports for uplc, uplc turbo, ledger rules and cbor decoding as release artifacts.
@@ -127,12 +125,10 @@ Other guiding principles:
 - **amaru-node**: `amaru mithril sync` can resume from stores created by `amaru node bootstrap`, including stores whose chain has no adopted best tip yet.
 - **amaru-node**: node startup rejects incompatible ledger and adopted-chain tips and reports that recovery or rebootstrap is required.
 - **amaru-node**: shutdown cancels and joins the rewards worker before reporting cleanup complete. A worker that cannot stop within the ledger shutdown timeout reports incomplete cleanup.
-- **amaru-node**: startup fails when the chain store is missing the ledger tip header or that header's parent.
 - **amaru-node**: startup fails when the chain store is missing the ledger tip header. A bootstrap snapshot stores that tip without its parent block. Forging in the snapshot tip's own slot is skipped when that parent header is absent.
 - **amaru-node**: startup reports ledger lock contention separately from other `LOCK` file errors, retains the underlying error for embedders, and identifies whether a read-only check or writable open failed. Lock errors no longer suggest deleting the `LOCK` file.
 - **amaru-protocols**: BlockFetch rejects requests whose endpoint slot does not match the requested block hash.
 - **amaru-protocols**: a connection stays up when a peer starts a mini-protocol this node will serve before that protocol's handler is registered. On a connection this node accepted, that includes a handshake that arrives before the handshake handler is registered.
-- **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
 - **amaru-protocols**: chainsync no longer closes the connection when a peer pipelines headers. The ingress buffer for that protocol was 5760 bytes (the handshake and peer-sharing limit) instead of 462000 bytes. Block-fetch, tx-submission, and keep-alive now use the same ingress limits as cardano-node.
 - **amaru-protocols**: fixed transition of the initiator from Diffusion to Maintenance so that churned connections are not forcibly closed.
 - **amaru-stores**: immutable epoch snapshots allow concurrent readers, avoiding database lock failures during restarts and bootstrap handoffs.
@@ -196,7 +192,6 @@ Other guiding principles:
 
 - **amaru**: make Mithril synchronization resume safely from verified immutable files and reject stale snapshots before replay.
 - **amaru**: on restart, blocks that an earlier run marked invalid are re-validated. A false reject no longer leaves the node idle on a shorter stored chain while replay of the honest chain is ignored as duplicate headers.
-- **amaru-kernel**: deeply nested native scripts no longer crash the node while their block is decoded.
 - **amaru-kernel**: recursive data types (`NativeScript`, `PlutusData`, `Metadatum`) are now stack-safe and do not cause stack overflow when decoding deeply nested structures.
 - **amaru-kernel**: reject Plutus data byte strings and bignum payloads longer than 64 bytes, in a definite-length encoding or in any chunk of an indefinite-length one.
 - **amaru-kernel**: reject block headers whose KES signature is not exactly 448 bytes.
@@ -355,7 +350,6 @@ Other guiding principles:
 - **amaru-bootstrap**: new crate owning cold-start snapshot download/import (S3/CDN, archives, chain-store seeding). Product CLI re-exports it for compatibility.
 - **amaru-observability**: shared `TelemetryCaptureLayer` / `subscribe_telemetry` for schema-oriented in-process event subscription (used by the TUI and embedders).
 - **amaru-ledger**: `LedgerObservers` with `on_block` / `LedgerBlockEvent` (adopt + tip-first undo on successful fork switch) and opt-in `on_ledger_snapshot` (full `StakeSummary` by reference before slim in-memory retention).
-- **amaru-observability**: schema field transport now preserves JSON primitives (`bool`/`number`/`string`) and encodes other values as CBOR (`record_bytes`); console/JSON layers decode CBOR for structured output (including real JSON arrays/objects). OTEL logs use a project-owned bridge that maps CBOR fields to nested `AnyValue` maps/lists rather than opaque bytes.
 - **amaru-consensus**: add more debug events for the txsubmission stage ([#1173](https://github.com/pragma-org/amaru/issues/1173))
 
 ### Changed
@@ -414,7 +408,6 @@ Other guiding principles:
 - **amaru-ledger**: populate `recently_pruned_proposals` when importing a cardano-node snapshot.
 - **amaru-ledger**: debit the treasury when enacted withdrawals are paid out at the epoch boundary ([#1118][])
 - **amaru-ledger**: preserve the `Ratified` status of proposals pruned during ratification ([#1118][])
-- **amaru-kernel**: reduce memory footprint of various types on the critical path.
 - **amaru-ledger**: when a leader changes it reward account, the rewards owed to the previous account must return to the treasury ([#1125](https://github.com/pragma-org/amaru/pull/1125)).
 - **amaru-consensus**: fix peer_selection to only schedule a single cool-down timer and thus properly bound priority mailbox usage. ([#1112](https://github.com/pragma-org/amaru/issues/1112))
 - **amaru-ledger**: validate provided treasury value matches actual treasury value (ConwayTreasuryValueMismatch) ([#1025][], [#888][])
@@ -443,7 +436,6 @@ Other guiding principles:
 - **amaru-ledger**: track account unregistrations to avoid O(n) scan on all accounts during epoch transition calculations.
 - **amaru-ledger**: add phase-one conformance coverage for `TooManyCollateralInputs`, `ScriptsNotPaidUTxO` and `IncorrectTotalCollateralField`, and move the fixture that was filed under `InsufficientCollateral` while expecting `ValueNotConservedUTxO` to the directory matching its predicate.
 - **amaru**: consolidate the monitoring stack.
-- **amaru-consensus**: skip the validation of headers whose evolved nonces are already stored, to avoid unnecessary rechecks when getting the same header from different peers. ([#1087][])
 
 ### Fixed
 
@@ -474,8 +466,6 @@ Other guiding principles:
 
 - **amaru**: no more `--force` flag on `node bootstrap`; if chain or ledger directories already exist, bootstrap aborts and asks the operator to remove them manually. ([#1062](https://github.com/pragma-org/amaru/pull/1062))
 - **amaru**: no more separate `amaru-ledger` binary; associated commands have been moved into the main `amaru` binary under `amaru dev ledger`. ([#1064](https://github.com/pragma-org/amaru/pull/1064))
-
-- **amaru-ledger**: add stateful checks on withdrawals (drep delegation requirements + existence of credentials) ([#1011][], [#890][])
 
 ### Fixed
 
@@ -519,10 +509,6 @@ Other guiding principles:
 ### Added
 
 - **amaru-ledger**: keep treasury donations as first-class ledger state, so protocol pots and derived summaries retain the corresponding accounting information. ([#1010][])
-- **amaru-ledger**: validate the minimum transaction fee during phase-one. ([#820][])
-- **amaru-ledger**: enforce the per-transaction and per-block limits on the total size of reference scripts. ([#820][])
-
-## [v10.10.20260709](https://github.com/pragma-org/amaru/releases/tag/v10.10.20260709)
 
 ### Changed
 
