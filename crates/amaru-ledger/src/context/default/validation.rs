@@ -139,10 +139,25 @@ impl PoolsSlice for DefaultValidationContext {
     /// Whether the given pool exists in the resolved ledger state (including pools registered
     /// earlier within the same block).
     fn lookup(&self, pool: PoolId) -> Option<PoolSlim> {
-        match self.state.pools.registered.get(&pool) {
-            None => self.pools.get(&pool).copied(),
-            Some(registrations) => Some(PoolSlim { vrf: registrations.last().0.vrf, has_pending_updates: true }),
-        }
+        // NOTE: Pool state during validation
+        //
+        // Existing pool registrations (i.e. present in the initial validation context) always take
+        // precedence, because a pool update only occurs at an epoch boundary. We only consider pool
+        // regitrations from the .state if the pool did not pre-exist (which means that the
+        // registration is genuinely new).
+        self.pools
+            .get(&pool)
+            .copied()
+            .map(|mut pool_slim| {
+                pool_slim.has_pending_updates = self.state.pools.registered.contains_key(&pool);
+                pool_slim
+            })
+            .or_else(|| {
+                self.state.pools.registered.get(&pool).map(|registrations| PoolSlim {
+                    vrf: registrations.first().0.vrf,
+                    has_pending_updates: registrations.iter().count() > 1,
+                })
+            })
     }
 
     fn register(
@@ -159,7 +174,7 @@ impl PoolsSlice for DefaultValidationContext {
                 return Err(PoolRegisterError::VrfKeyAlreadyRegistered(params.vrf));
             }
 
-            // NOTE: Overwriting existing counters
+            // NOTE: Overwriting existing VRF counters
             //
             // These lines can overwrite existing VRF counters greater than one, and drop still-required
             // counters. Issues exists mostly for pools with conflicting VRF that pre-dates the Van
