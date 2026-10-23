@@ -86,6 +86,7 @@ pub mod point;
 pub mod pool_id;
 pub mod pool_metadata;
 pub mod pool_params;
+pub mod pool_slim;
 pub mod pool_voting_thresholds;
 pub mod positive_coin;
 pub mod pots;

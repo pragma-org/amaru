@@ -40,6 +40,11 @@ impl<V> Registrations<V> {
         inner.1 = Some(v);
     }
 
+    /// Return the first known registration for this entry.
+    pub fn first(&self) -> &V {
+        &self.0.0
+    }
+
     /// Return the most recent registration, falling back to the original one if no
     /// re-registration exists.
     pub fn last(&self) -> &V {

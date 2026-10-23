@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use amaru_kernel::{
     CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep, DRepRegistration, Epoch, EraHistory,
-    Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, Pots, ProposalId, ProposalSlim, ProposalsRoots,
-    ProtocolParameters, TransactionInput, TransactionPointer, cbor, json,
-    size::SCRIPT,
+    Hash, Lovelace, MemoizedTransactionOutput, NetworkName, PoolId, PoolSlim, Pots, ProposalId, ProposalSlim,
+    ProposalsRoots, ProtocolParameters, TransactionInput, TransactionPointer, cbor, hash, json,
+    size::{SCRIPT, VRF_KEY},
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
 use serde::Deserialize;
 
 use crate::{
-    context::{AccountState, CCMember, DelegateError, ProposalStateSlim},
+    context::{AccountState, CCMember, DelegateError, PoolRegisterError, ProposalStateSlim},
     epoch_transition::GovernanceActivity,
     rules::{
         WithPosition,
@@ -58,8 +58,10 @@ pub(super) struct Fixture {
 pub(super) struct InitialState {
     #[serde(deserialize_with = "deserialize_utxo", default)]
     pub(super) utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
+    #[serde(deserialize_with = "deserialize_pools", default)]
+    pub(super) pools: BTreeMap<PoolId, PoolSlim>,
     #[serde(default)]
-    pub(super) pools: BTreeSet<PoolId>,
+    pub(super) vrf_keys: BTreeMap<Hash<{ VRF_KEY }>, u64>,
     #[serde(deserialize_with = "deserialize_accounts", default)]
     pub(super) accounts: BTreeMap<Credential, AccountState>,
     #[serde(deserialize_with = "deserialize_dreps", default)]
@@ -210,6 +212,34 @@ where
         .collect::<Result<_, _>>()
 }
 
+fn deserialize_pools<'de, D>(deserializer: D) -> Result<BTreeMap<PoolId, PoolSlim>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum FlexiblePools {
+        IdsOnly(Vec<PoolId>),
+        Map(BTreeMap<PoolId, PoolSlim>),
+    }
+
+    Ok(match FlexiblePools::deserialize(deserializer)? {
+        FlexiblePools::IdsOnly(ids) => ids
+            .into_iter()
+            .map(|pool_id| {
+                (
+                    pool_id,
+                    PoolSlim {
+                        vrf: hash!("0000000000000000000000000000000000000000000000000000000076726600"),
+                        has_pending_updates: false,
+                    },
+                )
+            })
+            .collect(),
+        FlexiblePools::Map(pools) => pools,
+    })
+}
+
 #[derive(Debug)]
 pub(super) enum Expected {
     Pass,
@@ -303,6 +333,7 @@ pub(super) enum Predicate {
     StakePoolRetirementWrongEpochPOOL,
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    VrfKeyAlreadyRegistered,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     VotersDoNotExist,
@@ -456,6 +487,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Certificates(InvalidCertificates::StakePoolUnknown(_)) => {
                 Predicate::StakePoolNotRegisteredOnKeyPOOL
             }
+            PhaseOneError::Certificates(InvalidCertificates::InvalidPoolRegistration(
+                PoolRegisterError::VrfKeyAlreadyRegistered(..),
+            )) => Predicate::VrfKeyAlreadyRegistered,
             PhaseOneError::Certificates(InvalidCertificates::PoolCostTooLow { .. }) => {
                 Predicate::StakePoolCostTooLowPOOL
             }
