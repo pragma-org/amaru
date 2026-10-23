@@ -1,0 +1,31 @@
+{
+  "title": "collateral input without owner witness and no redeemers",
+  "description": "Transaction without redeemers names a collateral input locked to a second key and carries only the spend input's witness.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582013ee93eff2eb287e2929476eb3439a5569701e51066d26534aa4836f48d47ef000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      },
+      {
+        "input": "8258208cc6d0e24d5ab381ba9fc1feb8d213630b8c355ee3cb4a5d9ddde75f3708807d00",
+        "output": "a200581d60e4ff642ed686b644c5cb39c230c24b0e8a5d850701971bdde3253cec011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d901028182582013ee93eff2eb287e2929476eb3439a5569701e51066d26534aa4836f48d47ef0000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d400dd90102818258208cc6d0e24d5ab381ba9fc1feb8d213630b8c355ee3cb4a5d9ddde75f3708807d000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584024166630bfd17850c79327e90a36c54c1562297057eb22103d1ff43761a22b3886513f54ff6013774938a7a0c0a1b5159077eb9d1d4eace5a75456bd8c238c09f5f6",
+  "expected": {
+    "predicate": "MissingVerificationKeyWitnessesUTXOW"
+  }
+}
