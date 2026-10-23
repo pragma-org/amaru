@@ -139,10 +139,25 @@ impl PoolsSlice for DefaultValidationContext {
     /// Whether the given pool exists in the resolved ledger state (including pools registered
     /// earlier within the same block).
     fn lookup(&self, pool: PoolId) -> Option<PoolSlim> {
-        match self.state.pools.registered.get(&pool) {
-            None => self.pools.get(&pool).copied(),
-            Some(registrations) => Some(PoolSlim { vrf: registrations.last().0.vrf, has_pending_updates: true }),
-        }
+        // NOTE: Pool state during validation
+        //
+        // Existing pool registrations (i.e. present in the initial validation context) always take
+        // precedence, because a pool update only occurs at an epoch boundary. We only consider pool
+        // regitrations from the .state if the pool did not pre-exist (which means that the
+        // registration is genuinely new).
+        self.pools
+            .get(&pool)
+            .copied()
+            .map(|mut pool_slim| {
+                pool_slim.has_pending_updates |= self.state.pools.registered.contains_key(&pool);
+                pool_slim
+            })
+            .or_else(|| {
+                self.state.pools.registered.get(&pool).map(|registrations| PoolSlim {
+                    vrf: registrations.first().0.vrf,
+                    has_pending_updates: registrations.iter().count() > 1,
+                })
+            })
     }
 
     fn register(
@@ -159,7 +174,7 @@ impl PoolsSlice for DefaultValidationContext {
                 return Err(PoolRegisterError::VrfKeyAlreadyRegistered(params.vrf));
             }
 
-            // NOTE: Overwriting existing counters
+            // NOTE: Overwriting existing VRF counters
             //
             // These lines can overwrite existing VRF counters greater than one, and drop still-required
             // counters. Issues exists mostly for pools with conflicting VRF that pre-dates the Van
@@ -576,7 +591,8 @@ impl BalanceSlice for DefaultValidationContext {
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        Point, PoolSlim, Proposal, Slot, TransactionPointer, UnitRationalNumber, utils::tests::run_strategy,
+        Point, PoolSlim, Proposal, Slot, TransactionPointer, UnitRationalNumber, size::POOL_COLD_KEY,
+        utils::tests::run_strategy,
     };
     use proptest::prelude::any;
     use test_case::test_case;
@@ -628,6 +644,20 @@ mod tests {
         let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
         ctx.withdraw_from(cred(1));
         assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.rewards), Some(0));
+    }
+
+    #[test]
+    fn pools_lookup_preserve_existing_pending_updates() {
+        let pool_id = PoolId::from([0; POOL_COLD_KEY]);
+
+        let ctx = DefaultValidationContext {
+            pools: BTreeMap::from([(pool_id, PoolSlim { vrf: Hash::from([0; VRF_KEY]), has_pending_updates: true })]),
+            ..DefaultValidationContext::default()
+        };
+
+        assert!(
+            matches!(dbg!(PoolsSlice::lookup(&ctx, pool_id)), Some(PoolSlim { has_pending_updates, ..}) if has_pending_updates)
+        )
     }
 
     #[test]
