@@ -2454,12 +2454,12 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 ## target: `amaru::ledger::validation_context::vrf_keys`
 
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `error` | `TRACE` | public | An invariant violation when resolving vrf keys | key, diff, reason |  |
-| `hydrate` | `TRACE` | public | Resolve vrf keys from the volatile db or the stable one |  |  |
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `error` | `event` | error | public | An invariant violation when resolving vrf keys | key, diff, reason |  |
+| `hydrate` | `span` |  | public | Resolve vrf keys from the volatile db or the stable one |  |  |
 
-<details><summary>span: `error`</summary>
+<details><summary>event: `error`</summary>
 
 | field | type | required |
 | --- | --- | --- |
@@ -4054,20 +4054,18 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 ## target: `amaru::stores::ledger::vrf_keys`
 
-| name | level | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- |
-| `decrement` | `TRACE` | public | Decrement a retiring pool's VRF key hash occupancy, dropping the entry at zero |  | vrf, by, stored, error |
-| `get` | `TRACE` | public | Read VRF key counter from the store |  |  |
-| `update` | `TRACE` | public | Set/Reset/Decrement a VRF key counter |  |  |
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `decrement` | `event` | error | public | Asked to decrement a pool's VRF that does not exist | vrf, by, stored, error |  |
 
-<details><summary>span: `decrement`</summary>
+<details><summary>event: `decrement`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `vrf` | `string` |  |
-| `by` | `integer` |  |
-| `stored` | `integer` |  |
-| `error` | `string` |  |
+| `vrf` | `string` | ✓ |
+| `by` | `integer` | ✓ |
+| `stored` | `integer` | ✓ |
+| `error` | `string` | ✓ |
 
 </details>
 
