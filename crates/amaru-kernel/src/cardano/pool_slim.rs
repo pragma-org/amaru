@@ -13,13 +13,12 @@
 // limitations under the License.
 
 #[cfg(any(test, feature = "test-utils"))]
-use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
+use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 
-use crate::{Hash, size::VRF_KEY};
+use crate::{size::VRF_KEY, Hash};
 
 /// A slim representation of a pool's state, mostly useful for rules validations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PoolSlim {
     pub vrf: Hash<VRF_KEY>,
     pub has_pending_updates: bool,
