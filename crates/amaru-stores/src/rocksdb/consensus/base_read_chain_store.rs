@@ -24,8 +24,8 @@ use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
 use crate::rocksdb::consensus::{
     DbOps, OPCERT_PREFIX, RocksDBStore,
     util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-        HEADER_PREFIX, NONCES_PREFIX,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_METADATA_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX,
     },
 };
 
@@ -125,10 +125,24 @@ where
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-        Ok(self
-            .db
+        self.db
             .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
-            .map(|bytes| block_addressed_by(bytes.as_ref().into(), hash)))
+            .map(|bytes| self.check_block(hash, bytes.as_ref().into()))
+            .transpose()
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        if let Some((slot, parent)) = self.read_block_metadata(hash)? {
+            return Ok(Some((NetworkPoint::Specific(slot, *hash), parent)));
+        }
+        if !self.has_block(hash)? {
+            return Ok(None);
+        }
+        let header = match self.load_header(hash) {
+            Some(header) => Some(header),
+            None => self.load_block(hash)?.and_then(|block| block.decode_header().ok()),
+        };
+        Ok(header.map(|header| (header.point().into(), header.parent())))
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
@@ -220,6 +234,23 @@ where
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
+    }
+}
+
+impl<T: DbOps + Send + Sync> RocksDBStore<T> {
+    pub(super) fn check_block(&self, hash: &HeaderHash, block: RawBlock) -> Result<RawBlock, StoreError> {
+        // Mithril authenticates archive blocks; their headers need not be understood by Amaru.
+        if self.read_block_metadata(hash)?.is_some() { Ok(block) } else { Ok(block_addressed_by(block, hash)) }
+    }
+
+    fn read_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(Slot, Option<HeaderHash>)>, StoreError> {
+        self.db
+            .get_pinned(&[&BLOCK_METADATA_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
+            .map(|bytes| {
+                from_cbor(bytes.as_ref())
+                    .ok_or_else(|| StoreError::ReadError { error: format!("invalid block metadata for {hash}") })
+            })
+            .transpose()
     }
 }
 

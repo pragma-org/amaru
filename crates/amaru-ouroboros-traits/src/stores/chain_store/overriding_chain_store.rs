@@ -127,6 +127,10 @@ impl BaseReadChainStore for OverridingChainStore {
         self.inner.load_block(hash)
     }
 
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.inner.load_block_metadata(hash)
+    }
+
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
         self.inner.has_block(hash)
     }
@@ -185,6 +189,10 @@ impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.inner.load_block(hash)
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.inner.load_block_metadata(hash)
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {

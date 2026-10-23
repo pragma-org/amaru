@@ -23,6 +23,6 @@ pub use download::{
     MithrilDownloadStage, download_from_mithril, download_from_mithril_for_range_with_observer,
 };
 pub use immutable::{
-    ImmutableBlock, chunk_for_slot, first_missing_immutable_chunk, iter_immutable_blocks, last_immutable_point,
-    read_blocks_after_point,
+    ImmutableBlock, chunk_for_slot, first_missing_immutable_chunk, iter_immutable_blocks, iter_immutable_raw_blocks,
+    last_immutable_point, read_blocks_after_point,
 };

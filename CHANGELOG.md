@@ -37,13 +37,19 @@ Other guiding principles:
 
 ## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
 
+### Added
+
+- **amaru**: `node bootstrap --historical-blocks` downloads and imports historical blocks, including Byron, from Mithril through the bootstrap point, rejecting broken header parent links. This requires additional download time and disk space.
+
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
+- **amaru-stores**: chain databases now use version 7 to index imported historical blocks. Upgrade version 6 databases with `--db-chain-automatic-migration`; existing blocks require no rewrite. Previously imported history needs reimporting from its verified Mithril archive to populate the index.
 
 ### Fixed
 
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
+- **amaru-protocols**: blockfetch can serve imported historical blocks across all eras, including Byron epoch boundary blocks.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
