@@ -75,12 +75,12 @@ impl<'de> Deserialize<'de> for SecretKey {
         let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
         hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload).map_err(de::Error::custom)?;
         let mut decoder = cbor::Decoder::new(&payload);
-        let raw = cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?;
+        let raw = Zeroizing::new(cbor::decode_bytes(&mut decoder).map_err(de::Error::custom)?.into_owned());
         if decoder.position() != payload.len() {
             return Err(de::Error::custom(SecretKeyError::TrailingEnvelopeBytes(payload.len() - decoder.position())));
         }
         let raw_len = raw.len();
-        let Ok(raw) = <[u8; SecretKey::FILE_LEN]>::try_from(raw.as_ref()) else {
+        let Ok(raw) = <&[u8; SecretKey::FILE_LEN]>::try_from(raw.as_slice()) else {
             return Err(de::Error::custom(SecretKeyError::InvalidSecretKeySize(raw_len)));
         };
         let mut seed = Zeroizing::new([0u8; SecretKey::SIZE]);

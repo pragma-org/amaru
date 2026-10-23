@@ -108,7 +108,7 @@ on_receive!(Idle as IdleIn {
 on_receive!(Window, Proceed =>
     External<TakeForForgeEffect>,
     External<SignHeaderEffect>,
-    Repeat<Terminate> // KES signing failed
+    Repeat<Terminate> // Forging credentials are missing.
     => Signing
     | Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
 );
@@ -368,7 +368,12 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
         }
         Err(error) => {
             error!(consensus::forge::FORGE_FAILED, slot, step = "sign_header", error = error.to_string());
-            session.terminate().await;
+            if matches!(error, SignHeaderError::CredentialsMissing) {
+                session.terminate().await;
+            }
+            let session = session.finish().receive(&Missed, eff.clone());
+            let mode = eff.external(QueryConsensusModeEffect).await;
+            return finish_with_next_lead!(session, state, now, mode);
         }
     };
     let session = session.finish().receive(&Publish, eff.clone());
