@@ -67,6 +67,8 @@ Every issue must be assigned to a GitHub milestone that maps directly to a budge
 
 ### Living CHANGELOG
 
+Add entries under the permanent `## Unreleased` heading. Release automation moves the entries present at the release tag into a versioned section; entries added afterward remain unreleased.
+
 Any PRs that add, remove, modify or fix any *user-facing behaviour* must include a [CHANGELOG](./CHANGELOG.md) entry — short and factual. Automated/LLM-generated suggestions are welcome, but humans must verify wording.
 
 A user-facing behaviour is anything that a user of Amaru (as an executable or as a collection of libraries) may seemingly notice. This includes (but isn't limited to):
