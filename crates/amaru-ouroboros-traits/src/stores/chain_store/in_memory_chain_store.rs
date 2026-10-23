@@ -99,6 +99,11 @@ impl InMemoryChainStoreInner {
 
 impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        Ok(indexed_point(&self.inner.lock().unwrap().chain, slot))
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let inner = self.inner.lock().unwrap();
         inner.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash))
@@ -314,6 +319,10 @@ struct InMemConsensusSnapshot {
 }
 
 impl BaseReadChainStore for InMemConsensusSnapshot {
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        Ok(indexed_point(&self.chain, slot))
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash))
     }
@@ -513,6 +522,12 @@ impl DiagnosticChainStore for InMemoryChainStore {
 }
 
 impl FullChainStore for InMemoryChainStore {}
+
+fn indexed_point(chain: &[Point], slot: Slot) -> Option<NetworkPoint> {
+    let first = *chain.get(chain.partition_point(|point| point.slot_or_default() < slot))?;
+    let end = chain.partition_point(|point| point.slot_or_default() <= first.slot_or_default());
+    chain.get(end - 1).map(|point| point.to_network_point())
+}
 
 #[cfg(test)]
 mod tests {
