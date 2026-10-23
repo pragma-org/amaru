@@ -19,7 +19,6 @@ use crate::{Hash, size::VRF_KEY};
 
 /// A slim representation of a pool's state, mostly useful for rules validations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PoolSlim {
     pub vrf: Hash<VRF_KEY>,
     pub has_pending_updates: bool,
