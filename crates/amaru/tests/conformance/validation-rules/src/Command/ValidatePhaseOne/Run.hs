@@ -535,6 +535,8 @@ normalizeGovCertFailure = \case
 
 normalizePoolFailure :: ShelleyPoolPredFailure ConwayEra -> Text
 normalizePoolFailure = \case
+    VRFKeyHashAlreadyRegistered{} ->
+        "VrfKeyAlreadyRegistered"
     StakePoolNotRegisteredOnKeyPOOL{} ->
         "StakePoolNotRegisteredOnKeyPOOL"
     StakePoolRetirementWrongEpochPOOL{} ->
@@ -545,8 +547,6 @@ normalizePoolFailure = \case
         "WrongNetworkPOOL"
     PoolMedataHashTooBig{} ->
         "PoolMedataHashTooBig"
-    otherFailure ->
-        "unsupported:" <> showText otherFailure
 
 normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
 normalizeGovFailure = \case

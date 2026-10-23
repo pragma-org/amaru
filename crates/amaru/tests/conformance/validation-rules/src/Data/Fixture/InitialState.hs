@@ -7,6 +7,7 @@ module Data.Fixture.InitialState
     , CertificatePointer (..)
     , GovernanceActivity (..)
     , InitialState (..)
+    , Pool (..)
     , PoolDelegation (..)
     , Pots (..)
     , ProposalEntry (..)
@@ -30,8 +31,10 @@ import Cardano.Ledger.Api.PParams
     , ppuMaxBBSizeL
     )
 import Cardano.Ledger.BaseTypes
-    ( ProtVer (..)
+    ( NonZero
+    , ProtVer (..)
     , addEpochInterval
+    , nonZero
     )
 import Cardano.Ledger.Binary.Version
     ( mkVersion
@@ -88,7 +91,9 @@ import Cardano.Ledger.DRep
 import Cardano.Ledger.Hashes
     ( GenDelegs (GenDelegs)
     , KeyHash
+    , KeyRoleVRF (StakePoolVRF)
     , ScriptHash
+    , VRFVerKeyHash
     )
 import Cardano.Ledger.Keys
     ( KeyRole (ColdCommitteeRole, DRepRole, StakePool, Staking)
@@ -107,8 +112,11 @@ import Cardano.Ledger.State
     , CommitteeState (CommitteeState)
     , DState (..)
     , PState (..)
+    , StakePoolParams
     , StakePoolState
     , spsDepositL
+    , spsVrfL
+    , sppVrfL
     )
 import Cardano.Ledger.TxIn
     ( TxId (..)
@@ -121,7 +129,7 @@ import Data.Aeson
     ( FromJSON (parseJSON)
     , Object
     , genericParseJSON
-    , Value (Array)
+    , Value (Array, Object, String)
     , withArray
     , withObject
     , withText
@@ -132,8 +140,11 @@ import Data.Aeson
 import Data.Aeson.Key
     ( Key
     )
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types
     ( Parser
+    , typeMismatch
     )
 import Data.Default.Class
     ( Default (def)
@@ -145,6 +156,7 @@ import Data.Fixture.Common
     , parseCborHex
     , parsePoolId
     , parseScriptHash
+    , parseVrfKeyHash
     , showText
     , snakeCaseOptions
     )
@@ -170,7 +182,8 @@ import qualified Data.Text as Text
 
 data InitialState = InitialState
     { utxo :: ![UtxoEntry]
-    , pools :: ![KeyHash StakePool]
+    , pools :: ![Pool]
+    , vrfKeys :: !(Map.Map (VRFVerKeyHash StakePoolVRF) (NonZero Word64))
     , accounts :: ![Account]
     , dreps :: ![RegisteredDRep]
     , committee :: ![CommitteeMember]
@@ -187,7 +200,8 @@ instance FromJSON InitialState where
         withObject "InitialState" $ \objectValue ->
             InitialState
                 <$> objectValue .:? "utxo" .!= []
-                <*> (objectValue .:? "pools" .!= [] >>= traverse parsePoolId)
+                <*> (objectValue .:? "pools" >>= maybe (pure []) parsePools)
+                <*> (objectValue .:? "vrf_keys" .!= Map.empty >>= parseVrfKeys)
                 <*> objectValue .:? "accounts" .!= []
                 <*> objectValue .:? "dreps" .!= []
                 <*> objectValue .:? "committee" .!= []
@@ -196,6 +210,50 @@ instance FromJSON InitialState where
                 <*> objectValue .:? "pots" .!= def
                 <*> objectValue .:? "governance_activity" .!= def
                 <*> (objectValue .:? "guardrail_script" >>= traverse parseScriptHash)
+
+data Pool = Pool
+    { registeredPoolId :: !(KeyHash StakePool)
+    , registeredPoolVrf :: !(Maybe (VRFVerKeyHash StakePoolVRF))
+    , registeredPoolHasPendingUpdates :: !Bool
+    }
+
+parsePools :: Value -> Parser [Pool]
+parsePools value =
+    case value of
+        Array poolValues -> traverse parsePoolEntry (toList poolValues)
+        Object poolStates ->
+            case KeyMap.lookup "id" poolStates of
+                Just poolId -> (: []) <$> (parsePoolId poolId >>= parsePoolState poolStates)
+                Nothing -> traverse parseKeyedPool (KeyMap.toList poolStates)
+        _ -> typeMismatch "Pools" value
+  where
+    parsePoolEntry :: Value -> Parser Pool
+    parsePoolEntry (Object poolObject) =
+        case KeyMap.lookup "id" poolObject of
+            Just poolId -> parsePoolId poolId >>= parsePoolState poolObject
+            Nothing -> fail "pool state is missing its id"
+    parsePoolEntry poolId =
+        Pool <$> parsePoolId poolId <*> pure Nothing <*> pure False
+
+    parseKeyedPool :: (Key, Value) -> Parser Pool
+    parseKeyedPool (poolId, Object poolObject) =
+        parsePoolId (String (Key.toText poolId)) >>= parsePoolState poolObject
+    parseKeyedPool (_, _) = fail "pool state must be an object"
+
+    parsePoolState :: Object -> KeyHash StakePool -> Parser Pool
+    parsePoolState poolObject poolId =
+        Pool poolId
+            <$> (poolObject .:? "vrf" >>= traverse parseVrfKeyHash)
+            <*> poolObject .:? "has_pending_updates" .!= False
+
+parseVrfKeys :: Map.Map Text Word64 -> Parser (Map.Map (VRFVerKeyHash StakePoolVRF) (NonZero Word64))
+parseVrfKeys entries =
+    Map.fromList <$> traverse parseEntry (Map.toList entries)
+  where
+    parseEntry (hexText, count) = do
+        vrfKeyHash <- parseVrfKeyHash (String hexText)
+        count' <- maybe (fail "VRF key reference count must be non-zero") pure (nonZero count)
+        pure (vrfKeyHash, count')
 
 data UtxoEntry = UtxoEntry
     { input :: !TxIn
@@ -444,7 +502,7 @@ buildNewEpochState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
 buildNewEpochState pparams eraHistory initialState point = do
-    let InitialState{utxo, pools, accounts, dreps, committee, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
+    let InitialState{utxo, pools, vrfKeys, accounts, dreps, committee, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
@@ -485,8 +543,14 @@ buildNewEpochState pparams eraHistory initialState point = do
                 ]
     let poolStates =
             Map.fromList
-                [ (poolId, defaultStakePoolState (Coin (poolDepositAmount pparams)))
-                | poolId <- pools
+                [ (registeredPoolId pool, poolState pparams pool)
+                | pool <- pools
+                ]
+    let futurePoolStates =
+            Map.fromList
+                [ (registeredPoolId pool, poolParams pool)
+                | pool <- pools
+                , registeredPoolHasPendingUpdates pool
                 ]
 
     let proposalStates = map (toGovActionState pparams currentEpoch) proposals
@@ -552,7 +616,7 @@ buildNewEpochState pparams eraHistory initialState point = do
                         , vsNumDormantEpochs = phaseOneEpochNo (consecutiveDormantEpochs governanceActivity)
                         }
                 , conwayCertPState =
-                    PState def poolStates def def
+                    PState vrfKeys poolStates futurePoolStates def
                 , conwayCertDState =
                     DState
                         { dsAccounts =
@@ -767,6 +831,16 @@ defaultStakePoolState :: Coin -> StakePoolState
 defaultStakePoolState depositCoin =
     def
         & spsDepositL .~ compactCoinOrError "stake_pool_deposit" depositCoin
+
+poolState :: PParams ConwayEra -> Pool -> StakePoolState
+poolState pparams pool =
+    defaultStakePoolState (Coin (poolDepositAmount pparams))
+        & spsVrfL .~ fromMaybe def (registeredPoolVrf pool)
+
+poolParams :: Pool -> StakePoolParams
+poolParams pool =
+    def
+        & sppVrfL .~ fromMaybe def (registeredPoolVrf pool)
 
 poolDepositAmount :: PParams ConwayEra -> Integer
 poolDepositAmount pparams =
