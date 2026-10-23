@@ -12,10 +12,104 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::VecDeque, fmt::Display, path::PathBuf};
+use std::{collections::VecDeque, fmt::Display, num::NonZeroUsize, path::PathBuf};
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, NonEmptyVec, Point, RawBlock};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, Point, RawBlock};
 use thiserror::Error;
+
+/// A range on the captured immutable chain, with an exclusive start and inclusive end.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BlockRange {
+    /// Last successfully processed block. `None` starts at the beginning of the chain.
+    /// Missing ancestry is an error; a retained suffix is never presented as complete history.
+    pub after: Option<NetworkPoint>,
+    /// Last block to return. `None` captures the store's immutable anchor when the range opens.
+    pub through: Option<NetworkPoint>,
+}
+
+/// An owned block and its slot/hash position.
+#[derive(Debug, Clone)]
+pub struct BlockEntry {
+    pub point: NetworkPoint,
+    pub raw_block: RawBlock,
+}
+
+/// A forward iterator over one consistent chain-store snapshot.
+pub type BlockIterator<'a> = Box<dyn Iterator<Item = Result<BlockEntry, BlockReadError>> + Send + 'a>;
+
+/// Contiguous blocks committed from a verified archive, including both endpoints.
+/// `None` coverage means unknown availability, rather than an empty or complete archive.
+/// This is a snapshot of availability; pruning may invalidate it before the next batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockHistoryCoverage {
+    pub first: NetworkPoint,
+    pub through: NetworkPoint,
+}
+
+/// Resolved exclusive start and inclusive immutable endpoint, including for an empty range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedBlockRange {
+    pub after: NetworkPoint,
+    pub through: NetworkPoint,
+    /// Verified archive coverage captured with the immutable boundary, independently of the target.
+    pub coverage: Option<BlockHistoryCoverage>,
+}
+
+/// Bounds on one blocking read. Storage steps include endpoint validation and same-slot ancestry.
+/// Cancellation is checked before every step; an individual storage call cannot be interrupted.
+#[derive(Debug, Clone, Copy)]
+pub struct BlockReadLimits {
+    pub max_blocks: NonZeroUsize,
+    pub max_bytes: NonZeroUsize,
+    pub max_steps: NonZeroUsize,
+}
+
+impl Default for BlockReadLimits {
+    fn default() -> Self {
+        Self {
+            max_blocks: NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN),
+            max_bytes: NonZeroUsize::new(16 * 1024 * 1024).unwrap_or(NonZeroUsize::MIN),
+            max_steps: NonZeroUsize::new(4096).unwrap_or(NonZeroUsize::MIN),
+        }
+    }
+}
+
+/// Owned results; the snapshot has already been released when this value is returned.
+#[derive(Debug)]
+pub struct BlockBatch {
+    pub range: ResolvedBlockRange,
+    pub blocks: Vec<BlockEntry>,
+    /// Last returned point, or the exclusive start if empty. Persist with index changes atomically.
+    pub last_point: NetworkPoint,
+    /// Every block through `range.through` has been read successfully.
+    pub complete: bool,
+}
+
+/// Failures opening or consuming an immutable block range.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum BlockReadError {
+    #[error("block read cancelled")]
+    Cancelled,
+    #[error("the node's block reader is closed")]
+    Closed,
+    #[error("block read exceeded its storage-step budget")]
+    WorkLimit,
+    #[error("block {point} requires {size} bytes, exceeding the batch limit {limit}")]
+    BlockTooLarge { point: NetworkPoint, size: usize, limit: usize },
+    #[error("point {point} is not on the requested immutable chain")]
+    InvalidPosition { point: NetworkPoint },
+    #[error("start {after} follows end {through} on the immutable chain")]
+    InvalidRange { after: NetworkPoint, through: NetworkPoint },
+    #[error("historical block or ancestry metadata is unavailable for {hash}")]
+    MissingHistory { hash: HeaderHash },
+    #[error("historical successor after {after} is unavailable before end {through}")]
+    MissingSuccessor { after: NetworkPoint, through: NetworkPoint },
+    #[error("invalid historical parent links at {hash}")]
+    InvalidAncestry { hash: HeaderHash },
+    #[error("failed to read the chain store: {0}")]
+    Store(#[source] StoreError),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MissingBlocksResult {

@@ -36,6 +36,7 @@
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
+pub mod block_reader;
 pub mod builder;
 pub mod chain_realign;
 pub mod ledger_reset;
@@ -49,7 +50,8 @@ pub mod telemetry;
 use std::time::Duration;
 
 pub use amaru_kernel::{
-    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Point, Transaction, TransactionRef,
+    Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Point, RawBlock, Transaction,
+    TransactionRef,
 };
 pub use amaru_ledger::{
     AccountState, AdoptedBlock, DRepState, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, PoolState,
@@ -57,6 +59,10 @@ pub use amaru_ledger::{
 };
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
+pub use amaru_ouroboros::{
+    BlockBatch, BlockEntry, BlockHistoryCoverage, BlockRange, BlockReadError, BlockReadLimits, ResolvedBlockRange,
+};
+pub use block_reader::{BlockBoundary, BlockReadCancellation, BlockReader, BlockScan};
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
