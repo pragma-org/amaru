@@ -141,7 +141,10 @@ impl PoolsEpochTransitionUpdates {
             // Reset VRF counter of 'dangling VRFs'; even if some *other* pool may still be using
             // that VRF.
             if vrf != &current_params.vrf {
-                self.vrf_updates.insert(current_params.vrf, DiffVrf::Release);
+                self.vrf_updates
+                    .entry(current_params.vrf)
+                    .and_modify(|e| *e = DiffVrf::Release)
+                    .or_insert(DiffVrf::Release);
             }
 
             // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
@@ -190,8 +193,13 @@ impl PoolsEpochTransitionUpdates {
     fn retire_pool(&mut self, epoch: Epoch, pool: &Pool, pending: PendingPoolCertificates<'_>) {
         debug!(ledger::epoch_transition::RETIRE_POOL, id = pool.id());
 
-        self.vrf_updates.insert(pool.current_params.vrf, DiffVrf::Decrement(1));
+        self.vrf_updates
+            .entry(pool.current_params.vrf)
+            .and_modify(|e| e.then(DiffVrf::Decrement(1)))
+            .or_insert(DiffVrf::Decrement(1));
+
         self.retired.insert(pool.id());
+
         self.refunds
             .entry(pool.current_params.reward_account.credential())
             .and_modify(|refunded| *refunded += pool.deposit)
@@ -236,7 +244,7 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        CertificatePointer, Credential, Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount,
+        CertificatePointer, Credential, Epoch, Hash, Lovelace, Network, PoolId, PoolParams, RewardAccount,
         utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
@@ -245,7 +253,7 @@ mod tests {
         PoolCertificate::{self, Registration, Retirement},
         PoolCertificates, PoolsEpochTransitionUpdates,
     };
-    use crate::store::columns::pools::Row as Pool;
+    use crate::store::columns::{pools::Row as Pool, vrf_keys::DiffVrf};
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
@@ -445,5 +453,61 @@ mod tests {
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
+    }
+
+    #[test]
+    fn pool_retirement_does_not_override_vrf_release_from_pool_update() {
+        let (mut pool_params_a, mut pool_params_b) = run_strategy(
+            (any::<PoolParams>(), any::<PoolParams>())
+                .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
+        );
+
+        let shared_vrf = Hash::new([0x42; 32]);
+        pool_params_a.vrf = shared_vrf;
+        pool_params_b.vrf = shared_vrf;
+
+        let mut updated_params = pool_params_a.clone();
+        updated_params.vrf = Hash::new([0x24; 32]);
+
+        let mut pool_a = Pool::new(run_strategy(any::<CertificatePointer>()), 0, pool_params_a);
+        pool_a.pending_certificates.append(updated_params);
+
+        let mut pool_b = Pool::new(run_strategy(any::<CertificatePointer>()), 0, pool_params_b);
+        pool_b.pending_certificates.append(Epoch::from(0));
+
+        let pools_updates = PoolsEpochTransitionUpdates::new(
+            vec![(pool_a.id(), pool_a), (pool_b.id(), pool_b)].into_iter(),
+            Epoch::from(0),
+        );
+
+        assert_eq!(pools_updates.vrf_updates().get(&shared_vrf), Some(&DiffVrf::Release));
+    }
+
+    #[test]
+    fn accumulates_vrf_decrements_for_multiple_retiring_pools_sharing_a_vrf() {
+        let shared_vrf = Hash::new([0x42; 32]);
+
+        let any_shared_retirement = || {
+            (any::<PoolParams>(), any::<CertificatePointer>()).prop_map(|(mut params, pointer)| {
+                params.vrf = shared_vrf;
+
+                let mut pool = Pool::new(pointer, 0, params);
+                pool.pending_certificates.append(Epoch::from(0));
+
+                pool
+            })
+        };
+
+        let (pool_a, pool_b) = run_strategy(
+            (any_shared_retirement(), any_shared_retirement())
+                .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id() != pool_b.id()),
+        );
+
+        let pools_updates = PoolsEpochTransitionUpdates::new(
+            vec![(pool_a.id(), pool_a), (pool_b.id(), pool_b)].into_iter(),
+            Epoch::from(0),
+        );
+
+        assert_eq!(pools_updates.vrf_updates().get(&shared_vrf), Some(&DiffVrf::Decrement(2)));
     }
 }
