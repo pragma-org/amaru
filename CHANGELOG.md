@@ -41,6 +41,10 @@ Other guiding principles:
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
 
+### Fixed
+
+- **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
+
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
 ### Added

@@ -1,0 +1,42 @@
+{
+  "title": "plutus redeemers whose summed ex-units exceed the per-transaction limit",
+  "description": "Three Plutus V3 spend redeemers each declaring 6000000 memory and 6000000000 steps.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b00",
+        "output": "bf00581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a00989680ff"
+      },
+      {
+        "input": "825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b01",
+        "output": "bf00581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a00989680ff"
+      },
+      {
+        "input": "825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b02",
+        "output": "bf00581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4011a00989680ff"
+      },
+      {
+        "input": "82582051968beb24ce5967811995ad2b46142468aaf615971412a1c766bbdc11b63dbe00",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00989680ff"
+      }
+    ],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d9010283825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b00825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b01825820cdd40a01b713ed8c44deb5c85ef6322ecdd0bc741c076830bdf86abdd52f626b020181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a01a375cb021a00264db50b58201f139c0daa534556a3bba568a674cd2c4e60bcf3fdc57fb7866385de6904bc230dd901028182582051968beb24ce5967811995ad2b46142468aaf615971412a1c766bbdc11b63dbe00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258402e70c7e0344fcb29c96ac39bb1e777f2e690ae87301f144e25c761ca877a5cb48ba9fa92b2c5e858716bf3ebeadad085a3556f4ddc98719f170781bf6e6bed0e05a38200008200821a005b8d801b0000000165a0bc008200018200821a005b8d801b0000000165a0bc008200028200821a005b8d801b0000000165a0bc0007d901028146450101002499f5f6",
+  "expected": {
+    "predicate": "ExUnitsTooBigUTxO"
+  }
+}

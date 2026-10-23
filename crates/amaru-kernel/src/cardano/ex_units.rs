@@ -52,8 +52,14 @@ fn decode_ex_unit<C>(d: &mut cbor::Decoder<'_>, ctx: &mut C) -> Result<u64, cbor
 impl Add for &ExUnits {
     type Output = ExUnits;
 
+    /// NOTE: Saturated Addition
+    ///
+    /// This addition operations satures at `u64::MAX` instead of wrapping.
+    ///
+    /// This only works in our per-transaction and per-block limit checks so long as both protocol-paramter limits
+    /// stay at, or below, `u64::MAX`.
     fn add(self, rhs: Self) -> Self::Output {
-        ExUnits { mem: self.mem + rhs.mem, steps: self.steps + rhs.steps }
+        ExUnits { mem: self.mem.saturating_add(rhs.mem), steps: self.steps.saturating_add(rhs.steps) }
     }
 }
 
@@ -90,5 +96,12 @@ mod tests {
     fn decode_rejects_units_above_the_int64_ceiling(bytes: &[u8]) -> Result<ExUnits, cbor::decode::Error> {
         let mut version = PROTOCOL_VERSION_10;
         cbor::from_cbor_no_leftovers_with(bytes, &mut version)
+    }
+
+    #[test_case(1, 2, 3 => 6 ; "exact below the ceiling")]
+    #[test_case(i64::MAX as u64, i64::MAX as u64, 2 => u64::MAX ; "saturates past 2^64")]
+    fn add_three(a: u64, b: u64, c: u64) -> u64 {
+        let unit = |n| ExUnits { mem: n, steps: n };
+        (&(&unit(a) + &unit(b)) + &unit(c)).mem
     }
 }
