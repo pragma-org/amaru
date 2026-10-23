@@ -25,11 +25,13 @@ pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 /// Increment this number by 1 every time the "schema" is updated, eg. a new
 /// type of keys is added, prefixes are changed, etc. then provide a migration
 /// function from the previous version.
-pub const CHAIN_DB_VERSION: u16 = 6;
+pub const CHAIN_DB_VERSION: u16 = 7;
 
 pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
 pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";
 pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"block";
+/// CBOR `(slot, parent_hash)` for verified archive blocks, keyed by header hash.
+pub(crate) const BLOCK_METADATA_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"bmeta";
 pub(crate) const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
 pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";

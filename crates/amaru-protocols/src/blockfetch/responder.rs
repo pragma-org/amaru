@@ -20,12 +20,14 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
+use amaru_kernel::{NetworkPoint, NonEmptyVec, Peer, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
 use amaru_observability::{debug, error};
 use amaru_ouroboros::{ConnectionId, RemoteProtocol};
+use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
 use amaru_pure_stage::{
-    DeserializerGuards, Effects, StageRef, Void, define_role_tag, make_states, on_receive, typestate::prelude::*,
+    BoxFuture, DeserializerGuards, Effects, ExternalEffectAPI, Resources, SendData, StageRef, Void, define_role_tag,
+    make_states, on_receive, typestate::prelude::*,
 };
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
@@ -37,7 +39,7 @@ use crate::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
         ingress_limit,
     },
-    store_effects::Store,
+    store_effects::{ResourceHeaderStore, Store},
 };
 
 /// Maximum number of blocks that can be streamed for a single request
@@ -59,23 +61,24 @@ on_receive!(Done as DoneIn {});
 
 /// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PointsRange(NonEmptyVec<Point>);
+pub struct PointsRange(NonEmptyVec<NetworkPoint>);
 
 type Mail = Inputs<Void>;
 
 impl PointsRange {
     /// Create a points range with a single point
-    pub fn singleton(first: Point) -> PointsRange {
-        PointsRange(NonEmptyVec::singleton(first))
+    #[cfg(test)]
+    pub fn singleton(first: impl Into<NetworkPoint>) -> PointsRange {
+        PointsRange(NonEmptyVec::singleton(first.into()))
     }
 
     /// Create a points range from a vector of points.
-    pub fn from_vec(vec: Vec<Point>) -> Option<PointsRange> {
-        NonEmptyVec::try_from(vec).ok().map(PointsRange)
+    pub fn from_vec(vec: Vec<impl Into<NetworkPoint>>) -> Option<PointsRange> {
+        NonEmptyVec::try_from(vec.into_iter().map(Into::into).collect::<Vec<_>>()).ok().map(PointsRange)
     }
 
     #[cfg(test)]
-    pub fn points(&self) -> Vec<Point> {
+    pub fn points(&self) -> Vec<NetworkPoint> {
         self.0.to_vec()
     }
 
@@ -91,34 +94,20 @@ impl PointsRange {
     }
 
     /// Return a points range:
-    ///  - Check that `from` <= `through`
+    ///  - Reject inverted slot ranges; order same-slot blocks by ancestry.
     ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
     ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
     ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub async fn request_range(
-        store: &Store,
+    pub fn request_range(
+        store: &dyn BaseReadChainStore,
         from: NetworkPoint,
         through: NetworkPoint,
-    ) -> anyhow::Result<Option<PointsRange>> {
-        // make sure that from <= through
-        if from > through {
+    ) -> Result<Option<PointsRange>, StoreError> {
+        // Byron boundary blocks can share a slot with the following regular block.
+        if from.slot_or_default() > through.slot_or_default() {
             debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
             return Ok(None);
         };
-
-        if from == through {
-            return if let Some(block) = store.load_block(&from.hash()).await? {
-                match block.decode_header() {
-                    Ok(header) if NetworkPoint::from(header.point()) == from => {
-                        Ok(Some(PointsRange::singleton(header.point())))
-                    }
-                    Err(_) => Ok(None),
-                    Ok(_) => Ok(None),
-                }
-            } else {
-                Ok(None)
-            };
-        }
 
         let mut current_hash = through.hash();
         let mut result = vec![];
@@ -133,36 +122,41 @@ impl PointsRange {
                 );
                 return Ok(None);
             }
-            let Some(block) = store.load_block(&current_hash).await? else {
+            let Some((point, parent)) = store.load_block_metadata(&current_hash)? else {
                 return Ok(None);
             };
-            if let Ok(header) = block.decode_header() {
-                let point = header.point();
-                if result.is_empty() && NetworkPoint::from(point) != through {
+            if result.is_empty() && point != through {
+                return Ok(None);
+            }
+            result.push(point);
+            if current_hash == from.hash() {
+                if point != from {
                     return Ok(None);
                 }
-                result.push(point);
-                // if we found the from point, we're done
-                if current_hash == from.hash() {
-                    if NetworkPoint::from(point) != from {
-                        return Ok(None);
-                    }
-                    break;
-                }
-                // if we reached a slot before 'from', abort
-                if header.slot() < from.slot_or_default() {
-                    return Ok(None);
-                }
-                if let Some(parent_hash) = header.parent_hash() {
-                    current_hash = parent_hash
-                } else {
-                    return Ok(None);
-                }
+                break;
+            }
+            if point.slot_or_default() < from.slot_or_default() {
+                return Ok(None);
+            }
+            if let Some(parent_hash) = parent {
+                current_hash = parent_hash
             } else {
                 return Ok(None);
             }
         }
         Ok(PointsRange::from_vec(result))
+    }
+}
+
+impl ExternalEffectAPI for RequestRange {
+    type Response = Result<Option<PointsRange>, StoreError>;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let store = resources.get::<ResourceHeaderStore>().expect("RequestRange requires a chain store");
+            PointsRange::request_range(store.snapshot().as_ref(), self.from, self.through)
+        })
     }
 }
 
@@ -195,6 +189,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<Instance>().boxed(),
         amaru_pure_stage::register_data_deserializer::<MuxClient>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<RequestRange>().boxed(),
     ]
 }
 
@@ -223,7 +218,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             Ok(ServerIdleIn::Pull(pull)) => idle.receive(&pull, eff).send(&mux, WantNext).await.finish().into(),
             Ok(ServerIdleIn::RequestRange(range)) => {
                 let store = Store::new(eff.clone());
-                match PointsRange::request_range(&store, range.from, range.through).await {
+                match eff.external(range.clone()).await {
                     Ok(Some(mut points)) => {
                         let metrics_eff = eff.clone();
                         let for_err = eff.clone();
@@ -319,8 +314,8 @@ pub mod tests {
     use std::sync::{Arc, OnceLock};
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_headers_chain,
-        any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Point, Slot,
+        any_headers_chain, any_headers_chain_with_root,
         cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
         cbor,
         utils::tests::run_strategy,
@@ -338,7 +333,6 @@ pub mod tests {
     use crate::{
         mux::{MuxMessage, Sent},
         protocol::Inputs,
-        store_effects::ResourceHeaderStore,
     };
 
     fn remaining<S, In>() -> String
@@ -768,7 +762,7 @@ pub mod tests {
             |_state, msg, eff| async move {
                 match msg {
                     PointsRangeTestMsg::RequestRange { from, through } => Some(PointsRangeTestResult::RequestRange(
-                        PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
+                        eff.external(RequestRange { from, through }).await.unwrap(),
                     )),
                     PointsRangeTestMsg::NextBlock { range } => Some(PointsRangeTestResult::NextBlock(
                         range.next_block(&Store::new(eff.clone())).await.unwrap(),
