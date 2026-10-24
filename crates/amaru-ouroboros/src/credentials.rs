@@ -23,13 +23,11 @@ use std::{fmt, path::Path, sync::Mutex};
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
     OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
-    cardano::{
-        fixed_bytes::FixedBytes,
-        text_envelope::{self, TextEnvelopeError},
-    },
+    cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     protocol_version::PROTOCOL_VERSION_12,
     size::BLOCK_BODY,
+    utils::envelope::{HasEnvelope, ReadEnvelopeError, read_envelope},
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
 use thiserror::Error;
@@ -222,29 +220,42 @@ fn header_parented_on(parent: HeaderHash) -> Header {
     )
 }
 
-pub fn load_operational_certificate(
-    path: impl AsRef<Path>,
-) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
-    let payload = text_envelope::read_envelope(path, OPERATIONAL_CERTIFICATE_ENVELOPE)?;
-    decode_operational_certificate(&payload)
+/// Payload of a `NodeOperationalCertificate` envelope: the certificate followed by the
+/// cold verification key that issued it.
+struct OperationalCertificateFile {
+    certificate: OperationalCert,
+    cold: VerificationKey,
 }
 
-fn decode_operational_certificate(
-    payload: &[u8],
-) -> Result<(OperationalCert, VerificationKey), OperationalCertificateError> {
-    let mut decoder = cbor::Decoder::new(payload);
+impl HasEnvelope for OperationalCertificateFile {
+    const ACCEPTED_TYPES: &'static [&'static str] = &[OPERATIONAL_CERTIFICATE_ENVELOPE];
+}
+
+impl<'d> cbor::Decode<'d, ProtocolVersion> for OperationalCertificateFile {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut ProtocolVersion) -> Result<Self, cbor::decode::Error> {
+        match d.array()? {
+            Some(2) => {}
+            Some(len) => {
+                return Err(cbor::decode::Error::message(format!(
+                    "operational certificate CBOR must be a two-element array, found {len} elements"
+                )));
+            }
+            None => {
+                return Err(cbor::decode::Error::message(
+                    "operational certificate CBOR must be a definite two-element array",
+                ));
+            }
+        }
+        Ok(Self { certificate: d.decode_with(ctx)?, cold: d.decode_with(ctx)? })
+    }
+}
+
+pub fn load_operational_certificate(
+    path: impl AsRef<Path>,
+) -> Result<(OperationalCert, VerificationKey), ReadEnvelopeError> {
     let mut ctx = PROTOCOL_VERSION_12;
-    match decoder.array().map_err(OperationalCertificateError::cbor)? {
-        Some(2) => {}
-        Some(len) => return Err(OperationalCertificateError::ArrayLength(len)),
-        None => return Err(OperationalCertificateError::IndefiniteArray),
-    }
-    let certificate = decoder.decode_with(&mut ctx).map_err(OperationalCertificateError::cbor)?;
-    let cold = decoder.decode_with(&mut ctx).map_err(OperationalCertificateError::cbor)?;
-    if decoder.position() != payload.len() {
-        return Err(OperationalCertificateError::TrailingBytes(payload.len() - decoder.position()));
-    }
-    Ok((certificate, cold))
+    let file: OperationalCertificateFile = read_envelope(path, &mut ctx)?;
+    Ok((file.certificate, file.cold))
 }
 
 /// Why the forging files were refused before the node serves traffic.
@@ -255,7 +266,7 @@ pub enum CredentialsError {
     #[error("VRF signing key: {0}")]
     Vrf(#[from] VrfKeyError),
     #[error("operational certificate: {0}")]
-    Certificate(#[from] OperationalCertificateError),
+    Certificate(#[from] ReadEnvelopeError),
     #[error("KES verification key does not match the operational certificate hot key")]
     HotKeyMismatch,
     #[error("operational certificate cold verification key is not a valid Ed25519 key")]
@@ -281,59 +292,30 @@ pub enum CertificateRejected {
     ColdKey,
 }
 
-/// The operational-certificate text envelope could not be read.
-#[derive(Debug, Error)]
-pub enum OperationalCertificateError {
-    #[error(transparent)]
-    Envelope(#[from] TextEnvelopeError),
-    #[error("operational certificate CBOR must be a definite two-element array")]
-    IndefiniteArray,
-    #[error("operational certificate CBOR must be a two-element array, found {0} elements")]
-    ArrayLength(u64),
-    #[error("operational certificate CBOR has {0} trailing bytes")]
-    TrailingBytes(usize),
-    #[error("operational certificate CBOR is malformed: {0}")]
-    Cbor(String),
+/// Payload of a `StakePoolVerificationKey_ed25519` envelope: the pool cold verification key.
+struct ColdVerificationKeyFile(VerificationKey);
+
+impl HasEnvelope for ColdVerificationKeyFile {
+    const ACCEPTED_TYPES: &'static [&'static str] = &["StakePoolVerificationKey_ed25519"];
 }
 
-impl OperationalCertificateError {
-    fn cbor(error: impl ToString) -> Self {
-        Self::Cbor(error.to_string())
+impl<'d> cbor::Decode<'d, ProtocolVersion> for ColdVerificationKeyFile {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut ProtocolVersion) -> Result<Self, cbor::decode::Error> {
+        let cold: VerificationKey = d.decode_with(ctx)?;
+        if cold_verifying_key(&cold).is_none() {
+            return Err(cbor::decode::Error::message("cold verification key is not a valid Ed25519 key"));
+        }
+        Ok(Self(cold))
     }
 }
-
-const COLD_VERIFICATION_KEY_ENVELOPE: &str = "StakePoolVerificationKey_ed25519";
 
 /// Load a stake pool cold verification key from a cardano-cli text envelope file.
 ///
 /// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
 /// [`VerificationKey`] suitable for pool ID derivation.
-pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ColdVerificationKeyError> {
-    let payload = text_envelope::read_envelope(path, COLD_VERIFICATION_KEY_ENVELOPE)?;
-    let mut decoder = cbor::Decoder::new(&payload);
+pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ReadEnvelopeError> {
     let mut ctx = PROTOCOL_VERSION_12;
-    let cold: VerificationKey = decoder.decode_with(&mut ctx).map_err(ColdVerificationKeyError::cbor)?;
-    if decoder.position() != payload.len() {
-        return Err(ColdVerificationKeyError::TrailingBytes(payload.len() - decoder.position()));
-    }
-    Ok(cold)
-}
-
-/// The cold verification key file could not be read or decoded.
-#[derive(Debug, Error)]
-pub enum ColdVerificationKeyError {
-    #[error(transparent)]
-    Envelope(#[from] TextEnvelopeError),
-    #[error("cold verification key CBOR has {0} trailing bytes")]
-    TrailingBytes(usize),
-    #[error("cold verification key CBOR is malformed: {0}")]
-    Cbor(String),
-}
-
-impl ColdVerificationKeyError {
-    fn cbor(error: impl ToString) -> Self {
-        Self::Cbor(error.to_string())
-    }
+    Ok(read_envelope::<_, ColdVerificationKeyFile>(path, &mut ctx)?.0)
 }
 
 #[cfg(test)]
@@ -588,12 +570,12 @@ mod tests {
         let path = dir.path().join("node.cert");
         fs::write(&path, wrong).unwrap();
         let err = load_operational_certificate(&path).unwrap_err();
-        assert!(matches!(err, OperationalCertificateError::Envelope(_)), "{err}");
+        assert!(matches!(err, ReadEnvelopeError::UnexpectedType { .. }), "{err}");
 
         let truncated = envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, "8200");
         fs::write(&path, truncated).unwrap();
         let err = load_operational_certificate(&path).unwrap_err();
-        assert!(matches!(err, OperationalCertificateError::Cbor(_)), "{err}");
+        assert!(matches!(err, ReadEnvelopeError::Cbor(_)), "{err}");
     }
 
     #[test]
@@ -742,7 +724,7 @@ mod tests {
         let path = dir.path().join("bad.vkey");
         fs::write(&path, envelope("SomeOtherType", "5820aabbcc")).unwrap();
         let err = load_cold_verification_key(&path).unwrap_err();
-        assert!(matches!(err, ColdVerificationKeyError::Envelope(_)), "{err}");
+        assert!(matches!(err, ReadEnvelopeError::UnexpectedType { .. }), "{err}");
     }
 
     #[test]
