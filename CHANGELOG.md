@@ -37,6 +37,12 @@ Other guiding principles:
 
 ## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
 
+### Added
+
+- **amaru**: `amaru keys opcert inspect OPCERT` prints the pool ID, sequence number, KES period, and hot verification key from an operational certificate.
+- **amaru**: `amaru keys kes period --opcert OPCERT --slot SLOT` shows the current KES period and how many periods remain before key rotation is required.
+- **amaru**: `amaru keys pool-id COLD_VKEY` derives the pool ID from a cold verification key file.
+
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
