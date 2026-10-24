@@ -1,0 +1,48 @@
+{
+  "title": "committee member expiration cannot be in the past",
+  "description": "A committee update proposes a member whose expiration epoch is not later than the current epoch.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203a3e79bf5a7ec708c1978b82e529def3e14591a2299fafe7fb8f9eaddd4fe71400",
+        "output": "82583900ff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b29de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f5985931b009fdf42f6c36ea7"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c6b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67ddd",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  },
+  "point": {
+    "slot": 3888001,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258203a3e79bf5a7ec708c1978b82e529def3e14591a2299fafe7fb8f9eaddd4fe71400018182583900800b59de7e205fbdb8376c8b28eb09d8007f713d8b75b0d13fb19b2de3771ba918a518de2f782ddd1373f6669ee877a09f8d62f39ac5726e1b009fdf42f6c0ce3f021a00029fed14d901028184187b581de06b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67ddd8504f6d9010280a18200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b01d81e82000182781c68747470733a2f2f373930654d7a554e32665232597469712e636f6d5820180b4305010f87286c43fca52d1b88114a545ae16add4e3d45990eb61874ad8aa100d90102818258204c7d67e852e447aaebd55b113f15c35f9485696b38a35e59ea0d0f6d2a3b341d58409bc1871706658c8dce3d5b2e92bea000e1f4d8d9e6781117d6d7c8a3668614c49ec50688a3e4023ec09ce6886f2b66660c033b6ca47632e5297e072692811b03f5f6",
+  "expected": {
+    "predicate": "ExpirationEpochTooSmall"
+  }
+}

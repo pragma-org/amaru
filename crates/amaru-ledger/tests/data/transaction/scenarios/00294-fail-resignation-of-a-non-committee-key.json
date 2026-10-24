@@ -1,0 +1,28 @@
+{
+  "title": "resignation of a non-committee key",
+  "description": "Ported from the legacy Conway ledger conformance vector `fail-govcert-resigning-a-non-cc-key`.",
+  "category": "certificates",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "a200581d6088028438394946279f9ed8d66d718679b82f26b75391cb6df8107c8f011b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000181825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6e1e19f021a00029e6104d9010281830f8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7bf6a100d901028282582009075a20a84d1debc77944b276451cab29683802c5c79e5b76968d2e03d9b1c45840aa0c01be70ef7fe82bb9cb06b81aa8a302ee8e239af363ec220f1ab09fdf9fd5767e68793be1f0236e631fd7b742df485b6d054c6461cd28c241c18ca8b7d10c8258204000cb1414760fd0995428ee2f4552c1d98d39c63a0a5bf087b5c89ccbd4bcf9584014c4e18f489889780a573270a0f2d7c107a5cade3cbd4caccf050414cf16a31322e457e945912d44aeb33482898f7d75a0e96263ab706e13ee64f29799b76b06f5f6",
+  "expected": {
+    "predicate": "CommitteeIsUnknown"
+  }
+}

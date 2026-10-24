@@ -1,0 +1,48 @@
+{
+  "title": "proposal return account with the wrong network",
+  "description": "A governance proposal whose return account carries a network id different from the fixture network. The transaction is otherwise valid.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "82581d6088028438394946279f9ed8d66d718679b82f26b75391cb6df8107c8f1b009fdf42f6e48000"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400018182583900f3f27ec91b5ce6e049806e585acd15d6c411ea53482de8ae23fc3f6578b5be119628eace1c36372d60c1c394341dd353cc79ce628ec5c64d1b009fdf42f6e1e22c021a00029d5914d901028184187b581de13c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b810682783968747470733a2f2f523755683052647a44344e6f6d5671696653376a4343796d6c61574265794b33394f7944473070744b595468632e636f6d5820897dcad3df93cef066a6c1bec0dadd0337ecadd87fc3f9c25faed3bc971333d3a100d90102818258204000cb1414760fd0995428ee2f4552c1d98d39c63a0a5bf087b5c89ccbd4bcf958408da5e9ce3494d50a9921b6fc701af696c2648f4a664675a648abd00810a1f9e58bba69f7aafc5ff286ef2ffee122655f8875474e2d69590be1a20cb1b6e40208f5f6",
+  "expected": {
+    "predicate": "ProposalProcedureNetworkIdMismatch"
+  }
+}

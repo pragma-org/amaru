@@ -1,0 +1,28 @@
+{
+  "title": "Malformed reference scripts are rejected",
+  "description": "A transaction output carries a reference script whose serialized script is malformed.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "82581d6088028438394946279f9ed8d66d718679b82f26b75391cb6df8107c8f1b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000182a300581d603c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b011a000e020e03d8184a820247696e76616c6964825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6d3eeb1021a00028f41a100d90102818258204000cb1414760fd0995428ee2f4552c1d98d39c63a0a5bf087b5c89ccbd4bcf9584074c108a8e3f83524cb77419bf7449bef148a417d4f18772633801336df850e04dfa57d723a01435a61f95f993e3b7eb48a16f33a6d1c708f531cb749ab5ca803f5f6",
+  "expected": {
+    "predicate": "MalformedReferenceScripts"
+  }
+}

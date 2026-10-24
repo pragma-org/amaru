@@ -1,0 +1,36 @@
+{
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
+  },
+  "category": "scripts",
+  "title": "Fail missing phase two script witness",
+  "description": "A transaction references a Plutus script input but does not provide the corresponding phase-two script witness.",
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c400",
+        "output": "82581d60ff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291a00989680"
+      },
+      {
+        "input": "82582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c401",
+        "output": "82583900de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f598593f1e760111aba8c48f249d58250062f5baf3d163350f2d3f55ec7b3971b009fdf42f637998c"
+      },
+      {
+        "input": "825820e3b710c49c1b2e98581c6a28e62f6895ac13b5b2ba58a4303facacdc2cd0c44e00",
+        "output": "83581d70a2eb6ee34c04a2286ac9c909bc046ac4fdc9bcb686edbfa60891318f1a000f311a582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028282582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c401825820e3b710c49c1b2e98581c6a28e62f6895ac13b5b2ba58a4303facacdc2cd0c44e000dd901028182582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c40001818258390065cf5454f586d19c04689bcccbd17f1bc0a4ce904dc6aea476ca8ac4ea469737e96a17f0e4b7b734b31974afc0da00197bf0900edd009c1f1b009fdf42f64305d9021a0003c4cda100d90102828258200a98dd8060c4ea6b380fd6c8443a82d4d2bd423c4a7d1938b5c648269c7b8ca85840e536352d4817bea62dfeffe8287115c2e4db83a05b5f14a10110de58293144402ad130170c162b3591f989daef25fef17ed51641c3d26ef299725835013411048258204c7d67e852e447aaebd55b113f15c35f9485696b38a35e59ea0d0f6d2a3b341d58400925554b90b1f1340b7a1387c91370a89dfbb66782f45ae53c543425d853f9b06e2146b378a047d617d9e8c9c80a5ee409cdeff06fb1db404885fd4423b6610cf5f6",
+  "expected": {
+    "predicate": "MissingScriptWitnessesUTXOW"
+  }
+}

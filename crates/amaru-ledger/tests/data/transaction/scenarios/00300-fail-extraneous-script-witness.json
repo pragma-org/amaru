@@ -1,0 +1,28 @@
+{
+  "title": "Extraneous script witnesses are rejected",
+  "description": "A transaction carries a script witness that is not required by any input, certificate, withdrawal, or minting policy.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "82581d6088028438394946279f9ed8d66d718679b82f26b75391cb6df8107c8f1b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000181825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6e1f37f021a00028c81a200d90102818258204000cb1414760fd0995428ee2f4552c1d98d39c63a0a5bf087b5c89ccbd4bcf9584061fb944f8cde5c41ec6642cc7d62725a46b3aa1f47ad290b273f5f31a2eca0e68a600e215e2699c7cbc895674daa329481be9934896175289087de1a36c3be0c01d90102818200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7bf5f6",
+  "expected": {
+    "predicate": "ExtraneousScriptWitnessesUTXOW"
+  }
+}

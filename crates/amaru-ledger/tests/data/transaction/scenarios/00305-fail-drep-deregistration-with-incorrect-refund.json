@@ -1,0 +1,63 @@
+{
+  "title": "DRep deregistration has an incorrect refund",
+  "description": "A governance proposal whose return account carries a network id different from the fixture network. The transaction is otherwise valid.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123,
+      "delegate_representative_deposit": 100
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258209c88d479c9aeb1d1e24cdd9b6eef6d9b7c3688d3a3b7bc383a145d0c1874a67500",
+        "output": "825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6e1e0e3"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64",
+    "dreps": [
+      {
+        "credential": "8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b",
+        "deposit": 100,
+        "registered_at": {
+          "transaction": {
+            "slot": 3883681,
+            "transaction_index": 0
+          },
+          "certificate_index": 0
+        },
+        "valid_until": 1000
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258209c88d479c9aeb1d1e24cdd9b6eef6d9b7c3688d3a3b7bc383a145d0c1874a67500018182583900de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f598593f1e760111aba8c48f249d58250062f5baf3d163350f2d3f55ec7b3971b009fdf42f6df42ba021a00029e8d04d901028183118200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b186ea100d901028282582009075a20a84d1debc77944b276451cab29683802c5c79e5b76968d2e03d9b1c458403237cbefc273903245cf6aeed8adcb8b2e62997ebb973cfacced7ee9c8afcfe3143b30c75c7595dbc3366f3bf4ec003863a0d513d8828145279101ed7e35d805825820856d50d5103ad04957da7135586cb0dc3a48c31aa78bbfff51f249ad671571035840f11c31b703a75b6ceea0bbd09f322eed6f72a2e68426ae7e74e2cb1d98e2583a0c2525019496cb37c983ed051187047432231a4d965ad45c6f0b5e22f9cd1e01f5f6",
+  "expected": {
+    "predicate": "IncorrectDepositDRep"
+  }
+}

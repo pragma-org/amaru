@@ -1,0 +1,32 @@
+{
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
+  },
+  "category": "scripts",
+  "title": "Fail phase one script witness",
+  "description": "A transaction contains a malformed script witness that must be rejected before phase two evaluation.",
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582012bd351ff4e867810c818da3eb06f19b87d48ea153a7f3134c9d256539b0c96800",
+        "output": "82581d7015fa0f97f3fe447a10dfbbd71edae89fb15d2b1b80f805ffaace9a5b1a000cf4ae"
+      },
+      {
+        "input": "82582012bd351ff4e867810c818da3eb06f19b87d48ea153a7f3134c9d256539b0c96801",
+        "output": "825839003c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b6b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67ddd1b009fdf42f6d4fed1"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d901028282582012bd351ff4e867810c818da3eb06f19b87d48ea153a7f3134c9d256539b0c9680082582012bd351ff4e867810c818da3eb06f19b87d48ea153a7f3134c9d256539b0c96801018182583900ff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b29de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f5985931b009fdf42f6df659e021a00028de1a200d901028182582009075a20a84d1debc77944b276451cab29683802c5c79e5b76968d2e03d9b1c45840c41623706b02964fb14b3c2bba0bef0ca3a9ac9ac33c873172723785f50cf1eac1bed874dab281743852be6488378758df20f931661ddba118731c7417a30c0001d901028182041864f5f6",
+  "expected": {
+    "predicate": "ScriptWitnessNotValidatingUTXOW"
+  }
+}
