@@ -1,0 +1,26 @@
+{
+  "title": "repeating the same delegation certificate in one transaction",
+  "description": "Ported from the legacy Conway ledger conformance vector `pass-deleg-twice-the-same-certificate-in-the-same-transaction`.",
+  "category": "certificates",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "a200581d6088028438394946279f9ed8d66d718679b82f26b75391cb6df8107c8f011b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000181825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6c35c6f021a00029f1104d901028183078200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b1a001e8480a100d901028282582009075a20a84d1debc77944b276451cab29683802c5c79e5b76968d2e03d9b1c45840551fa8ee09eb5ff4628aab731e7db32c457cae83b2d8eb31e48759bd184c9fc127ca402ff4efe6b61cf5b130fd6986f4d2f63d6bfec7d62420584eb0496d34028258204000cb1414760fd0995428ee2f4552c1d98d39c63a0a5bf087b5c89ccbd4bcf95840f06b957273c6c0159b2dde6d1ae39142b35ecba101396f6393c5d9dc62a95cf7533ba895ad88ebe369d01661153f38680a1732e63582ca3d7d6afde68149810bf5f6",
+  "expected": "Pass"
+}

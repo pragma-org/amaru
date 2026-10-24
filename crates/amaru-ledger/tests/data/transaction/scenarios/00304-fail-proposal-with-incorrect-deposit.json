@@ -1,0 +1,48 @@
+{
+  "title": "proposal deposit does not match protocol parameters",
+  "description": "A governance proposal whose return account carries a network id different from the fixture network. The transaction is otherwise valid.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820885dddfb5d1617e068f27cad8f09d15900c7fac4de7dcb2c00eae667bcffd3e100",
+        "output": "825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6c36ea7"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820885dddfb5d1617e068f27cad8f09d15900c7fac4de7dcb2c00eae667bcffd3e1000181825839005e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd14e33a57af2364a58af7ba2b1cf208591e2a91426faf947de27e05071b009fdf42f6c0d3bf021a00029a6d14d901028184187a581de03c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b810682782868747470733a2f2f4771657737787275612d6576567a66416e4a734875476d5a657839312e636f6d5820625b990b44dac84d314b70085e6fb78d3cafcde6edae8fcf662d424e8127a544a100d9010281825820856d50d5103ad04957da7135586cb0dc3a48c31aa78bbfff51f249ad671571035840afbd4b8edac4e8b33f763542f072b7d3513aa8dcdcb00bdecb44ff8fce48f8a8ab8533d5a063ae2f14b47cce63d7a216950ca08c4ffd210510f4d35758b15007f5f6",
+  "expected": {
+    "predicate": "ProposalDepositIncorrect"
+  }
+}

@@ -172,7 +172,7 @@
         }
       }
     },
-    "VotingState": {
+    "GovernanceActivity": {
       "type": "object",
       "required": ["consecutive_dormant_epochs"],
       "properties": {
@@ -322,13 +322,38 @@
           "$ref": "#/$defs/ProposalsRoots",
           "description": "The latest enacted governance action id per purpose. Absent purposes default to none."
         },
-        "governance_activity": { "$ref": "#/$defs/VotingState" },
+        "governance_activity": { "$ref": "#/$defs/GovernanceActivity" },
+        "voting_state": {
+          "$ref": "#/$defs/VotingState",
+          "description": "The initial ledger voting state. When present, its DReps, committee and dormant-epoch counter take precedence over the legacy top-level fields."
+        },
         "pots": { "$ref": "#/$defs/Pots" },
         "guardrail_script": {
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ScriptHash" }],
           "description": "Guardrails script of the enacted constitution. A proposal carrying a policy must name exactly this script; absent or null requires proposals to carry no policy at all."
         }
       }
+    },
+    "VotingState": {
+      "type": "object",
+      "properties": {
+        "dreps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DRepRegistration" },
+          "description": "Registered DReps in the initial voting state."
+        },
+        "committee": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CommitteeMember" },
+          "description": "The constitutional committee authorization and election state."
+        },
+        "consecutive_dormant_epochs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of consecutive epochs without governance activity."
+        }
+      },
+      "additionalProperties": false
     },
     "Pots": {
       "type": "object",
@@ -585,7 +610,89 @@
           "required": ["predicate"],
           "description": "The predicate the transaction must fail. Some predicates carry additional fields that narrow which of their cases is expected.",
           "properties": {
-            "predicate": { "type": "string" },
+            "predicate": {
+              "enum": [
+                "BabbageNonDisjointRefInputs",
+                "BabbageOutputTooSmallUTxO",
+                "BadInputsUTxO",
+                "CommitteeHasPreviouslyResigned",
+                "CommitteeIsUnknown",
+                "ConflictingCommitteeUpdate",
+                "ConflictingMetadataHash",
+                "ConwayTxRefScriptsSizeTooBig",
+                "ConwayTreasuryValueMismatch",
+                "ConwayWdrlNotDelegatedToDRep",
+                "CurrentTreasuryFieldNotSupported",
+                "DelegateeDRepNotRegistered",
+                "DelegateeStakePoolNotRegistered",
+                "DisallowedVoters",
+                "ExpirationEpochTooSmall",
+                "DRepAlreadyRegistered",
+                "DRepNotRegistered",
+                "ExtraneousScriptWitnessesUTXOW",
+                "FeeTooSmallUTxO",
+                "GovActionsDoNotExist",
+                "IncorrectDepositDELEG",
+                "IncorrectDepositDRep",
+                "IncorrectTotalCollateralField",
+                "InlineDatumsNotSupported",
+                "InputSetEmptyUTxO",
+                "InvalidMetadata",
+                "InsufficientCollateral",
+                "InvalidGuardrailsScriptHash",
+                "InvalidPrevGovActionId",
+                "InvalidWitnessesUTXOW",
+                "MalformedReferenceScripts",
+                "MalformedScriptWitnesses",
+                "MaxTxSizeUTxO",
+                "MissingCostModel",
+                "MissingRequiredDatums",
+                "MissingRedeemers",
+                "MissingScriptWitnessesUTXOW",
+                "MissingTxBodyMetadataHash",
+                "MissingTxMetadata",
+                "MissingVerificationKeyWitnessesUTXOW",
+                "NoCollateralInputs",
+                "NotAllowedSupplementalDatums",
+                "OutputTooBigUTxO",
+                "OutsideForecast",
+                "OutsideValidityIntervalUTxO",
+                "PoolMetadataHashTooBig",
+                "ProposalCantFollow",
+                "ProposalDepositIncorrect",
+                "MalformedProposal",
+                "ProposalProcedureNetworkIdMismatch",
+                "ProposalProceduresFieldNotSupported",
+                "PPViewHashesDontMatch",
+                "ScriptWitnessNotValidatingUTXOW",
+                "ScriptsNotPaidUTxO",
+                "StakeCredentialInvalidPoolDelegation",
+                "StakeCredentialInvalidVoteDelegation",
+                "StakeKeyHasNonZeroAccountBalance",
+                "StakeKeyNotRegistered",
+                "StakeKeyRegistered",
+                "StakePoolCostTooLowPOOL",
+                "StakePoolNotRegisteredOnKeyPOOL",
+                "StakePoolRetirementWrongEpochPOOL",
+                "TooManyCollateralInputs",
+                "TooManyExUnits",
+                "TreasuryDonationFieldNotSupported",
+                "TreasuryWithdrawalReturnAccountsDoNotExist",
+                "TreasuryWithdrawalsAllZeros",
+                "ValidationTagMismatch",
+                "ValueNotConservedUTxO",
+                "VotingOnExpiredGovAction",
+                "VotingProceduresFieldNotSupported",
+                "VotersDoNotExist",
+                "WithdrawalsNotInRewardsCERTS",
+                "WrongNetworkInTxBody",
+                "WrongNetworkInTxOutput",
+                "WrongNetworkPOOL",
+                "WrongNetworkWithdrawal",
+                "UnspendableUTxONoDatumHash",
+                "ExtraRedeemers"
+              ]
+            },
             "description": {
               "enum": ["PassedUnexpectedly", "FailedUnexpectedly"],
               "description": "Required for ValidationTagMismatch: which way round the transaction's is_valid flag disagrees with script evaluation. PassedUnexpectedly covers a transaction with no Plutus script at all, since an empty script set trivially passes."

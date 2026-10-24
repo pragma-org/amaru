@@ -73,11 +73,26 @@ pub(super) struct InitialState {
     #[serde(default)]
     pub(super) governance_activity: GovernanceActivity,
     #[serde(default)]
+    pub(super) voting_state: Option<VotingState>,
+    #[serde(default)]
     pub(super) pots: Pots,
     /// Guardrails script of the enacted constitution, if it has one. A proposal carrying a policy
     /// must name exactly this script; absent or `null` requires proposals to carry no policy at all.
     #[serde(default)]
     pub(super) guardrail_script: Option<Hash<SCRIPT>>,
+}
+
+/// The block-start voting state used by governance validation. The legacy fixture shape keeps
+/// these fields at the top level; the grouped form lets imported ledger snapshots carry them as a
+/// single state without changing existing fixtures.
+#[derive(Deserialize)]
+pub(super) struct VotingState {
+    #[serde(deserialize_with = "deserialize_dreps", default)]
+    pub(super) dreps: BTreeMap<Credential, DRepRegistration>,
+    #[serde(deserialize_with = "deserialize_committee", default)]
+    pub(super) committee: BTreeMap<Credential, CCMember>,
+    #[serde(default)]
+    pub(super) governance_activity: GovernanceActivity,
 }
 
 fn deserialize_cbor_hex<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -258,55 +273,76 @@ pub(super) enum Predicate {
     BadInputsUTxO,
     CommitteeHasPreviouslyResigned,
     CommitteeIsUnknown,
+    ConflictingCommitteeUpdate,
     ConflictingMetadataHash,
+    ConwayTreasuryValueMismatch,
     ConwayTxRefScriptsSizeTooBig,
     ConwayWdrlNotDelegatedToDRep,
+    CurrentTreasuryFieldNotSupported,
+    DRepAlreadyRegistered,
+    DRepNotRegistered,
+    DelegateeDRepNotRegistered,
+    DelegateeStakePoolNotRegistered,
     DisallowedVoters,
-    ExUnitsTooBigUTxO,
+    ExpirationEpochTooSmall,
+    ExtraRedeemers,
     ExtraneousScriptWitnessesUTXOW,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
     IncorrectDepositDELEG,
+    IncorrectDepositDRep,
     IncorrectTotalCollateralField,
-    ConwayTreasuryValueMismatch,
+    InlineDatumsNotSupported,
     InputSetEmptyUTxO,
     InsufficientCollateral,
     InvalidGuardrailsScriptHash,
+    InvalidMetadata,
     InvalidPrevGovActionId,
     InvalidWitnessesUTXOW,
+    MalformedProposal,
     MalformedReferenceScripts,
     MalformedScriptWitnesses,
     MaxTxSizeUTxO,
+    MissingCostModel,
+    MissingRedeemers,
+    MissingRequiredDatums,
     MissingScriptWitnessesUTXOW,
     MissingTxBodyMetadataHash,
     MissingTxMetadata,
     MissingVerificationKeyWitnessesUTXOW,
     NoCollateralInputs,
+    NotAllowedSupplementalDatums,
     OutputTooBigUTxO,
     OutsideForecast,
     OutsideValidityIntervalUTxO,
+    PPViewHashesDontMatch,
     PoolMetadataHashTooBig,
     ProposalCantFollow,
+    ProposalDepositIncorrect,
     ProposalProcedureNetworkIdMismatch,
-    ScriptsNotPaidUTxO,
-    TooManyCollateralInputs,
+    ProposalProceduresFieldNotSupported,
     ProposalReturnAccountDoesNotExist,
-    TreasuryWithdrawalReturnAccountsDoNotExist,
-    TreasuryWithdrawalsAllZeros,
-    DelegateeDRepNotRegistered,
-    DelegateeStakePoolNotRegistered,
-    DRepAlreadyRegistered,
+    ScriptWitnessNotValidatingUTXOW,
+    ScriptsNotPaidUTxO,
     StakeCredentialInvalidPoolDelegation,
     StakeCredentialInvalidVoteDelegation,
     StakeKeyHasNonZeroAccountBalance,
+    StakeKeyNotRegistered,
     StakeKeyRegistered,
-    StakePoolRetirementWrongEpochPOOL,
-    StakePoolNotRegisteredOnKeyPOOL,
     StakePoolCostTooLowPOOL,
+    StakePoolNotRegisteredOnKeyPOOL,
+    StakePoolRetirementWrongEpochPOOL,
+    TooManyCollateralInputs,
+    TooManyExUnits,
+    TreasuryDonationFieldNotSupported,
+    TreasuryWithdrawalReturnAccountsDoNotExist,
+    TreasuryWithdrawalsAllZeros,
+    UnspendableUTxONoDatumHash,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
     VotersDoNotExist,
     VotingOnExpiredGovAction,
+    VotingProceduresFieldNotSupported,
     WithdrawalsNotInRewardsCERTS,
     WrongNetworkInTxBody,
     WrongNetworkInTxOutput,
@@ -354,6 +390,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Metadata(InvalidTransactionMetadata::ConflictingMetadataHash { .. }) => {
                 Predicate::ConflictingMetadataHash
             }
+            PhaseOneError::Metadata(InvalidTransactionMetadata::InvalidScriptBytes(_)) => Predicate::InvalidMetadata,
             PhaseOneError::Inputs(InvalidInputs::EmptyInputSet) => Predicate::InputSetEmptyUTxO,
             PhaseOneError::Inputs(InvalidInputs::UnknownInput(_)) => Predicate::BadInputsUTxO,
             PhaseOneError::Inputs(InvalidInputs::NonDisjointRefInputs { .. }) => Predicate::BabbageNonDisjointRefInputs,
@@ -368,6 +405,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::ValidityInterval(InvalidValidityInterval::OutsideForecast(_)) => Predicate::OutsideForecast,
             PhaseOneError::Certificates(InvalidCertificates::IncorrectStakeDeposit { .. }) => {
                 Predicate::IncorrectDepositDELEG
+            }
+            PhaseOneError::Certificates(InvalidCertificates::IncorrectDRepDeposit { .. }) => {
+                Predicate::IncorrectDepositDRep
             }
             PhaseOneError::Outputs(InvalidOutputs { ref invalid_outputs }) => match invalid_outputs.as_slice() {
                 [WithPosition { element: InvalidOutput::TooSmall { .. }, .. }] => Predicate::BabbageOutputTooSmallUTxO,
@@ -385,6 +425,10 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalReturnAccountsDoNotExist(_)) => {
                 Predicate::TreasuryWithdrawalReturnAccountsDoNotExist
             }
+            PhaseOneError::Proposals(InvalidProposals::IncorrectDeposit { .. }) => Predicate::ProposalDepositIncorrect,
+            PhaseOneError::Proposals(InvalidProposals::ConflictingCommitteeUpdate) => {
+                Predicate::ConflictingCommitteeUpdate
+            }
             PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalsAllZeros) => {
                 Predicate::TreasuryWithdrawalsAllZeros
             }
@@ -401,6 +445,10 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::InvalidGuardrailsScriptHash
             }
             PhaseOneError::Proposals(InvalidProposals::HardforkCantFollow { .. }) => Predicate::ProposalCantFollow,
+            PhaseOneError::Proposals(InvalidProposals::MalformedProposal { .. }) => Predicate::MalformedProposal,
+            PhaseOneError::Proposals(InvalidProposals::ExpirationEpochTooSmall { .. }) => {
+                Predicate::ExpirationEpochTooSmall
+            }
             PhaseOneError::VotingProcedures(InvalidVotingProcedures::GovActionsDoNotExist(_)) => {
                 Predicate::GovActionsDoNotExist
             }
@@ -414,18 +462,48 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::ExtraneousScriptWitnessesUTXOW
             }
             PhaseOneError::Scripts(InvalidScripts::MissingRequiredScripts(_)) => Predicate::MissingScriptWitnessesUTXOW,
-            PhaseOneError::Scripts(InvalidScripts::TooManyExUnits { .. }) => Predicate::ExUnitsTooBigUTxO,
+            PhaseOneError::Scripts(InvalidScripts::MissingRequiredDatums { .. }) => Predicate::MissingRequiredDatums,
+            PhaseOneError::Scripts(InvalidScripts::MissingRedeemers(_)) => Predicate::MissingRedeemers,
+            PhaseOneError::Scripts(InvalidScripts::ExtraneousSupplementalDatums { .. }) => {
+                Predicate::NotAllowedSupplementalDatums
+            }
+            PhaseOneError::Scripts(InvalidScripts::ExtraneousRedeemers(_)) => Predicate::ExtraRedeemers,
+            PhaseOneError::Scripts(InvalidScripts::UnspendableInputsNoDatums(_)) => {
+                Predicate::UnspendableUTxONoDatumHash
+            }
+            PhaseOneError::Scripts(InvalidScripts::ScriptWitnessNotValidatingUTXOW(_)) => {
+                Predicate::ScriptWitnessNotValidatingUTXOW
+            }
+            PhaseOneError::Scripts(InvalidScripts::ScriptIntegrityHashMismatch { .. }) => {
+                Predicate::PPViewHashesDontMatch
+            }
+            PhaseOneError::Scripts(InvalidScripts::TooManyExUnits { .. }) => Predicate::TooManyExUnits,
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
+            }
+            PhaseOneError::ScriptPreparation(PreparationError::ScriptContextState(ref error)) => {
+                let message = error.to_string();
+                if message.contains("proposal procedures unsupported") {
+                    Predicate::ProposalProceduresFieldNotSupported
+                } else if message.contains("voting procedures unsupported") {
+                    Predicate::VotingProceduresFieldNotSupported
+                } else if message.contains("current treasury value unsupported") {
+                    Predicate::CurrentTreasuryFieldNotSupported
+                } else if message.contains("treasury donation unsupported") {
+                    Predicate::TreasuryDonationFieldNotSupported
+                } else if message.contains("inline datums unsupported") {
+                    Predicate::InlineDatumsNotSupported
+                } else {
+                    unreachable!("no predicate mapping yet for {err}")
+                }
             }
             PhaseOneError::ScriptPreparation(
                 PreparationError::MissingInput(_)
                 | PreparationError::TransactionTranslation(_)
-                | PreparationError::ScriptContextState(_)
                 | PreparationError::ScriptDeserialization(_)
-                | PreparationError::MissingCostModel(_)
                 | PreparationError::NonDisjointRefInputs { .. },
             ) => unreachable!("no predicate mapping yet for {err}"),
+            PhaseOneError::ScriptPreparation(PreparationError::MissingCostModel(_)) => Predicate::MissingCostModel,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
                 DelegateError::UnknownTarget(_) => Predicate::DelegateeStakePoolNotRegistered,
@@ -449,6 +527,11 @@ impl From<PhaseOneError> for Predicate {
             }
             PhaseOneError::Certificates(InvalidCertificates::DRepAlreadyRegistered(_)) => {
                 Predicate::DRepAlreadyRegistered
+            }
+            PhaseOneError::Certificates(InvalidCertificates::DRepInvalidUpdate(_)) => Predicate::DRepNotRegistered,
+            PhaseOneError::Certificates(InvalidCertificates::DRepNotRegistered(_)) => Predicate::DRepNotRegistered,
+            PhaseOneError::Certificates(InvalidCertificates::StakeCredentialNotRegistered(_)) => {
+                Predicate::StakeKeyNotRegistered
             }
             PhaseOneError::Certificates(InvalidCertificates::PoolRetirementWrongEpoch { .. }) => {
                 Predicate::StakePoolRetirementWrongEpochPOOL
@@ -474,9 +557,7 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::IncorrectTotalCollateralField
             }
             PhaseOneError::Collateral(InvalidCollateral::NoCollateral) => Predicate::NoCollateralInputs,
-            PhaseOneError::Metadata(_)
-            | PhaseOneError::Certificates(_)
-            | PhaseOneError::Scripts(_)
+            PhaseOneError::Certificates(_)
             | PhaseOneError::Proposals(_)
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")

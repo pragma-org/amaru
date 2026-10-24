@@ -11,6 +11,7 @@ module Data.Fixture.InitialState
     , Pots (..)
     , ProposalEntry (..)
     , RegisteredDRep (..)
+    , VotingState (..)
     , VoteDelegation (..)
     , buildNewEpochState
     ) where
@@ -178,6 +179,7 @@ data InitialState = InitialState
     , proposalsRoots :: !(GovRelation StrictMaybe)
     , pots :: !Pots
     , governanceActivity :: !GovernanceActivity
+    , votingState :: !(Maybe VotingState)
     , guardrailScript :: !(Maybe ScriptHash)
     }
     deriving (Generic)
@@ -195,6 +197,7 @@ instance FromJSON InitialState where
                 <*> (objectValue .:? "proposals_roots" >>= maybe (pure def) parseProposalsRoots)
                 <*> objectValue .:? "pots" .!= def
                 <*> objectValue .:? "governance_activity" .!= def
+                <*> objectValue .:? "voting_state"
                 <*> (objectValue .:? "guardrail_script" >>= traverse parseScriptHash)
 
 data UtxoEntry = UtxoEntry
@@ -304,6 +307,21 @@ instance FromJSON GovernanceActivity where
 
 instance Default GovernanceActivity where
     def = GovernanceActivity 0
+
+-- | The block-start voting state. The legacy fixture shape keeps these fields at the top level;
+-- the grouped form is useful when importing a ledger snapshot as one coherent state.
+data VotingState = VotingState
+    { votingDReps :: ![RegisteredDRep]
+    , votingCommittee :: ![CommitteeMember]
+    , votingGovernanceActivity :: !GovernanceActivity
+    }
+
+instance FromJSON VotingState where
+    parseJSON = withObject "VotingState" $ \objectValue -> do
+        votingDReps <- objectValue .:? "dreps" .!= []
+        votingCommittee <- objectValue .:? "committee" .!= []
+        dormantEpochs <- objectValue .:? "consecutive_dormant_epochs" .!= 0
+        pure (VotingState votingDReps votingCommittee (GovernanceActivity dormantEpochs))
 
 data ProposalEntry = ProposalEntry
     { proposalId :: !GovActionId
@@ -444,7 +462,14 @@ buildNewEpochState
     -> Point
     -> Either Error (NewEpochState ConwayEra)
 buildNewEpochState pparams eraHistory initialState point = do
-    let InitialState{utxo, pools, accounts, dreps, committee, proposals, proposalsRoots, pots, governanceActivity, guardrailScript} = initialState
+    let InitialState{utxo, pools, accounts, dreps = legacyDReps, committee = legacyCommittee, proposals, proposalsRoots, pots, governanceActivity = legacyGovernanceActivity, votingState, guardrailScript} = initialState
+        VotingState{votingDReps, votingCommittee, votingGovernanceActivity} =
+            fromMaybe
+                (VotingState legacyDReps legacyCommittee legacyGovernanceActivity)
+                votingState
+        dreps = votingDReps
+        committee = votingCommittee
+        governanceActivity = votingGovernanceActivity
     accountEntries <- traverse toLedgerAccountEntry accounts
     dRepEntries <- traverse toLedgerDRepEntry dreps
     currentEpoch <- pointEpochNo eraHistory point
