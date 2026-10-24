@@ -198,6 +198,10 @@ impl AccountsSlice for DefaultValidationContext {
         pool: PoolId,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<Credential, PoolId>> {
+        if AccountsSlice::lookup(self, &credential).is_none() {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+
         if !PoolsSlice::exists(self, pool) {
             return Err(DelegateError::UnknownTarget(pool));
         }
@@ -211,6 +215,10 @@ impl AccountsSlice for DefaultValidationContext {
         drep: DRep,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<Credential, DRep>> {
+        if AccountsSlice::lookup(self, &credential).is_none() {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+
         let drep_stake_credential: Option<Credential> = match &drep {
             DRep::Key(hash) => Some(Credential::KeyHash(*hash)),
             DRep::Script(hash) => Some(Credential::ScriptHash(*hash)),
@@ -261,6 +269,10 @@ impl DRepsSlice for DefaultValidationContext {
     }
 
     fn update(&mut self, drep: Credential, anchor: Option<Box<Anchor>>) -> Result<(), UpdateError<Credential>> {
+        if DRepsSlice::lookup(self, &drep).is_none() {
+            return Err(UpdateError::UnknownSource(drep));
+        }
+
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
     }

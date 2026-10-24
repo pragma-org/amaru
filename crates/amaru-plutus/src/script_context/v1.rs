@@ -192,6 +192,10 @@ where
 impl ToPlutusData<1> for MemoizedTransactionOutput {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        if matches!(self.datum, MemoizedDatum::Inline(..)) {
+            return Err(PlutusDataError::unsupported_version("inline datums unsupported", 1));
+        }
+
         constr_v1!(
             0,
             [

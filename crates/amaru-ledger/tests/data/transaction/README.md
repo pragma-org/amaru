@@ -105,6 +105,10 @@ it is made up of the following fields:
   the latest enacted governance action id per purpose, each a governance action id
   (see below). Use `{}` when none are enacted; absent purposes default to none.
 - `governance_activity`: `{ consecutive_dormant_epochs }`.
+- `voting_state`: optional grouped form of the initial DRep, committee, and governance-activity
+  state. When present, `dreps`, `committee`, and `consecutive_dormant_epochs` inside it take
+  precedence over the legacy fields above. The legacy fields remain accepted so existing fixtures
+  do not need to be rewritten.
 - `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
 - `guardrail_script`: hex-encoded script hash of the enacted constitution's
   guardrails script. A proposal carrying a policy must name exactly this script;

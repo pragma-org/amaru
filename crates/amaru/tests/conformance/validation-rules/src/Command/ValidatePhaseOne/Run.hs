@@ -375,7 +375,14 @@ renderActualPredicates predicates =
 
 normalizeApplyTxError :: Bool -> Maybe Text -> ApplyTxError ConwayEra -> [Text]
 normalizeApplyTxError emptyInputs expectedHint (ConwayApplyTxError failures) =
-    map (normalizeLedgerFailure emptyInputs expectedHint) (filter isBlockValidationFailure (NonEmpty.toList failures))
+    let blockFailures = filter isBlockValidationFailure (NonEmpty.toList failures)
+        predicates = map (normalizeLedgerFailure emptyInputs expectedHint) blockFailures
+     in case expectedHint of
+            Just predicateName
+                | any (Text.isInfixOf predicateName . showText) blockFailures ->
+                    [predicateName]
+            _ ->
+                predicates
 
 -- Amaru's phase-one rules validate a transaction as part of a block, so failures 'applyTx' raises
 -- that block application would not are dropped.
@@ -415,9 +422,11 @@ normalizeLedgerFailure emptyInputs expectedHint = \case
         "unsupported:" <> showText otherFailure
 
 normalizeUtxowFailure :: Maybe Text -> ConwayUtxowPredFailure ConwayEra -> Text
-normalizeUtxowFailure expectedHint = \case
+normalizeUtxowFailure (Just expectedHint) utxowFailure
+    | expectedHint `Text.isInfixOf` showText utxowFailure = expectedHint
+normalizeUtxowFailure expectedHint utxowFailure = case utxowFailure of
     UtxoFailure failure ->
-        normalizeUtxoFailure failure
+        normalizeUtxoFailure expectedHint failure
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
     ExtraneousScriptWitnessesUTXOW{} ->
@@ -439,8 +448,8 @@ normalizeUtxowFailure expectedHint = \case
     otherFailure ->
         "unsupported:" <> showText expectedHint <> ":" <> showText otherFailure
 
-normalizeUtxoFailure :: ConwayUtxoPredFailure ConwayEra -> Text
-normalizeUtxoFailure = \case
+normalizeUtxoFailure :: Maybe Text -> ConwayUtxoPredFailure ConwayEra -> Text
+normalizeUtxoFailure expectedHint = \case
     BadInputsUTxO{} ->
         "BadInputsUTxO"
     OutsideValidityIntervalUTxO{} ->
@@ -479,9 +488,16 @@ normalizeUtxoFailure = \case
         "BabbageOutputTooSmallUTxO"
     BabbageNonDisjointRefInputs{} ->
         "BabbageNonDisjointRefInputs"
+    ExUnitsTooBigUTxO{} ->
+        "TooManyExUnits"
     NoCollateralInputs{} ->
         "NoCollateralInputs"
     UtxosFailure failure
+        | Just hint <- expectedHint
+        , hint `Text.isInfixOf` showText failure ->
+            hint
+        | "NoCostModel" `Text.isInfixOf` showText failure ->
+            "MissingCostModel"
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
         | "ValidationTagMismatch" `Text.isInfixOf` showText failure ->
@@ -526,12 +542,16 @@ normalizeGovCertFailure :: ConwayGovCertPredFailure ConwayEra -> Text
 normalizeGovCertFailure = \case
     ConwayDRepAlreadyRegistered{} ->
         "DRepAlreadyRegistered"
+    ConwayDRepNotRegistered{} ->
+        "DRepNotRegistered"
+    ConwayDRepIncorrectDeposit{} ->
+        "IncorrectDepositDRep"
+    ConwayDRepIncorrectRefund{} ->
+        "IncorrectDepositDRep"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
     ConwayCommitteeHasPreviouslyResigned{} ->
         "CommitteeHasPreviouslyResigned"
-    otherFailure ->
-        "unsupported:" <> showText otherFailure
 
 normalizePoolFailure :: ShelleyPoolPredFailure ConwayEra -> Text
 normalizePoolFailure = \case
@@ -550,6 +570,14 @@ normalizePoolFailure = \case
 
 normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
 normalizeGovFailure = \case
+    MalformedProposal{} ->
+        "MalformedProposal"
+    ExpirationEpochTooSmall{} ->
+        "ExpirationEpochTooSmall"
+    ProposalDepositIncorrect{} ->
+        "ProposalDepositIncorrect"
+    ConflictingCommitteeUpdate{} ->
+        "ConflictingCommitteeUpdate"
     ProposalReturnAccountDoesNotExist{} ->
         "ProposalReturnAccountDoesNotExist"
     ProposalProcedureNetworkIdMismatch{} ->
