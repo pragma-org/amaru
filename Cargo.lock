@@ -339,9 +339,11 @@ dependencies = [
  "sha3",
  "stacksafe",
  "sysinfo",
+ "tempfile",
  "test-case",
  "thiserror 2.0.21",
  "toml",
+ "zeroize",
 ]
 
 [[package]]

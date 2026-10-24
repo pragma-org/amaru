@@ -44,6 +44,7 @@ serde_json = { workspace = true, features = [ "std" ] }
 sha3.workspace = true
 stacksafe.workspace = true
 thiserror.workspace = true
+zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-minicbor-extra.workspace = true
@@ -56,6 +57,7 @@ insta.workspace = true
 proptest.workspace = true
 rand.workspace = true
 rayon.workspace = true
+tempfile.workspace = true
 test-case.workspace = true
 toml.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐

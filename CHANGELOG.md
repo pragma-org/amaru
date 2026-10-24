@@ -36,24 +36,9 @@ Other guiding principles:
 -->
 
 ## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
-## v10.11.20261022 _[unreleased; planned for 2026-10-22]_
-
-### Fixed
-
-- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
-
-## v10.11.20261015 _[unreleased; planned for 2026-10-15]_
 
 ### Added
 
-- **amaru-tui**: double-click a value to copy it, or drag across a row to copy those characters. A peer address copies as `ip:port`. The screen stays still during the drag. On this Mac the text goes to the clipboard. Over tmux it also goes to the tmux paste buffer.
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.
-- **amaru**: `--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) writes an extra log file without replacing the terminal, the TUI, or OpenTelemetry. Repeat the flag for more files. The value is split at the first colon. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is text. Span close lines include busy and idle time. `amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run` records how long each external effect runs.
-  `try_setup_observability` and `setup_observability` take those file specs as an extra argument.
-- **amaru**: header forward, fetch wait, block fetch, and fork switch are spans on `amaru::network`, parented on the `roll_forward.process` span. Blockperf lines for a header carry that span's trace id. A rejected header logs its lifecycle once.
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. Use `--key-format=compatible` for cardano-cli JSON text envelopes. The node accepts either KES signing-key format automatically.
-- **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates raw binary KES key files without replacing existing files. The node also accepts legacy cardano-cli KES signing-key text envelopes.
-- **amaru-node**: Mithril sync shows block ingestion count, speed, and estimated time remaining in the terminal.
 - **amaru**: `amaru keys opcert inspect OPCERT` prints the pool ID, sequence number, KES period, and hot verification key from an operational certificate.
 - **amaru**: `amaru keys kes period --opcert OPCERT --slot SLOT` shows the current KES period and how many periods remain before key rotation is required.
 - **amaru**: `amaru keys pool-id COLD_VKEY` derives the pool ID from a cold verification key file.
