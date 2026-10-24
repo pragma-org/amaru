@@ -76,14 +76,14 @@ pub enum InvalidCertificates {
     #[error("incorrect drep deposit: provided {provided}, expected {expected}")]
     IncorrectDRepDeposit { provided: Lovelace, expected: Lovelace },
 
-    #[error("stake credential not registered: {0:?}")]
-    StakeCredentialNotRegistered(Credential),
+    #[error("stake credential not registered: {0}")]
+    StakeCredentialNotRegistered(#[from] UnregisterError<AccountState, Credential>),
 
     #[error("cannot unregister a stake credential that has rewards: {credential:?} has a balance of {rewards}")]
     StakeCredentialHasRewards { credential: Credential, rewards: Lovelace },
 
-    #[error("drep not registered: {0:?}")]
-    DRepNotRegistered(Credential),
+    #[error("drep not registered: {0}")]
+    DRepNotRegistered(#[from] UnregisterError<DRepRegistration, Credential>),
 }
 
 pub(crate) fn execute<C>(
@@ -289,14 +289,12 @@ where
         Certificate::StakeDeregistration(credential) => {
             require_credential_witness(context, credential, pointer.certificate_index);
 
-            let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
+            let account = AccountsSlice::unregister(context, credential)?;
 
             if account.rewards != 0 {
                 return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
-            AccountsSlice::unregister(context, credential);
             context.consume_lovelace(account.deposit);
 
             Ok(())
@@ -305,8 +303,7 @@ where
         Certificate::UnReg(credential, refund) => {
             require_credential_witness(context, credential, pointer.certificate_index);
 
-            let account = AccountsSlice::lookup(context, &credential)
-                .ok_or(InvalidCertificates::StakeCredentialNotRegistered(credential))?;
+            let account = AccountsSlice::unregister(context, credential)?;
 
             if refund != account.deposit {
                 return Err(InvalidCertificates::IncorrectStakeDeposit { provided: refund, expected: account.deposit });
@@ -316,7 +313,6 @@ where
                 return Err(InvalidCertificates::StakeCredentialHasRewards { credential, rewards: account.rewards });
             }
 
-            AccountsSlice::unregister(context, credential);
             context.consume_lovelace(refund);
 
             Ok(())
@@ -357,16 +353,15 @@ where
         Certificate::UnRegDRepCert(drep, refund) => {
             require_credential_witness(context, drep, pointer.certificate_index);
 
-            let deposit = match DRepsSlice::lookup(context, &drep) {
-                Some(registration) => registration.deposit,
-                None => return Err(InvalidCertificates::DRepNotRegistered(drep)),
-            };
+            let registration = DRepsSlice::unregister(context, drep, pointer)?;
 
-            if refund != deposit {
-                return Err(InvalidCertificates::IncorrectDRepDeposit { provided: refund, expected: deposit });
+            if refund != registration.deposit {
+                return Err(InvalidCertificates::IncorrectDRepDeposit {
+                    provided: refund,
+                    expected: registration.deposit,
+                });
             }
 
-            DRepsSlice::unregister(context, drep, refund, pointer);
             context.consume_lovelace(refund);
 
             Ok(())

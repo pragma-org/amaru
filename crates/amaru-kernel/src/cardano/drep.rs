@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneof};
 use serde::ser::SerializeStruct;
@@ -27,6 +29,17 @@ pub enum DRep {
     Script(Hash<{ SCRIPT }>),
     Abstain,
     NoConfidence,
+}
+
+impl fmt::Display for DRep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Key(hash) => write!(f, "key({hash})"),
+            Self::Script(hash) => write!(f, "script({hash})"),
+            Self::Abstain => f.write_str("abstain"),
+            Self::NoConfidence => f.write_str("no-confidence"),
+        }
+    }
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for DRep {

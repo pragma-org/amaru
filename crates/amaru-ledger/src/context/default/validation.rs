@@ -198,9 +198,14 @@ impl AccountsSlice for DefaultValidationContext {
         pool: PoolId,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<Credential, PoolId>> {
+        if AccountsSlice::lookup(self, &credential).is_none() {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+
         if !PoolsSlice::exists(self, pool) {
             return Err(DelegateError::UnknownTarget(pool));
         }
+
         self.state.accounts.bind_left(credential, Some((pool, pointer)))?;
         Ok(())
     }
@@ -211,6 +216,10 @@ impl AccountsSlice for DefaultValidationContext {
         drep: DRep,
         pointer: CertificatePointer,
     ) -> Result<(), DelegateError<Credential, DRep>> {
+        if AccountsSlice::lookup(self, &credential).is_none() {
+            return Err(DelegateError::UnknownSource(credential));
+        }
+
         let drep_stake_credential: Option<Credential> = match &drep {
             DRep::Key(hash) => Some(Credential::KeyHash(*hash)),
             DRep::Script(hash) => Some(Credential::ScriptHash(*hash)),
@@ -221,12 +230,20 @@ impl AccountsSlice for DefaultValidationContext {
         {
             return Err(DelegateError::UnknownTarget(drep));
         }
+
         self.state.accounts.bind_right(credential, Some((drep, pointer)))?;
         Ok(())
     }
 
-    fn unregister(&mut self, credential: Credential) {
-        self.state.accounts.unregister(credential)
+    fn unregister(
+        &mut self,
+        credential: Credential,
+    ) -> Result<AccountState, UnregisterError<AccountState, Credential>> {
+        let Some(account) = AccountsSlice::lookup(self, &credential) else {
+            return Err(UnregisterError::Unknown(PhantomData, credential));
+        };
+        self.state.accounts.unregister(credential);
+        Ok(account)
     }
 
     fn withdraw_from(&mut self, credential: Credential) {
@@ -261,14 +278,26 @@ impl DRepsSlice for DefaultValidationContext {
     }
 
     fn update(&mut self, drep: Credential, anchor: Option<Box<Anchor>>) -> Result<(), UpdateError<Credential>> {
+        if DRepsSlice::lookup(self, &drep).is_none() {
+            return Err(UpdateError::UnknownSource(drep));
+        }
+
         self.state.dreps.bind_left(drep, anchor)?;
         Ok(())
     }
 
-    fn unregister(&mut self, drep: Credential, _refund: Lovelace, pointer: CertificatePointer) {
+    fn unregister(
+        &mut self,
+        drep: Credential,
+        pointer: CertificatePointer,
+    ) -> Result<DRepRegistration, UnregisterError<DRepRegistration, Credential>> {
+        let Some(registration) = DRepsSlice::lookup(self, &drep).copied() else {
+            return Err(UnregisterError::Unknown(PhantomData, drep));
+        };
         let removal = self.dreps.contains_key(&drep).then_some(pointer);
         self.state.dreps_deregistrations.insert(drep, removal);
-        self.state.dreps.unregister(drep)
+        self.state.dreps.unregister(drep);
+        Ok(registration)
     }
 }
 
@@ -527,7 +556,7 @@ mod tests {
     #[test]
     fn lookup_is_none_after_an_in_block_deregistration() {
         let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
-        AccountsSlice::unregister(&mut ctx, cred(1));
+        AccountsSlice::unregister(&mut ctx, cred(1)).unwrap();
         assert!(AccountsSlice::lookup(&ctx, &cred(1)).is_none());
     }
 
@@ -546,7 +575,7 @@ mod tests {
             DRepRegistration { deposit: 500_000_000, registered_at: pointer(), valid_until: Epoch::from(10) };
         DRepsSlice::register(&mut ctx, drep, registration, None).unwrap();
         let deregistration = CertificatePointer { certificate_index: 1, ..pointer() };
-        DRepsSlice::unregister(&mut ctx, drep, registration.deposit, deregistration);
+        DRepsSlice::unregister(&mut ctx, drep, deregistration).unwrap();
         assert!(DRepsSlice::lookup(&ctx, &drep).is_none());
 
         let update = VolatileFragment::from(ctx).anchor(Point::Origin, PoolId::new([0; 28])).into_store_update();

@@ -1,0 +1,29 @@
+{
+  "title": "drep update of an unregistered drep",
+  "description": "A DRep-update certificate updates an unregistered key-hash DRep credential.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820fb1498f8ee0bcd30e186c2cdbaff7220ad5bfb64f5c19cda2f203e34129fcb8700",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "accounts": [],
+    "dreps": []
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820fb1498f8ee0bcd30e186c2cdbaff7220ad5bfb64f5c19cda2f203e34129fcb87000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d901028183128200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409bf855e4c78d2d85e8d0557ed3d4324607d509134614508e8e972987b82958c312aaafb244f22b7215a02dd5867895b126692caecc663a9eea7b63b0cc214408f5f6",
+  "expected": {
+    "predicate": "DRepNotRegistered"
+  }
+}
