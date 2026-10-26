@@ -310,6 +310,11 @@ fn test_world_owns_production_nodes_boot_connect_exchange_bunched_handshake() {
     run_boot_connect_exchange(Some(BUNCHED_HANDSHAKE_SEED));
 }
 
+#[test]
+fn test_world_owns_production_nodes_boot_connect_exchange_delayed_intersection() {
+    run_boot_connect_exchange(Some(0xe8ec_a039_a09a_813d));
+}
+
 fn run_boot_connect_exchange(seed: Option<u64>) {
     let run = SyncRun::with_provider_seed("boot_connect_exchange", seed, |seed| {
         Arc::new(WorldConnectionProvider::with_long_tail_payload_delay(seed))
@@ -318,7 +323,10 @@ fn run_boot_connect_exchange(seed: Option<u64>) {
     let listen_a = loopback(9311);
     let listen_b = loopback(9310);
 
-    let node_a = generated_node(run.seed, 0, listen_a).with_no_upstream_peers().with_validated_blocks(headers);
+    let node_a = generated_node(run.seed, 0, listen_a)
+        .with_no_upstream_peers()
+        .with_target_upstream_peers(0)
+        .with_validated_blocks(headers);
     let node_b = generated_node(run.seed, 1, listen_b).with_upstream_peer(peer_at(listen_a));
 
     let mut world = WorldLoop::new(run.provider.clone(), vec![run.spawn_live(0, node_a), run.spawn_live(1, node_b)]);
