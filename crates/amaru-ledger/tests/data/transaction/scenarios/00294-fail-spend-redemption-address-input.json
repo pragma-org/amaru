@@ -1,0 +1,27 @@
+{
+  "title": "spend redemption address input",
+  "description": "Spends a Byron redemption-address input with a bootstrap witness signed by the redemption key.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820ee0c2d76e5ca5f142ef0e5039432783d154eea1f7af0734292e831cf193864b000",
+        "output": "a200582e82d818582483581caf5d49c66626fb708f5a8f72ad897585c378967dabe1db1b4a7ce401a1024101021a4e39fb34011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820ee0c2d76e5ca5f142ef0e5039432783d154eea1f7af0734292e831cf193864b0000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0047b760021a000493e00f00a102d90102818458202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a75d2b76ed0267396b5166d7f156a8427d463eda6b80eb25521eac10563fabac9d0bc6162645ff7274623b01cb401f6037944e105145618b4ae3f3f89c0e3e0d5820000000000000000000000000000000000000000000000000000000000000000044a1024101f5f6",
+  "expected": {
+    "predicate": "MissingVerificationKeyWitnessesUTXOW"
+  }
+}

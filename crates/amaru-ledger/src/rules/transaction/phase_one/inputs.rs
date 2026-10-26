@@ -14,8 +14,7 @@
 
 use amaru_kernel::{
     Address, AsHash, HasScriptHash, MemoizedDatum, ProtocolParameters, RedeemerTag, RequiredScript, Set,
-    TransactionInput, address::byron::AddressType, protocol_version::PROTOCOL_VERSION_11,
-    utils::string::display_collection,
+    TransactionInput, protocol_version::PROTOCOL_VERSION_11, utils::string::display_collection,
 };
 use thiserror::Error;
 
@@ -102,11 +101,7 @@ where
         let consumed_value = output.value.clone();
 
         match &output.address {
-            Address::Byron(byron_address) => {
-                if let AddressType::VerificationKey = byron_address.address_type {
-                    context.require_bootstrap_witness(byron_address.root);
-                };
-            }
+            Address::Byron(byron_address) => context.require_bootstrap_witness(byron_address.root),
             Address::Shelley(shelley_address) => {
                 if shelley_address.payment().is_script() {
                     context.require_script_witness(RequiredScript {

@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Address, Credential, HasOwnership, Hash, Lovelace, MemoizedTransactionOutput, ProtocolParameters, TransactionInput,
-    address::byron::AddressType, cardano::value::Balance,
+    cardano::value::Balance,
 };
 use thiserror::Error;
 
@@ -77,15 +77,7 @@ where
                 Credential::KeyHash(hash) => Some(CollateralWitness::VerificationKey(hash)),
                 Credential::ScriptHash(_) => None,
             },
-            Address::Byron(byron_address) => {
-                match byron_address.address_type {
-                    AddressType::VerificationKey => Some(CollateralWitness::Bootstrap(byron_address.root)),
-                    // FIXME: Not unreachable at all?
-                    AddressType::RedemptionVoucher => {
-                        unreachable!("non verification key Byron address in collateral input")
-                    }
-                }
-            }
+            Address::Byron(byron_address) => Some(CollateralWitness::Bootstrap(byron_address.root)),
         };
 
         if has_redeemers {
