@@ -25,21 +25,16 @@ import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass, field, replace
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Iterable
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore
 
 
 SECTION_ORDER = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
 SECTION_INDEX = {name: idx for idx, name in enumerate(SECTION_ORDER)}
 BYPASS_LINES = {"no-changelog", "skip-changelog"}
 RELEASE_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
-UNRELEASED_HEADER_RE = re.compile(
+LEGACY_UNRELEASED_HEADER_RE = re.compile(
     r"^##\s+(v\d+\.\d+\.\d{8})"
     r"\s+_\[unreleased(?:;\s+planned for (?P<planned_date>\d{4}-\d{2}-\d{2}))?\]_\s*$"
 )
@@ -78,7 +73,6 @@ class ReleaseBlock:
     version: str
     line_number: int
     released: bool
-    planned_date: str | None
     start_index: int
     end_index: int
     sections: list[Section] = field(default_factory=list)
@@ -147,54 +141,12 @@ def record_failure(
     failures.append(Failure(title=title, message=message, line=line))
 
 
-def next_thursday(today: date) -> date:
-    days = (3 - today.weekday()) % 7
-    if days == 0:
-        days = 7
-    return today + timedelta(days=days)
-
-
-def upcoming_thursday(today: date) -> date:
-    return today + timedelta(days=(3 - today.weekday()) % 7)
-
-
-def release_version(version_major_minor: tuple[str, str], release_day: date) -> str:
-    major, minor = version_major_minor
-    return f"v{major}.{minor}.{release_day.strftime('%Y%m%d')}"
-
-
-def expected_release_day(
-    today: date,
-    version_major_minor: tuple[str, str],
-    blocks: list[ReleaseBlock],
-) -> date:
-    release_day = upcoming_thursday(today)
-
-    if today.weekday() != 3:
-        return release_day
-
-    current_version = release_version(version_major_minor, release_day)
-    current_block = find_release(blocks, current_version)
-
-    if current_block is not None and current_block.released:
-        return next_thursday(today)
-
-    return release_day
-
-
-def parse_amaru_version(manifest_path: Path) -> tuple[str, str]:
-    data = tomllib.loads(manifest_path.read_text())
-    version = data["package"]["version"]
-    major, minor, _patch = version.split(".", 2)
-    return major, minor
-
-
 def parse_release_headers(lines: list[str]) -> list[ReleaseBlock]:
     blocks: list[ReleaseBlock] = []
 
     for idx, line in enumerate(lines):
         released = RELEASE_HEADER_RE.match(line)
-        unreleased = UNRELEASED_HEADER_RE.match(line)
+        legacy_unreleased = LEGACY_UNRELEASED_HEADER_RE.match(line)
 
         if released:
             blocks.append(
@@ -202,22 +154,26 @@ def parse_release_headers(lines: list[str]) -> list[ReleaseBlock]:
                     version=released.group(1),
                     line_number=idx + 1,
                     released=True,
-                    planned_date=None,
                     start_index=idx,
                     end_index=len(lines),
                 )
             )
-        elif unreleased:
+        elif line == "## Unreleased" or legacy_unreleased:
             blocks.append(
                 ReleaseBlock(
-                    version=unreleased.group(1),
+                    version=legacy_unreleased.group(1) if legacy_unreleased else "Unreleased",
                     line_number=idx + 1,
                     released=False,
-                    planned_date=unreleased.group("planned_date"),
                     start_index=idx,
                     end_index=len(lines),
                 )
             )
+
+    if blocks:
+        blocks[-1].end_index = next(
+            (idx for idx in range(blocks[-1].start_index + 1, len(lines)) if REF_DEF_RE.match(lines[idx])),
+            len(lines),
+        )
 
     for current, nxt in zip(blocks, blocks[1:]):
         current.end_index = nxt.start_index
@@ -374,10 +330,10 @@ def release_sections_by_name(block: ReleaseBlock) -> dict[str, Section]:
     return {section.name: section for section in block.sections}
 
 
-def suggested_changelog_snippet(expected_version: str, expected_day: date) -> str:
+def suggested_changelog_snippet() -> str:
     return textwrap.dedent(
-        f"""\
-        ## {expected_version} _[unreleased; planned for {expected_day.isoformat()}]_
+        """\
+        ## Unreleased
 
         ### Changed
 
@@ -445,8 +401,6 @@ def render_failure_markdown(
 
 def failure_report_markdown(
     changelog_path: Path,
-    expected_version: str,
-    expected_day: date,
     relevant_commits: list[str],
     failures: list[Failure],
     pr_number: int | None,
@@ -470,7 +424,7 @@ def failure_report_markdown(
 
     return (
         "## Changelog check failed\n\n"
-        f"Expected release heading: `{expected_version}` _[unreleased; planned for {expected_day.isoformat()}]_\n\n"
+        "Expected release heading: `## Unreleased`\n\n"
         "Errors:\n\n"
         + rendered_failures
         + "\n\n"
@@ -480,7 +434,7 @@ def failure_report_markdown(
             + "\n"
             "Suggested starting point:\n\n"
             "```md\n"
-            f"{suggested_changelog_snippet(expected_version, expected_day)}\n"
+            f"{suggested_changelog_snippet()}\n"
             "```\n\n"
             if show_guidance
             else ""
@@ -523,7 +477,6 @@ def validate_references(lines: list[str], failures: list[Failure]) -> None:
 def validate_release_order(
     lines: list[str],
     blocks: list[ReleaseBlock],
-    expected_version: str,
     failures: list[Failure],
 ) -> None:
     if not blocks:
@@ -536,16 +489,18 @@ def validate_release_order(
         )
         return
 
-    if blocks[0].version != expected_version:
+    if blocks[0].version != "Unreleased":
         message = (
-            f"Latest changelog entry must be {expected_version}; found {blocks[0].version}. "
-            f"Add or update the top release header for the upcoming release."
+            f"Top changelog heading must be ## Unreleased; found {blocks[0].version}."
         )
         record_failure(
             failures, message, line=blocks[0].line_number, title="Wrong top release"
         )
 
-    ordered = [version_date(block.version) for block in blocks]
+    versions = [block.version for block in blocks]
+    if len(versions) != len(set(versions)):
+        record_failure(failures, "Release headings must be unique.", title="Duplicate release")
+    ordered = [version_date(block.version) for block in blocks if block.version != "Unreleased"]
     if ordered != sorted(ordered, reverse=True):
         message = "Release headings in CHANGELOG.md must be ordered with the latest release first."
         record_failure(
@@ -704,7 +659,9 @@ def validate_target_release(
     if misplaced:
         return
 
-    base_entries = version_entries(base_lines, base_blocks, head_block.version)
+    base_entries = set()
+    if base_lines is not None and base_blocks and not base_blocks[0].released:
+        base_entries = block_entries(base_lines, base_blocks[0])
     head_entries = {
         entry.normalized for section in sections for entry in section.entries
     }
@@ -715,9 +672,9 @@ def validate_target_release(
             if relevant_commits
             else "  - (none found)"
         )
-        summary_message = "Crate changes require a new changelog entry under the next unreleased release heading."
+        summary_message = "Crate changes require a new changelog entry under ## Unreleased."
         detailed_message = (
-            "Crate changes require a new changelog entry under the next unreleased release heading.\n"
+            "Crate changes require a new changelog entry under ## Unreleased.\n"
             "Commits requiring changelog coverage:\n"
             f"{commit_lines}"
         )
@@ -784,7 +741,6 @@ def prepare_changelog_check(
 def validate_changelog_contents(
     *,
     changelog_path: Path,
-    manifest_path: Path,
     context: CheckContext,
     report_file: Path | None,
 ) -> int:
@@ -794,22 +750,18 @@ def validate_changelog_contents(
     pr_repository_full_name = context.pr_repository_full_name
     server_url = context.server_url
 
-    today = date.today()
     lines = changelog_path.read_text().splitlines()
     blocks = parse_release_headers(lines)
-    version_major_minor = parse_amaru_version(manifest_path)
-    expected_day = expected_release_day(today, version_major_minor, blocks)
-    expected_version = release_version(version_major_minor, expected_day)
 
     failures: list[Failure] = []
     validate_references(lines, failures)
-    validate_release_order(lines, blocks, expected_version, failures)
+    validate_release_order(lines, blocks, failures)
 
-    target_block = find_release(blocks, expected_version)
+    target_block = find_release(blocks, "Unreleased")
     if target_block is None:
         detailed_message = (
-            f"Missing unreleased changelog heading for {expected_version}. Add this block:\n\n"
-            f"{suggested_changelog_snippet(expected_version, expected_day)}"
+            "Missing ## Unreleased heading. Add this block:\n\n"
+            f"{suggested_changelog_snippet()}"
         )
         line = next_release_header_line(lines, blocks)
         emit_annotation(
@@ -818,31 +770,11 @@ def validate_changelog_contents(
         failures.append(
             Failure(
                 title="Missing next release header",
-                message=f"Missing unreleased changelog heading for {expected_version}.",
+                message="Missing ## Unreleased heading.",
                 line=line,
             )
         )
     else:
-        if target_block.released:
-            message = f"Expected the top changelog entry for {expected_version} to be unreleased while preparing changes."
-            record_failure(
-                failures,
-                message,
-                line=target_block.line_number,
-                title="Expected unreleased heading",
-            )
-        elif target_block.planned_date != expected_day.isoformat():
-            message = (
-                f"Expected the top unreleased heading for {expected_version} to include planned date "
-                f"{expected_day.isoformat()}; found {target_block.planned_date or 'no ISO date'}."
-            )
-            record_failure(
-                failures,
-                message,
-                line=target_block.line_number,
-                title="Wrong planned date",
-            )
-
         base_lines = None
         base_blocks: list[ReleaseBlock] = []
         base_changelog = git("show", f"{base_sha}:CHANGELOG.md", check=False)
@@ -863,8 +795,6 @@ def validate_changelog_contents(
     if failures:
         report = failure_report_markdown(
             changelog_path,
-            expected_version,
-            expected_day,
             relevant_commits,
             failures,
             pr_number,
@@ -890,7 +820,6 @@ def validate_changelog_contents(
 def check_changelog(
     *,
     changelog_path: Path,
-    manifest_path: Path,
     report_file: Path | None,
     base_sha: str | None,
     head_sha: str | None,
@@ -915,7 +844,6 @@ def check_changelog(
 
     return validate_changelog_contents(
         changelog_path=changelog_path,
-        manifest_path=manifest_path,
         context=context,
         report_file=report_file,
     )
@@ -924,7 +852,6 @@ def check_changelog(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--changelog", default="CHANGELOG.md")
-    parser.add_argument("--cargo-toml", default="crates/amaru/Cargo.toml")
     parser.add_argument("--report-file")
     parser.add_argument("--base-sha")
     parser.add_argument("--head-sha")
@@ -938,7 +865,6 @@ def main() -> int:
     try:
         return check_changelog(
             changelog_path=Path(args.changelog),
-            manifest_path=Path(args.cargo_toml),
             report_file=Path(args.report_file) if args.report_file else None,
             base_sha=args.base_sha,
             head_sha=args.head_sha,

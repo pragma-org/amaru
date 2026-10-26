@@ -35,7 +35,7 @@ Other guiding principles:
   ```
 -->
 
-## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
+## Unreleased
 
 ### Changed
 

@@ -145,17 +145,22 @@ jobs:
           chmod +x scripts/update-readme-installation-sections
           ./scripts/update-readme-installation-sections --version "${VERSION}"
 
-      - name: Update changelog release headers
-        continue-on-error: true
+      - name: Move released changelog entries
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.release-metadata.outputs.version }}
           RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
         run: |
+          set -euo pipefail
+          # Use the tagged changelog so entries added after the release stay unreleased.
+          gh api "repos/${GITHUB_REPOSITORY}/contents/CHANGELOG.md?ref=${RELEASE_TAG}" \
+            -H "Accept: application/vnd.github.raw+json" > "${RUNNER_TEMP}/release-changelog.md"
           python3 scripts/update-changelog-after-release \
             --version "${VERSION}" \
             --release-tag "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}"
+            --repo "${GITHUB_REPOSITORY}" \
+            --release-changelog "${RUNNER_TEMP}/release-changelog.md"
 
       - name: Create packaging update PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # https://github.com/peter-evans/create-pull-request/releases/tag/v8.1.1

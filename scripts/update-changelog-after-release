@@ -19,43 +19,94 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 
-UNRELEASED_HEADER_RE = re.compile(
-    r"^##\s+(v\d+\.\d+\.\d{8})(?:\s+.*?(?P<planned_date>\d{4}-\d{2}-\d{2}).*)?\s*$"
-)
 RELEASED_HEADER_RE = re.compile(r"^## \[(v\d+\.\d+\.\d{8})\]\(([^)]+)\)$")
+SECTION_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)$")
+REF_DEF_RE = re.compile(r"^\[(#\d+)\]: (.+)$")
 
 
-def next_thursday(today: date) -> date:
-    days = (3 - today.weekday()) % 7
-    if days == 0:
-        days = 7
-    return today + timedelta(days=days)
+def unreleased_range(lines: list[str]) -> tuple[int, int]:
+    matches = [idx for idx, line in enumerate(lines) if line == "## Unreleased"]
+    if len(matches) != 1:
+        raise ValueError("Expected exactly one ## Unreleased heading")
+    start = matches[0]
+    end = next(
+        (
+            idx for idx in range(start + 1, len(lines))
+            if lines[idx].startswith("## ") or REF_DEF_RE.match(lines[idx])
+        ),
+        len(lines),
+    )
+    return start, end
 
 
-def warning(message: str) -> None:
-    print(f"warning: {message}", file=sys.stderr)
+def parse_entries(lines: list[str]) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    entries: list[str] | None = None
+    for line in lines:
+        section = SECTION_RE.match(line)
+        if section:
+            if section[1] in sections:
+                raise ValueError(f"Duplicate section: {section[1]}")
+            entries = sections.setdefault(section[1], [])
+        elif line.startswith("- ") and entries is not None:
+            entries.append(line.rstrip())
+        elif entries and (not line.strip() or line.startswith(" ")):
+            entries[-1] += "\n" + line.rstrip()
+        elif line.strip():
+            raise ValueError(f"Cannot safely move changelog content: {line}")
+    return {name: [entry.strip() for entry in entries] for name, entries in sections.items()}
 
 
-def insert_next_release_header(lines: list[str], version: str, release_day: date) -> list[str]:
-    major, minor, _patch = version.split(".", 2)
-    next_day = next_thursday(release_day)
-    next_version = f"v{major}.{minor}.{next_day.strftime('%Y%m%d')}"
-    next_header = f"## {next_version} _[unreleased; planned for {next_day.isoformat()}]_"
+def render_sections(sections: dict[str, list[str]]) -> list[str]:
+    lines: list[str] = []
+    for name, entries in sections.items():
+        if entries:
+            lines.extend([f"### {name}", ""])
+            for entry in entries:
+                lines.extend(entry.splitlines())
+            lines.append("")
+    return lines
 
-    if any((match := UNRELEASED_HEADER_RE.match(line)) and match.group(1) == next_version for line in lines):
-        return lines
 
-    insert_at = 1
-    while insert_at < len(lines) and lines[insert_at].startswith("<!--"):
-        insert_at += 1
-    while insert_at < len(lines) and not lines[insert_at].startswith("## "):
-        insert_at += 1
+def update_changelog(current: str, snapshot: str, version: str, release_tag: str, repo: str) -> str:
+    """Move the tag's pending entries, refusing to guess when their wording has changed."""
+    lines = current.splitlines()
+    release_version = f"v{version}"
+    versions = [match[1] for line in lines if (match := RELEASED_HEADER_RE.match(line))]
+    if release_version in versions:
+        return current
+    if any(version[-8:] > release_version[-8:] for version in versions):
+        raise ValueError("Finalize releases in chronological order")
 
-    return lines[:insert_at] + ["", next_header, ""] + lines[insert_at:]
+    start, end = unreleased_range(lines)
+    pending = parse_entries(lines[start + 1 : end])
+    tagged_lines = snapshot.splitlines()
+    tagged_start, tagged_end = unreleased_range(tagged_lines)
+    released = parse_entries(tagged_lines[tagged_start + 1 : tagged_end])
+    released_entries = {entry for entries in released.values() for entry in entries}
+    pending_entries = {entry for entries in pending.values() for entry in entries}
+    missing = released_entries - pending_entries
+    if missing:
+        raise ValueError(
+            "Tagged entries were edited or removed from Unreleased; reconcile them before retrying:\n"
+            + "\n".join(sorted(missing))
+        )
+    remaining = {
+        name: [entry for entry in entries if entry not in released_entries]
+        for name, entries in pending.items()
+    }
+    release_header = f"## [{release_version}](https://github.com/{repo}/releases/tag/{release_tag})"
+    references = {match[1]: line for line in lines if (match := REF_DEF_RE.match(line))}
+    used_references = set(re.findall(r"\[(#\d+)\]\[\]", "\n".join(released_entries)))
+    if any(label not in references or references[label] not in tagged_lines for label in used_references):
+        raise ValueError("Tagged reference definitions are missing or changed")
+    return "\n".join(
+        lines[: start + 1] + [""] + render_sections(remaining)
+        + [release_header, ""] + render_sections(released) + lines[end:]
+    ).rstrip() + "\n"
 
 
 def main() -> int:
@@ -64,37 +115,18 @@ def main() -> int:
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--repo", default="pragma-org/amaru")
     parser.add_argument("--changelog", default="CHANGELOG.md")
+    parser.add_argument("--release-changelog", required=True, help="Changelog read from the release tag")
     args = parser.parse_args()
 
-    changelog_path = Path(args.changelog)
-    lines = changelog_path.read_text(encoding="utf-8").splitlines()
-
-    release_version = f"v{args.version}"
-    release_url = f"https://github.com/{args.repo}/releases/tag/{args.release_tag}"
-    release_day = date.fromisoformat(f"{args.version[-8:-4]}-{args.version[-4:-2]}-{args.version[-2:]}")
-
     try:
-        updated = False
-        for index, line in enumerate(lines):
-            match = UNRELEASED_HEADER_RE.match(line)
-            if match and match.group(1) == release_version:
-                lines[index] = f"## [{release_version}]({release_url})"
-                updated = True
-                break
-            match = RELEASED_HEADER_RE.match(line)
-            if match and match.group(1) == release_version:
-                updated = True
-                break
-
-        if not updated:
-            warning(f"could not find changelog header for {release_version}")
-
-        lines = insert_next_release_header(lines, args.version, release_day)
-        changelog_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    except Exception as err:  # pragma: no cover
-        warning(f"failed to update changelog: {err}")
-        return 0
-
+        changelog_path = Path(args.changelog)
+        current = changelog_path.read_text(encoding="utf-8")
+        snapshot = Path(args.release_changelog).read_text(encoding="utf-8")
+        updated = update_changelog(current, snapshot, args.version, args.release_tag, args.repo)
+        changelog_path.write_text(updated, encoding="utf-8")
+    except (OSError, ValueError) as err:
+        print(f"error: failed to update changelog: {err}", file=sys.stderr)
+        return 1
     return 0
 
 
