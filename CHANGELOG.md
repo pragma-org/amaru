@@ -40,12 +40,13 @@ Other guiding principles:
 
 ### Added
 
-- **amaru**: `amaru keys opcert inspect OPCERT` prints the pool ID, sequence number, KES period, and hot verification key from an operational certificate.
-- **amaru**: `amaru keys kes period --opcert OPCERT --slot SLOT` shows the current KES period and how many periods remain before key rotation is required.
-- **amaru**: `amaru keys pool-id COLD_VKEY` derives the pool ID from a cold verification key file.
+- **amaru**: `amaru pool cert inspect OPCERT` prints the pool ID, sequence number, KES period, and hot verification key from an operational certificate.
+- **amaru**: `amaru pool kes period --opcert OPCERT --slot SLOT` shows the current KES period and how many periods remain before key rotation is required.
+- **amaru**: `amaru pool id create COLD_VKEY` derives the pool ID from a cold verification key file.
 
 ### Changed
 
+- **amaru**: KES key pairs are generated with `amaru pool kes create`. The former `amaru keys kes create` command is removed.
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
 - **amaru-uplc**: release builds now explicitly use the faster LGPL-licensed Malachite backend for integer arithmetic, while regular builds continue to use Dashu. See `THIRD_PARTY_NOTICES.md` for the applicable notices.
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.

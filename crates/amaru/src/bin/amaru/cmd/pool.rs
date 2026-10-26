@@ -19,24 +19,31 @@ use std::{
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::{Hasher, MAINNET_GLOBAL_PARAMETERS, hash::size::POOL_COLD_KEY};
+use amaru_kernel::{Hasher, MAINNET_GLOBAL_PARAMETERS, PoolId, hash::size::POOL_COLD_KEY};
 use amaru_ouroboros::{kes::SecretKey, load_cold_verification_key, load_operational_certificate};
 use anyhow::{Context, ensure};
 use clap::{Args, Subcommand};
 use tempfile::NamedTempFile;
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum KeysCommand {
+pub(crate) enum PoolCommand {
+    /// Manage operational certificates.
+    #[command(subcommand)]
+    Cert(CertCommand),
+
     /// Manage hot KES signing keys.
     #[command(subcommand)]
     Kes(KesCommand),
 
-    /// Inspect operational certificates.
+    /// Manage the stake pool ID.
     #[command(subcommand)]
-    Opcert(OpcertCommand),
+    Id(IdCommand),
+}
 
-    /// Derive the pool ID from a cold verification key.
-    PoolId(PoolIdArgs),
+#[derive(Debug, Subcommand)]
+pub(crate) enum CertCommand {
+    /// Inspect an operational certificate and display its fields.
+    Inspect(InspectArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -49,9 +56,9 @@ pub(crate) enum KesCommand {
 }
 
 #[derive(Debug, Subcommand)]
-pub(crate) enum OpcertCommand {
-    /// Inspect an operational certificate and display its fields.
-    Inspect(InspectArgs),
+pub(crate) enum IdCommand {
+    /// Derive the pool ID from a cold verification key.
+    Create(IdArgs),
 }
 
 #[derive(Debug, Args)]
@@ -96,38 +103,40 @@ pub(crate) struct InspectArgs {
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct PoolIdArgs {
+pub(crate) struct IdArgs {
     /// Cold verification key file (`StakePoolVerificationKey_ed25519` text envelope).
     #[arg(value_name = amaru::value_names::FILEPATH)]
     cold_vkey: PathBuf,
 }
 
-impl KeysCommand {
+impl PoolCommand {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
+            Self::Cert(CertCommand::Inspect(args)) => {
+                Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { cert_inspect(args) })
+            }
             Self::Kes(KesCommand::Create(args)) => {
                 Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { create(args) })
             }
             Self::Kes(KesCommand::Period(args)) => {
                 Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { kes_period(args) })
             }
-            Self::Opcert(OpcertCommand::Inspect(args)) => {
-                Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { opcert_inspect(args) })
+            Self::Id(IdCommand::Create(args)) => {
+                Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { pool_id(args) })
             }
-            Self::PoolId(args) => Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { pool_id(args) }),
         }
     }
 }
 
 #[expect(clippy::print_stdout)]
-fn opcert_inspect(args: InspectArgs) -> anyhow::Result<()> {
+fn cert_inspect(args: InspectArgs) -> anyhow::Result<()> {
     let (cert, cold) = load_operational_certificate(&args.opcert)
         .with_context(|| format!("failed to load operational certificate: {}", args.opcert.display()))?;
 
-    let pool_id = Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice());
+    let pool_id = PoolId::from(Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice()));
 
     let info = serde_json::json!({
-        "pool_id": hex::encode(pool_id.as_ref()),
+        "pool_id": pool_id.to_string(),
         "sequence_number": cert.operational_cert_sequence_number,
         "kes_period": u64::from(cert.operational_cert_kes_period),
         "hot_verification_key": hex::encode(cert.operational_cert_hot_verification_key.as_slice()),
@@ -161,12 +170,12 @@ fn kes_period(args: PeriodArgs) -> anyhow::Result<()> {
 }
 
 #[expect(clippy::print_stdout)]
-fn pool_id(args: PoolIdArgs) -> anyhow::Result<()> {
+fn pool_id(args: IdArgs) -> anyhow::Result<()> {
     let cold = load_cold_verification_key(&args.cold_vkey)
         .with_context(|| format!("failed to load cold verification key: {}", args.cold_vkey.display()))?;
 
-    let pool_id = Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice());
-    println!("{}", hex::encode(pool_id.as_ref()));
+    let pool_id = PoolId::from(Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice()));
+    println!("{pool_id}");
     Ok(())
 }
 

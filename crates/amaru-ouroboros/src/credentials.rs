@@ -728,6 +728,16 @@ mod tests {
     }
 
     #[test]
+    fn load_cold_verification_key_rejects_an_invalid_ed25519_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.vkey");
+        // y = 2 is not on the Ed25519 curve, so the 32 bytes cannot decompress to a point.
+        fs::write(&path, envelope("StakePoolVerificationKey_ed25519", &format!("582002{}", "00".repeat(31)))).unwrap();
+        let err = load_cold_verification_key(&path).unwrap_err();
+        assert!(err.to_string().contains("not a valid Ed25519 key"), "{err}");
+    }
+
+    #[test]
     fn load_operational_certificate_is_public_and_matches_fixture() {
         let cert_path = forging_fixture("node.cert");
         let (cert, cold) = load_operational_certificate(&cert_path).expect("node.cert fixture should load");

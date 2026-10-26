@@ -65,9 +65,9 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Node(cmd::node::NodeCommand),
 
-    /// Generate KES signing keys.
+    /// Stake pool operator tools.
     #[command(subcommand)]
-    Keys(cmd::keys::KeysCommand),
+    Pool(cmd::pool::PoolCommand),
 
     /// Manage bootstrap snapshots.
     #[command(subcommand)]
@@ -94,7 +94,7 @@ impl Command {
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
             Command::Node(cmd) => cmd.into_runnable(),
-            Command::Keys(cmd) => cmd.into_runnable(),
+            Command::Pool(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
             #[cfg(feature = "mithril")]
             Command::Mithril(cmd) => cmd.into_runnable(),
