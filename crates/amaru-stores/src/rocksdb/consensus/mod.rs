@@ -33,3 +33,6 @@ pub use rocksdb_store::*;
 
 #[cfg(test)]
 pub mod tests;
+
+#[cfg(test)]
+mod block_range_tests;

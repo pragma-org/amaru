@@ -12,17 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::VecDeque,
+    iter::{from_fn, successors},
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock,
+    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Slot,
 };
 
 use crate::{
-    BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
+    BaseReadChainStore, BlockBatch, BlockEntry, BlockHistoryCoverage, BlockIterator, BlockRange, BlockReadError,
+    BlockReadLimits, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
     MissingBlocksResult,
     MissingBlocksResult::{BoundaryNotFound, Found, StartHeaderNotFound},
-    NextBestChainHeader, Nonces, SampleAncestorPointsResult, StoreError,
+    NextBestChainHeader, Nonces, ResolvedBlockRange, SampleAncestorPointsResult, StoreError,
 };
 
 /// Read interface for the ChainStore. It uses a snapshot when iterating over data for consistency.
@@ -30,6 +36,75 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// Return a consistent point-in-time view of the ChainStore which can be used to safely iterate
     /// over chain data.
     fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_>;
+
+    /// Stream immutable blocks in canonical order from one snapshot, with an exclusive start
+    /// and inclusive end. An omitted end captures the immutable anchor when this method is called.
+    ///
+    /// Opening validates endpoints using the canonical slot index. Iteration loads one body at a
+    /// time, with bounded same-slot ancestry checks and no range-sized buffer. Unknown, orphaned,
+    /// and volatile endpoints are rejected; missing history is an error. Errors fuse the iterator.
+    /// This low-level iterator holds its snapshot until dropped and performs blocking reads.
+    /// Prefer [`Self::read_block_batch`] to release snapshots between application transactions.
+    fn blocks(&self, range: BlockRange) -> Result<BlockIterator<'_>, BlockReadError> {
+        blocks_on_snapshot(self.snapshot(), range)
+    }
+
+    /// Resolve endpoints using the canonical slot index, with bounded, cancellable same-slot checks.
+    /// No snapshot escapes this call. Sources with stored metadata need not decode block bodies.
+    fn open_block_range(
+        &self,
+        range: BlockRange,
+        limits: BlockReadLimits,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<ResolvedBlockRange, BlockReadError> {
+        check_cancelled(cancelled)?;
+        let snapshot = self.snapshot();
+        let mut reader = RangeReader { snapshot: snapshot.as_ref(), cancelled, remaining: limits.max_steps.get() };
+        let range = reader.resolve(range)?;
+        check_cancelled(cancelled)?;
+        Ok(range)
+    }
+
+    /// Read a bounded batch from a fresh snapshot, releasing it before returning owned blocks.
+    /// Reuse the resolved explicit `through` on every call to preserve the captured target.
+    /// A removed endpoint, missing body, or broken link is an error, never successful completion.
+    /// On cancellation or work-budget exhaustion no partial batch is returned; retry from the
+    /// application's last atomically committed point. Endpoint checks do not walk older history.
+    fn read_block_batch(
+        &self,
+        range: BlockRange,
+        limits: BlockReadLimits,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<BlockBatch, BlockReadError> {
+        check_cancelled(cancelled)?;
+        let snapshot = self.snapshot();
+        let mut reader = RangeReader { snapshot: snapshot.as_ref(), cancelled, remaining: limits.max_steps.get() };
+        let range = reader.resolve(range)?;
+        let mut batch =
+            BlockBatch { range, blocks: Vec::new(), last_point: range.after, complete: range.after == range.through };
+        let mut bytes = 0;
+        while !batch.complete && batch.blocks.len() < limits.max_blocks.get() {
+            let point = reader.successor(batch.last_point, range.through)?;
+            reader.step()?;
+            let raw_block = snapshot
+                .load_block(&point.hash())
+                .map_err(BlockReadError::Store)?
+                .ok_or(BlockReadError::MissingHistory { hash: point.hash() })?;
+            let size = raw_block.as_ref().len();
+            if size > limits.max_bytes.get() - bytes {
+                if batch.blocks.is_empty() {
+                    return Err(BlockReadError::BlockTooLarge { point, size, limit: limits.max_bytes.get() });
+                }
+                break;
+            }
+            bytes += size;
+            batch.blocks.push(BlockEntry { point, raw_block });
+            batch.last_point = point;
+            batch.complete = point == range.through;
+        }
+        check_cancelled(cancelled)?;
+        Ok(batch)
+    }
 
     /// Return the next best-chain header from the given pointer using a single snapshot.
     fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader, StoreError> {
@@ -340,6 +415,184 @@ pub trait ReadChainStore: BaseReadChainStore {
     }
 }
 
+fn blocks_on_snapshot(
+    snapshot: Box<dyn BaseReadChainStore + '_>,
+    range: BlockRange,
+) -> Result<BlockIterator<'_>, BlockReadError> {
+    let limits = BlockReadLimits::default();
+    let mut reader =
+        RangeReader { snapshot: snapshot.as_ref(), cancelled: &|| false, remaining: limits.max_steps.get() };
+    let range = reader.resolve(range)?;
+    let mut after = range.after;
+    let mut finished = after == range.through;
+    Ok(Box::new(from_fn(move || {
+        if finished {
+            return None;
+        }
+        let mut reader =
+            RangeReader { snapshot: snapshot.as_ref(), cancelled: &|| false, remaining: limits.max_steps.get() };
+        let entry = reader.successor(after, range.through).and_then(|point| {
+            snapshot
+                .load_block(&point.hash())
+                .map_err(BlockReadError::Store)?
+                .map(|raw_block| BlockEntry { point, raw_block })
+                .ok_or(BlockReadError::MissingHistory { hash: point.hash() })
+        });
+        match &entry {
+            Ok(block) => {
+                after = block.point;
+                finished = after == range.through;
+            }
+            Err(_) => finished = true,
+        }
+        Some(entry)
+    })))
+}
+
+fn check_cancelled(cancelled: &dyn Fn() -> bool) -> Result<(), BlockReadError> {
+    if cancelled() { Err(BlockReadError::Cancelled) } else { Ok(()) }
+}
+
+struct RangeReader<'a> {
+    snapshot: &'a dyn BaseReadChainStore,
+    cancelled: &'a dyn Fn() -> bool,
+    remaining: usize,
+}
+
+impl RangeReader<'_> {
+    fn step(&mut self) -> Result<(), BlockReadError> {
+        check_cancelled(self.cancelled)?;
+        self.remaining = self.remaining.checked_sub(1).ok_or(BlockReadError::WorkLimit)?;
+        Ok(())
+    }
+
+    fn metadata(&mut self, hash: HeaderHash) -> Result<(NetworkPoint, Option<HeaderHash>), BlockReadError> {
+        self.step()?;
+        let metadata = match self.snapshot.load_header(&hash) {
+            Some(header) => Some((header.point().to_network_point(), header.parent())),
+            None => {
+                self.step()?;
+                self.snapshot.load_block_metadata(&hash).map_err(BlockReadError::Store)?
+            }
+        };
+        let (point, parent) = metadata.ok_or(BlockReadError::MissingHistory { hash })?;
+        if point.hash() != hash {
+            return Err(BlockReadError::InvalidAncestry { hash });
+        }
+        Ok((point, parent))
+    }
+
+    fn links(&mut self, point: NetworkPoint) -> Result<Option<HeaderHash>, BlockReadError> {
+        let (stored, parent) = self.metadata(point.hash())?;
+        if stored != point {
+            return Err(BlockReadError::InvalidAncestry { hash: point.hash() });
+        }
+        Ok(parent)
+    }
+
+    fn seek(&mut self, slot: Slot) -> Result<Option<NetworkPoint>, BlockReadError> {
+        self.step()?;
+        self.snapshot.block_at_or_after(slot).map_err(BlockReadError::Store)
+    }
+
+    fn parent(&mut self, point: NetworkPoint, parent: Option<HeaderHash>) -> Result<NetworkPoint, BlockReadError> {
+        match parent {
+            None => Ok(NetworkPoint::Origin),
+            Some(hash) if hash == ORIGIN_HASH => Ok(NetworkPoint::Origin),
+            Some(hash) => {
+                let (parent, _) = self.metadata(hash)?;
+                if parent.slot_or_default() > point.slot_or_default() || parent.hash() == point.hash() {
+                    return Err(BlockReadError::InvalidAncestry { hash });
+                }
+                Ok(parent)
+            }
+        }
+    }
+
+    /// Only blocks sharing a slot need ancestry checks: the slot index orders all other blocks.
+    fn at_or_before(&mut self, lower: NetworkPoint, mut upper: NetworkPoint) -> Result<bool, BlockReadError> {
+        if lower == NetworkPoint::Origin || lower == upper {
+            return Ok(true);
+        }
+        if upper == NetworkPoint::Origin || lower.slot_or_default() > upper.slot_or_default() {
+            return Ok(false);
+        }
+        while lower.slot_or_default() == upper.slot_or_default() {
+            let parent = self.links(upper)?;
+            upper = self.parent(upper, parent)?;
+            if upper == lower {
+                return Ok(true);
+            }
+            if upper == NetworkPoint::Origin {
+                return Ok(false);
+            }
+        }
+        Ok(lower.slot_or_default() < upper.slot_or_default())
+    }
+
+    fn validate_position(&mut self, point: NetworkPoint) -> Result<(), BlockReadError> {
+        if point == NetworkPoint::Origin {
+            return Ok(());
+        }
+        let canonical = self.seek(point.slot_or_default())?;
+        if let Some(canonical) = canonical
+            && canonical.slot_or_default() == point.slot_or_default()
+            && self.at_or_before(point, canonical)?
+        {
+            self.links(point)?;
+            return Ok(());
+        }
+        Err(BlockReadError::InvalidPosition { point })
+    }
+
+    fn resolve(&mut self, range: BlockRange) -> Result<ResolvedBlockRange, BlockReadError> {
+        self.step()?;
+        let anchor = self.snapshot.read_anchor_point().map_err(BlockReadError::Store)?.to_network_point();
+        let through = range.through.unwrap_or(anchor);
+        let after = range.after.unwrap_or(NetworkPoint::Origin);
+        self.validate_position(through)?;
+        if !self.at_or_before(through, anchor)? {
+            return Err(BlockReadError::InvalidPosition { point: through });
+        }
+        self.validate_position(after)?;
+        if !self.at_or_before(after, anchor)? {
+            return Err(BlockReadError::InvalidPosition { point: after });
+        }
+        if !self.at_or_before(after, through)? {
+            return Err(BlockReadError::InvalidRange { after, through });
+        }
+        self.step()?;
+        let coverage = self.snapshot.block_history_coverage().map_err(BlockReadError::Store)?;
+        Ok(ResolvedBlockRange { after, through, coverage })
+    }
+
+    fn successor(&mut self, previous: NetworkPoint, through: NetworkPoint) -> Result<NetworkPoint, BlockReadError> {
+        let missing = || BlockReadError::MissingSuccessor { after: previous, through };
+        let mut candidate = self.seek(previous.slot_or_default())?.ok_or_else(missing)?;
+        if candidate == previous {
+            let next_slot = u64::from(previous.slot_or_default()).checked_add(1).ok_or_else(missing)?;
+            candidate = self.seek(next_slot.into())?.ok_or_else(missing)?;
+        }
+        if candidate.slot_or_default() > through.slot_or_default() {
+            return Err(missing());
+        }
+        loop {
+            let parent = self.links(candidate)?;
+            if parent.unwrap_or(ORIGIN_HASH) == previous.hash() {
+                if !self.at_or_before(candidate, through)? {
+                    return Err(missing());
+                }
+                return Ok(candidate);
+            }
+            let parent = self.parent(candidate, parent)?;
+            if parent == NetworkPoint::Origin || parent.slot_or_default() != candidate.slot_or_default() {
+                return Err(missing());
+            }
+            candidate = parent;
+        }
+    }
+}
+
 /// Walk ancestors of `start` on a snapshot view, stopping past the anchor.
 /// Mirrors `ReadChainStore::ancestors` but takes the snapshot explicitly so it
 /// can be reused inside default impls that already hold one.
@@ -376,6 +629,22 @@ fn ancestors_with_validity_on_snapshot<'a>(
 }
 
 impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
+    fn block_history_coverage(&self) -> Result<Option<BlockHistoryCoverage>, StoreError> {
+        self.as_ref().block_history_coverage()
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
+    }
+
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.as_ref().read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.as_ref().block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }

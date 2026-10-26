@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
-use crate::{Nonces, StoreError};
+use crate::{BlockHistoryCoverage, Nonces, StoreError};
 
 /// Low-level chain store reads. It is used by the `ReadChainStore` trait which most code should
 /// depend on.
@@ -30,6 +30,23 @@ pub trait BaseReadChainStore: Send + Sync {
     ///
     /// An empty store reports [`Point::Origin`].
     fn get_anchor_point(&self) -> Point;
+
+    /// Fallible immutable boundary read for historical scans.
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        Ok(self.get_anchor_point())
+    }
+
+    /// Seek canonical blocks at or after `slot`, returning the last block at the first matching slot.
+    /// Include verified archive history when supported, using an index rather than walking ancestry.
+    /// Return slot/hash identity so archive blocks need no consensus header or block height.
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError>;
+
+    /// Coverage of a contiguous verified archive, read from the same snapshot as its blocks.
+    /// Stores without durable coverage metadata report unknown availability. The archive source
+    /// owns persistence and pruning of this metadata; the reader only captures it.
+    fn block_history_coverage(&self) -> Result<Option<BlockHistoryCoverage>, StoreError> {
+        Ok(None)
+    }
 
     /// Hash of the immutable-horizon point.
     fn get_anchor_hash(&self) -> HeaderHash {
@@ -57,6 +74,14 @@ pub trait BaseReadChainStore: Send + Sync {
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
+    /// Era-independent point and parent links for verified archive blocks.
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        Ok(self.load_block(hash)?.and_then(|block| {
+            let header = block.decode_header().ok()?;
+            Some((header.point().into(), header.parent()))
+        }))
+    }
+
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
 
@@ -77,6 +102,22 @@ pub trait BaseReadChainStore: Send + Sync {
 }
 
 impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
+    fn block_history_coverage(&self) -> Result<Option<BlockHistoryCoverage>, StoreError> {
+        self.as_ref().block_history_coverage()
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
+    }
+
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.as_ref().read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.as_ref().block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }
