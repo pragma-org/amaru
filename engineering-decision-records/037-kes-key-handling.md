@@ -18,6 +18,11 @@ This KES key is linked to the pool identity via a certificate signed by the cold
 
 ## Decision
 
+### Command grouping
+
+All SPO-facing commands live under the `amaru pool` group, taking an operator-centric view rather than an object-centric one.
+Certificates, KES keys, cold keys, and the pool ID are therefore managed through `amaru pool cert`, `amaru pool kes`, `amaru pool cold`, and `amaru pool id` respectively.
+
 ### SPO support
 
 For every KES period change, an INFO event is logged; this can be used by the SPO to monitor the progression, trigger alerts, etc.
@@ -40,9 +45,9 @@ For this purpose, an implementation of `trait CredentialsResource` is provided.
 
 ### Key rotation
 
-The SPO uses `amaru keys hot create` to generate a new KES key and print the corresponding certificate request to stdout; it optionally asks the SPO for a password to encrypt the key.
+The SPO uses `amaru pool kes create` to generate a new KES key and print the corresponding certificate request to stdout; it optionally asks the SPO for a password to encrypt the key.
 The SPO then uses their cold key to sign the certificate request.
-The SPO then uses `amaru keys hot import` to import the KES certificate signature into the chain database.
+The SPO then uses `amaru pool kes import` to import the KES certificate signature into the chain database.
 
 Note that the chain database can hold multiple KES keys and certificates, each valid for a certain range of slots.
 Note also that Amaru will need to enforce that the opcert sequence number is incremented by exactly one for each new certificate.
@@ -52,8 +57,8 @@ Note also that Amaru will need to enforce that the opcert sequence number is inc
 While many SPOs nowadays use hardware wallets to store their cold keys, Amaru comes with a simple tool that can be used e.g. on an air-gapped machine.
 This doesn’t achieve the same level of security, but we want to provide a complete set of tooling to get started.
 It is also required for pools established before hardware wallets were available: these cold keys cannot be migrated and must be handled on air-gapped machines.
-`amaru keys cold create` generates a new cold key, writes it to a file (which requires a password for encryption), and prints the corresponding public key etc. to stdout.
-`amaru keys cold sign` reads a certificate request from a file, prompts the SPO for the password to decrypt the cold key, and writes the signature to stdout.
+`amaru pool cold create` generates a new cold key, writes it to a file (which requires a password for encryption), and prints the corresponding public key etc. to stdout.
+`amaru pool cold sign` reads a certificate request from a file, prompts the SPO for the password to decrypt the cold key, and writes the signature to stdout.
 
 ## Consequences
 
