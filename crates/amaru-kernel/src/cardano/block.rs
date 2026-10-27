@@ -15,8 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, Transaction, TransactionBody, TransactionRef, WitnessSet,
-    cbor, cbor::WithSize, size::BLOCK_BODY, traits::is_header::IsHeader,
+    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, ProtocolVersion, Transaction, TransactionBody,
+    TransactionRef, WitnessSet, cbor, cbor::WithSize, protocol_version::PROTOCOL_VERSION_12, size::BLOCK_BODY,
+    traits::is_header::IsHeader,
 };
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
@@ -288,15 +289,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
             })?;
 
             let (invalid_transactions, invalid_transactions_bytes) =
-                cbor::tee(d, |d| d.decode_with::<_, BTreeSet<TransactionIndex>>(ctx))?;
-
-            for index in invalid_transactions.iter() {
-                if usize::from(*index) >= transaction_count {
-                    return Err(cbor::decode::Error::message(format!(
-                        "invalid transaction index {index} out of bounds for {transaction_count} transaction bodies"
-                    )));
-                }
-            }
+                cbor::tee(d, |d| decode_invalid_transactions(d, transaction_count, ctx.protocol_version()))?;
 
             Ok(Block {
                 original_body_size: (transaction_bodies_bytes.len()
@@ -320,12 +313,63 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
     }
 }
 
+/// Decode the indexes of the transactions that failed phase-2 validation.
+///
+/// Up to protocol version 11, the Haskell node turns this list into one validity flag per transaction
+/// (`alignedValidFlags`), which works only for indexes in strictly increasing order. A repeated or an unsorted index
+/// makes it raise an exception, so the node refuses the block. That exception belongs to the Conway block body: from
+/// protocol version 12 the indexes are read as a set.
+fn decode_invalid_transactions(
+    d: &mut cbor::Decoder<'_>,
+    transaction_count: usize,
+    protocol_version: ProtocolVersion,
+) -> Result<BTreeSet<TransactionIndex>, cbor::decode::Error> {
+    let strictly_increasing = protocol_version < PROTOCOL_VERSION_12;
+    let mut indexes = BTreeSet::new();
+    for index in d.array_iter::<TransactionIndex>()? {
+        let index = index?;
+        if usize::from(index) >= transaction_count {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid transaction index {index} out of bounds for {transaction_count} transaction bodies"
+            )));
+        }
+        if strictly_increasing
+            && let Some(previous) = indexes.last()
+            && *previous >= index
+        {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid transaction indexes must be strictly increasing: {index} comes after {previous}"
+            )));
+        }
+        indexes.insert(index);
+    }
+    Ok(indexes)
+}
+
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::{EraName, size::HEADER};
+    use crate::{EraName, protocol_version::PROTOCOL_VERSION_11, size::HEADER};
+
+    #[test_case(PROTOCOL_VERSION_11, "820001" => Some(vec![0, 1]) ; "sorted indexes")]
+    #[test_case(PROTOCOL_VERSION_11, "9f0001ff" => Some(vec![0, 1]) ; "indefinite sorted indexes")]
+    #[test_case(PROTOCOL_VERSION_11, "820000" => None ; "repeated index before v12")]
+    #[test_case(PROTOCOL_VERSION_11, "820100" => None ; "unsorted indexes before v12")]
+    #[test_case(PROTOCOL_VERSION_11, "8102" => None ; "index out of bounds before v12")]
+    #[test_case(PROTOCOL_VERSION_12, "820000" => Some(vec![0]) ; "repeated index from v12")]
+    #[test_case(PROTOCOL_VERSION_12, "820100" => Some(vec![0, 1]) ; "unsorted indexes from v12")]
+    #[test_case(PROTOCOL_VERSION_12, "8102" => None ; "index out of bounds from v12")]
+    fn invalid_transactions_for_two_transactions(
+        protocol_version: ProtocolVersion,
+        hex_bytes: &str,
+    ) -> Option<Vec<TransactionIndex>> {
+        let bytes = hex::decode(hex_bytes).unwrap();
+        decode_invalid_transactions(&mut cbor::Decoder::new(&bytes), 2, protocol_version)
+            .ok()
+            .map(|indexes| indexes.into_iter().collect())
+    }
 
     macro_rules! fixture {
         ($id:expr) => {{
