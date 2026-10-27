@@ -1,0 +1,35 @@
+{
+  "title": "pool re-registration switches VRF away and back in the same transaction",
+  "description": "A registered pool is re-registered twice in one transaction, first switching from VRF A to VRF B and then back to VRF A. The Haskell node accepts the transaction under protocol version 11.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": { "version": { "major": 11, "minor": 0 } }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203e7a1d5c9f4b8e2a6d0c3f7b1e5a9d4c8f2b6e0a3d7c1f5b9e4a8d2c6f0b3e7100",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "pools": {
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8": {
+        "vrf": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "has_pending_updates": false
+      }
+    },
+    "vrf_keys": {
+      "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": 1
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d90102818258203e7a1d5c9f4b8e2a6d0c3f7b1e5a9d4c8f2b6e0a3d7c1f5b9e4a8d2c6f0b3e71000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4004d90102828a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f68a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd85820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc001a1443fd00d81e82010a581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f60800a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840d35b37dbf725415689d77558424575a91ea8f981b030b9207bead03184f7a19c6f27561f4aa9e3e6ed645695e43bba987771f6aadfdb077b2fc6bf8814debe00f5f6",
+  "expected": "Pass"
+}

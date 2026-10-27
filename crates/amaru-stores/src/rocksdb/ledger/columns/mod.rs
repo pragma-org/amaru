@@ -23,3 +23,4 @@ pub mod recently_unregistered_accounts;
 pub mod slots;
 pub mod utxo;
 pub mod votes;
+pub mod vrf_keys;

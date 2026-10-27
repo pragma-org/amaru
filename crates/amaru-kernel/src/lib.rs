@@ -154,6 +154,7 @@ pub use cardano::{
     pool_id::PoolId,
     pool_metadata::{self, PoolMetadata},
     pool_params::PoolParams,
+    pool_slim::{self, PoolSlim},
     pool_voting_thresholds::{self, PoolVotingThresholds},
     positive_coin::PositiveCoin,
     pots::{self, Pots},

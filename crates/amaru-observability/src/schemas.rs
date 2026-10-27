@@ -1068,6 +1068,17 @@ define_schemas! {
                         optional from_db: u64
                     }
                 }
+                vrf_keys {
+                    /// Resolve vrf keys from the volatile db or the stable one
+                    public span HYDRATE {}
+                    /// An invariant violation when resolving vrf keys
+                    public event ERROR {
+                        levels: error
+                        required key: amaru_kernel::Hash<{ amaru_kernel::size::VRF_KEY }>
+                        required diff: String
+                        required reason: String
+                    }
+                }
             }
             relays {
                 /// Fetch candidate relays from the immutable store
@@ -2201,6 +2212,16 @@ define_schemas! {
                     public span GET {}
                     /// Write treasury/reserve/fees pots
                     public span PUT {}
+                }
+                vrf_keys {
+                    /// Asked to decrement a pool's VRF that does not exist
+                    public event DECREMENT {
+                        levels: error
+                        required vrf: amaru_kernel::Hash<32>
+                        required by: u64
+                        required stored: u64
+                        required error: String
+                    }
                 }
                 snapshots {
                     /// Validate sufficient snapshots exist

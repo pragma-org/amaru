@@ -2452,6 +2452,23 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::ledger::validation_context::vrf_keys`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `error` | `event` | error | public | An invariant violation when resolving vrf keys | key, diff, reason |  |
+| `hydrate` | `span` |  | public | Resolve vrf keys from the volatile db or the stable one |  |  |
+
+<details><summary>event: `error`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `key` | `string` | ✓ |
+| `diff` | `string` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::ledger::volatile`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -4034,6 +4051,23 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- | --- | --- | --- | --- |
 | `add` | `span` |  | public | Record governance votes |  |  |
 | `remove` | `span` |  | public | Remove now-obsolete governance votes |  |  |
+
+## target: `amaru::stores::ledger::vrf_keys`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `decrement` | `event` | error | public | Asked to decrement a pool's VRF that does not exist | vrf, by, stored, error |  |
+
+<details><summary>event: `decrement`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `vrf` | `string` | ✓ |
+| `by` | `integer` | ✓ |
+| `stored` | `integer` | ✓ |
+| `error` | `string` | ✓ |
+
+</details>
 
 ## Updating This Documentation
 

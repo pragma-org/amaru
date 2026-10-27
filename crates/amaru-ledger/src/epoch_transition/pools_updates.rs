@@ -16,11 +16,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
     Credential, Epoch, Hash, Lovelace, PoolId, PoolMetadata, PoolParams, RewardAccount, UnitRationalNumber,
-    utils::string::display_collection,
+    size::VRF_KEY, utils::string::display_collection,
 };
 use amaru_observability::{debug, info_span};
 
-use crate::store::columns::pools::Row as Pool;
+use crate::store::columns::{pools::Row as Pool, vrf_keys::DiffVrf};
 
 mod pool_certificates;
 pub use pool_certificates::{PendingPoolCertificates, PoolCertificate, PoolCertificates};
@@ -40,6 +40,19 @@ pub struct PoolsEpochTransitionUpdates {
 
     /// Pool owners refunds, corresponding to the return of their deposit upon de-registration.
     refunds: BTreeMap<Credential, Lovelace>,
+
+    /// Changes to apply to the current VRF set at the epoch boundary. This information can *almost*
+    /// be derived from the 'retired' and 'updated' sets if we stored the associated VRF and
+    /// previous VRF. However:
+    ///
+    /// 1. Doing so would make the model more complex / heavy for all other operations too.
+    /// 2. We would have to re-compute the VRF updates dynamically each time we need to access them.
+    /// 3. We still have anyway to resolve the state against the stable store during update.
+    ///
+    /// So all-in-all, it is more convenient and more efficient to keep the resulting/pre-computed
+    /// VRF updates for the overlay here; and ensure when flushing that this predicted/projected
+    /// state does indeed reflect what we see in db.
+    vrf_updates: BTreeMap<Hash<VRF_KEY>, DiffVrf>,
 }
 
 impl PoolsEpochTransitionUpdates {
@@ -55,6 +68,12 @@ impl PoolsEpochTransitionUpdates {
 
             pools_updates
         })
+    }
+
+    /// Compute the VRF keys updates resulting from this overlay. This computes the decrement /
+    /// reset operations that must be applied to current VRF keys state.
+    pub fn vrf_updates(&self) -> &BTreeMap<Hash<VRF_KEY>, DiffVrf> {
+        &self.vrf_updates
     }
 
     pub fn retired(&self) -> &BTreeSet<PoolId> {
@@ -119,6 +138,15 @@ impl PoolsEpochTransitionUpdates {
 
             let current_params = &mut pool.current_params;
 
+            // Reset VRF counter of 'dangling VRFs'; even if some *other* pool may still be using
+            // that VRF.
+            if vrf != &current_params.vrf {
+                self.vrf_updates
+                    .entry(current_params.vrf)
+                    .and_modify(|e| *e = DiffVrf::Release)
+                    .or_insert(DiffVrf::Release);
+            }
+
             // NOTE: /!\ IMPORTANT /!\ DO NOT INLINE
             //
             // It is tempting to inline all the identifier in the log event below. But don't.
@@ -165,7 +193,13 @@ impl PoolsEpochTransitionUpdates {
     fn retire_pool(&mut self, epoch: Epoch, pool: &Pool, pending: PendingPoolCertificates<'_>) {
         debug!(ledger::epoch_transition::RETIRE_POOL, id = pool.id());
 
+        self.vrf_updates
+            .entry(pool.current_params.vrf)
+            .and_modify(|e| e.then(DiffVrf::Decrement(1)))
+            .or_insert(DiffVrf::Decrement(1));
+
         self.retired.insert(pool.id());
+
         self.refunds
             .entry(pool.current_params.reward_account.credential())
             .and_modify(|refunded| *refunded += pool.deposit)
@@ -210,7 +244,7 @@ fn set<A: Eq + Clone>(source: &mut A, new: &A, to_string: impl FnOnce(&A) -> Str
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        CertificatePointer, Credential, Epoch, Lovelace, Network, PoolId, PoolParams, RewardAccount,
+        CertificatePointer, Credential, Epoch, Hash, Lovelace, Network, PoolId, PoolParams, RewardAccount,
         utils::tests::run_strategy,
     };
     use proptest::{collection::vec, prelude::*};
@@ -219,7 +253,7 @@ mod tests {
         PoolCertificate::{self, Registration, Retirement},
         PoolCertificates, PoolsEpochTransitionUpdates,
     };
-    use crate::store::columns::pools::Row as Pool;
+    use crate::store::columns::{pools::Row as Pool, vrf_keys::DiffVrf};
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Pool between each application.
@@ -419,5 +453,61 @@ mod tests {
 
         let refunds = pools_updates.refunds().collect::<Vec<_>>();
         assert_eq!(refunds, vec![(&reward_credential, &(deposit_a + deposit_b))]);
+    }
+
+    #[test]
+    fn pool_retirement_does_not_override_vrf_release_from_pool_update() {
+        let (mut pool_params_a, mut pool_params_b) = run_strategy(
+            (any::<PoolParams>(), any::<PoolParams>())
+                .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id != pool_b.id),
+        );
+
+        let shared_vrf = Hash::new([0x42; 32]);
+        pool_params_a.vrf = shared_vrf;
+        pool_params_b.vrf = shared_vrf;
+
+        let mut updated_params = pool_params_a.clone();
+        updated_params.vrf = Hash::new([0x24; 32]);
+
+        let mut pool_a = Pool::new(run_strategy(any::<CertificatePointer>()), 0, pool_params_a);
+        pool_a.pending_certificates.append(updated_params);
+
+        let mut pool_b = Pool::new(run_strategy(any::<CertificatePointer>()), 0, pool_params_b);
+        pool_b.pending_certificates.append(Epoch::from(0));
+
+        let pools_updates = PoolsEpochTransitionUpdates::new(
+            vec![(pool_a.id(), pool_a), (pool_b.id(), pool_b)].into_iter(),
+            Epoch::from(0),
+        );
+
+        assert_eq!(pools_updates.vrf_updates().get(&shared_vrf), Some(&DiffVrf::Release));
+    }
+
+    #[test]
+    fn accumulates_vrf_decrements_for_multiple_retiring_pools_sharing_a_vrf() {
+        let shared_vrf = Hash::new([0x42; 32]);
+
+        let any_shared_retirement = || {
+            (any::<PoolParams>(), any::<CertificatePointer>()).prop_map(|(mut params, pointer)| {
+                params.vrf = shared_vrf;
+
+                let mut pool = Pool::new(pointer, 0, params);
+                pool.pending_certificates.append(Epoch::from(0));
+
+                pool
+            })
+        };
+
+        let (pool_a, pool_b) = run_strategy(
+            (any_shared_retirement(), any_shared_retirement())
+                .prop_filter("pools must be distinct", |(pool_a, pool_b)| pool_a.id() != pool_b.id()),
+        );
+
+        let pools_updates = PoolsEpochTransitionUpdates::new(
+            vec![(pool_a.id(), pool_a), (pool_b.id(), pool_b)].into_iter(),
+            Epoch::from(0),
+        );
+
+        assert_eq!(pools_updates.vrf_updates().get(&shared_vrf), Some(&DiffVrf::Decrement(2)));
     }
 }

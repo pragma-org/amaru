@@ -46,6 +46,7 @@ Other guiding principles:
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.
+- **amaru-ledger**: implement duplicate VRF check from Van Rossem / v11.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
