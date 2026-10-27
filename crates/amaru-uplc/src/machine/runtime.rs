@@ -2239,13 +2239,11 @@ where
                 let mut proj_points = Vec::with_capacity(n);
                 let mut scalar_buf = blst::blst_scalar::default();
 
-                for i in 0..n {
-                    let scalar = scalars.get(i).expect("scalar list length must match its cached length");
+                for (scalar, point) in scalars.iter().zip(points.iter()) {
                     let Constant::Integer(si) = scalar else {
                         return Err(MachineError::type_mismatch(Type::Integer, scalar));
                     };
 
-                    let point = points.get(i).expect("point list length must match its cached length");
                     let Constant::Bls12_381G1Element(pi) = point else {
                         return Err(MachineError::type_mismatch(Type::Bls12_381G1Element, point));
                     };
