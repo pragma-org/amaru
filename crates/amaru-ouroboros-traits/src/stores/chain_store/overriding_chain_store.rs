@@ -14,11 +14,12 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, NetworkPoint, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, NetworkPoint, Point, PoolId, RawBlock, Slot};
 use parking_lot::Mutex;
 
 use crate::{
-    BaseReadChainStore, ChainStore, Nonces, OpcertSequenceNumbers, ReadChainStore, StoreError, WriteChainStore,
+    BaseReadChainStore, BlockHistoryCoverage, ChainStore, Nonces, OpcertSequenceNumbers, ReadChainStore, StoreError,
+    WriteChainStore,
 };
 
 /// A chain store that wraps a `dyn ChainStore` and allows overriding selected methods
@@ -91,6 +92,22 @@ impl OverridingChainStoreBuilder {
 }
 
 impl BaseReadChainStore for OverridingChainStore {
+    fn block_history_coverage(&self) -> Result<Option<BlockHistoryCoverage>, StoreError> {
+        self.inner.block_history_coverage()
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.inner.load_block_metadata(hash)
+    }
+
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.inner.block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }
@@ -151,6 +168,22 @@ impl ReadChainStore for OverridingChainStore {
 }
 
 impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
+    fn block_history_coverage(&self) -> Result<Option<BlockHistoryCoverage>, StoreError> {
+        self.inner.block_history_coverage()
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.inner.load_block_metadata(hash)
+    }
+
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.inner.block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }

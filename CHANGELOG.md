@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru-node**: embedding applications can read immutable blocks in bounded, cancellable batches and resume from a saved slot/hash checkpoint.
+
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
@@ -46,6 +50,7 @@ Other guiding principles:
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.
+- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
