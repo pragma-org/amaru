@@ -14,11 +14,9 @@
 
 use std::cell::OnceCell;
 
-use dashu_base::BitTest;
-
 use crate::{
     binder::Eval,
-    constant::{Constant, Integer, IntegerExt, Natural},
+    constant::{Constant, Integer, List, Natural},
     data::PlutusData,
     ledger_value::LedgerValue,
     machine::value::Value,
@@ -64,7 +62,7 @@ impl<'a, T: IntoMachineSize> From<&'a T> for CostArgument<'a> {
 pub struct DataNodeCount<'a>(pub &'a PlutusData<'a>);
 
 /// Indicates that a list or array is measured by its length rather than by the size of its elements.
-pub struct ListLength<'a, T>(pub &'a [T]);
+pub struct ListLength<'a, T: ?Sized>(pub &'a T);
 
 /// Indicates a fixed size derived outside the runtime value representation.
 pub struct FixedSize(pub i64);
@@ -142,7 +140,7 @@ impl IntoMachineSize for str {
 
 impl IntoMachineSize for Natural {
     fn size(&self) -> i64 {
-        if self == &Natural::ZERO { 1 } else { 1 + ((self.bit_len() - 1) as i64) / 64 }
+        if self == &Natural::ZERO { 1 } else { 1 + ((self.bits() - 1) as i64) / 64 }
     }
 }
 
@@ -159,7 +157,8 @@ impl IntoMachineSize for Constant<'_> {
             Constant::ByteString(bytes) => bytes.size(),
             Constant::String(string) => string.size(),
             Constant::Unit | Constant::Boolean(_) => 1,
-            Constant::ProtoList(_, items) | Constant::ProtoArray(_, items) => ListLength(items).size(),
+            Constant::ProtoList(_, items) => items.len() as i64,
+            Constant::ProtoArray(_, items) => items.len() as i64,
             Constant::ProtoPair(_, _, left, right) => left.size() + right.size(),
             Constant::Data(data) => data.size(),
             Constant::Bls12_381G1Element(g1) => g1.size(),
@@ -228,7 +227,13 @@ impl IntoMachineSize for FixedSize {
     }
 }
 
-impl<T> IntoMachineSize for ListLength<'_, T> {
+impl<T> IntoMachineSize for ListLength<'_, [T]> {
+    fn size(&self) -> i64 {
+        self.0.len() as i64
+    }
+}
+
+impl IntoMachineSize for ListLength<'_, List<'_>> {
     fn size(&self) -> i64 {
         self.0.len() as i64
     }
@@ -323,7 +328,7 @@ mod tests {
     #[test]
     fn integer_log2_oracle() {
         // Values come from the Haskell implementation.
-        assert_eq!(integer_log2(&Integer::ZERO), 0);
+        assert_eq!(integer_log2(&Integer::from(0)), 0);
         assert_eq!(integer_log2(&Integer::from(1)), 0);
         assert_eq!(integer_log2(&Integer::from(42)), 5);
 

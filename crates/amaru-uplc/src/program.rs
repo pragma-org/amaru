@@ -48,9 +48,9 @@ where
     /// Evaluate a program for the given `CostModel` and budget.
     pub fn eval(&'a self, arena: &'a Arena, cost_model: CostModel, budget: ExBudget) -> EvalResult<'a, V> {
         let mut machine = Machine::new(arena, budget, cost_model);
-        let term = machine.run(self.term);
+        let value = machine.run(self.term);
         let info = machine.info();
-        EvalResult { term, info }
+        EvalResult::new(value, info, arena)
     }
 
     /// Evaluate with default (most recent) parameters.

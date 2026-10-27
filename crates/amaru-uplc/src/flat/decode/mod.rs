@@ -432,7 +432,7 @@ mod tests {
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
-                let term = eval_result.term.unwrap();
+                let term = eval_result.into_term().unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&Integer::from(129))));
             }
             Err(_) => {
@@ -467,7 +467,7 @@ mod tests {
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
-                let term = eval_result.term.unwrap();
+                let term = eval_result.into_term().unwrap();
                 assert_eq!(
                     term,
                     &Term::Constant(&Constant::Integer(&Integer::from(1_000_000_000_000_000_000_000_000_000i128)))
@@ -504,7 +504,7 @@ mod tests {
         match program {
             Ok((program, _)) => {
                 let eval_result = program.eval_default(&arena);
-                let term = eval_result.term.unwrap();
+                let term = eval_result.into_term().unwrap();
                 assert_eq!(term, &Term::Constant(&Constant::Integer(&Integer::from(28))));
             }
             Err(e) => {

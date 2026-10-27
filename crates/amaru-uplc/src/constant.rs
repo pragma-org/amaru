@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dashu_base::{BitTest, Signed, UnsignedAbs};
-use dashu_int::{IBig, UBig};
-
+pub use crate::integer::Integer;
+pub(crate) use crate::integer::Natural;
 use crate::{
     arena::Arena, binder::Eval, data::PlutusData, ledger_value::LedgerValue, machine::MachineError, typ::Type,
 };
+
+mod list;
+pub use list::{List, ListIter};
 
 #[derive(Debug, PartialEq)]
 pub enum Constant<'a> {
@@ -26,7 +28,7 @@ pub enum Constant<'a> {
     String(&'a str),
     Boolean(bool),
     Data(&'a PlutusData<'a>),
-    ProtoList(&'a Type<'a>, &'a [&'a Constant<'a>]),
+    ProtoList(&'a Type<'a>, List<'a>),
     ProtoArray(&'a Type<'a>, &'a [&'a Constant<'a>]),
     ProtoPair(&'a Type<'a>, &'a Type<'a>, &'a Constant<'a>, &'a Constant<'a>),
     Unit,
@@ -34,49 +36,6 @@ pub enum Constant<'a> {
     Bls12_381G2Element(&'a blst::blst_p2),
     Bls12_381MlResult(&'a blst::blst_fp12),
     Value(&'a LedgerValue<'a>),
-}
-
-pub type Integer = IBig;
-pub(crate) type Natural = UBig;
-
-/// Operations shared by the UPLC runtime and its costing formulas.
-///
-/// This local trait preserves the ledger's unsigned bit-length interpretation for signed integers.
-pub(crate) trait IntegerExt {
-    fn bits(&self) -> u64;
-
-    fn is_negative(&self) -> bool;
-}
-
-impl IntegerExt for Integer {
-    fn bits(&self) -> u64 {
-        self.unsigned_abs().bit_len() as u64
-    }
-
-    fn is_negative(&self) -> bool {
-        Signed::is_negative(self)
-    }
-}
-
-pub(crate) fn integer_from_bytes(bytes: &[u8], big_endian: bool) -> Integer {
-    Integer::from(if big_endian { Natural::from_be_bytes(bytes) } else { Natural::from_le_bytes(bytes) })
-}
-
-pub(crate) fn integer_to_bytes(integer: &Integer, big_endian: bool) -> Vec<u8> {
-    let magnitude = integer.unsigned_abs();
-    if big_endian { magnitude.to_be_bytes().into() } else { magnitude.to_le_bytes().into() }
-}
-
-pub(crate) fn integer_to_usize(integer: &Integer) -> Option<usize> {
-    usize::try_from(integer).ok()
-}
-
-pub(crate) fn integer_to_u8(integer: &Integer) -> Option<u8> {
-    u8::try_from(integer).ok()
-}
-
-pub(crate) fn natural_to_u64(natural: &Natural) -> Option<u64> {
-    u64::try_from(natural).ok()
 }
 
 pub fn integer(arena: &Arena) -> &Integer {
@@ -117,7 +76,20 @@ impl<'a> Constant<'a> {
     }
 
     pub fn proto_list(arena: &'a Arena, inner: &'a Type<'a>, values: &'a [&'a Constant<'a>]) -> &'a Constant<'a> {
-        arena.alloc(Constant::ProtoList(inner, values))
+        arena.alloc(Constant::ProtoList(inner, List::flat(values)))
+    }
+
+    pub fn proto_list_from(arena: &'a Arena, inner: &'a Type<'a>, values: &'a List<'a>) -> &'a Constant<'a> {
+        arena.alloc(Constant::ProtoList(inner, *values))
+    }
+
+    pub fn proto_list_cons(
+        arena: &'a Arena,
+        inner: &'a Type<'a>,
+        head: &'a Constant<'a>,
+        tail: &'a List<'a>,
+    ) -> &'a Constant<'a> {
+        arena.alloc(Constant::ProtoList(inner, List::cons(head, tail)))
     }
 
     pub fn proto_array(arena: &'a Arena, inner: &'a Type<'a>, values: &'a [&'a Constant<'a>]) -> &'a Constant<'a> {

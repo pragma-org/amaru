@@ -31,14 +31,17 @@ jobs:
     name: Build/Test x86_64/linux
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build/Test x86_64/linux
       runner: ubuntu-24.04
       target: x86_64-unknown-linux-gnu
+      command: test --workspace -F malachite
       cache-mode: READ
 
   build-linux-aarch64:
     name: Build/Test aarch64/linux
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build/Test aarch64/linux
       runner: ubuntu-24.04-arm
       target: aarch64-unknown-linux-gnu
       cache-mode: READ
@@ -47,6 +50,7 @@ jobs:
     name: Build/Test aarch64/macos
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build/Test aarch64/macos
       runner: macos-15
       target: aarch64-apple-darwin
       cache-mode: READ
@@ -55,6 +59,7 @@ jobs:
     name: Build/Test x86_64/windows
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build/Test x86_64/windows
       runner: blacksmith-4vcpu-windows-2025
       target: x86_64-pc-windows-msvc
       command: test --tests --workspace --profile dev-debug
@@ -65,6 +70,7 @@ jobs:
     needs: [build-linux-x86_64]
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build wasm32
       runner: ubuntu-24.04
       target: wasm32-unknown-unknown
       command: build -p amaru-consensus -p amaru-ledger -p amaru-pure-stage
@@ -76,6 +82,7 @@ jobs:
     needs: [build-linux-x86_64]
     uses: ./.github/workflows/template-cargo-test.yml
     with:
+      name: Build riscv
       runner: ubuntu-24.04
       target: riscv32gc-unknown-linux-gnu
       command: +$RUST_NIGHTLY_TOOLCHAIN -Zbuild-std=std,panic_abort build -p amaru-ledger

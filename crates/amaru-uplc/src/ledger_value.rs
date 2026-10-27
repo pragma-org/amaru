@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use bumpalo::collections::Vec as BumpVec;
-use dashu_base::UnsignedAbs;
 
 use crate::{
     arena::Arena,
-    constant::{Integer, IntegerExt, Natural, integer},
+    constant::{Integer, Natural, integer},
     data::PlutusData,
 };
 
@@ -499,7 +498,7 @@ pub fn check_quantity_range(int: &Integer) -> Result<(), ValueError> {
     if !int.is_negative() {
         return Err(ValueError::QuantityOutOfBounds);
     }
-    let magnitude = int.clone().unsigned_abs();
+    let magnitude = int.unsigned_abs();
     let two_pow_127 = Natural::from(1u8) << 127;
     if magnitude == two_pow_127 { Ok(()) } else { Err(ValueError::QuantityOutOfBounds) }
 }

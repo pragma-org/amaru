@@ -40,6 +40,9 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: logs, errors and `amaru dev chain dump` show stake pool IDs in bech32 (`pool1…`) rather than hex.
+- **amaru-uplc**: release builds now explicitly use the faster LGPL-licensed Malachite backend for integer arithmetic, while regular builds continue to use Dashu. See `THIRD_PARTY_NOTICES.md` for the applicable notices.
+- **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
+- **amaru-uplc**: turn runtime arguments into a chain of pointers, rather than a vec.
 
 ### Fixed
 
@@ -48,6 +51,13 @@ Other guiding principles:
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.
 - **amaru-ledger**: transactions spending a Byron redemption-address input or naming one as collateral are rejected for a missing witness.
 - **amaru-ledger**: treasury donations from transactions that fail phase-two script validation are no longer credited to the treasury.
+- **amaru-uplc**: prevent byte-string builtin results from retaining global-allocator buffers after an evaluation arena is reset, reducing memory growth across repeated script evaluations.
+- **amaru-uplc**: optimize out unnecessary allocations of empty vectors.
+- **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
+- **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
+- **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
+- **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
+- **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 

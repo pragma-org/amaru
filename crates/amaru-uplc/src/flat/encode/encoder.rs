@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use super::FlatEncodeError;
-use crate::{
-    constant::{Integer, integer_to_u8},
-    flat::zigzag::ZigZag,
-};
+use crate::{constant::Integer, flat::zigzag::ZigZag};
 
 #[derive(Default)]
 pub struct Encoder {
@@ -168,18 +165,18 @@ impl Encoder {
         let mut d = c;
 
         loop {
-            let temp = d.clone() % Integer::from(128);
+            let temp = &d % Integer::from(128);
             #[expect(clippy::unwrap_used)]
-            let mut w = integer_to_u8(&temp).unwrap();
+            let mut w = u8::try_from(&temp).unwrap();
 
             d >>= 7;
 
-            if d != Integer::ZERO {
+            if !d.is_zero() {
                 w |= 128;
             }
             self.bits(8, w);
 
-            if d == Integer::ZERO {
+            if d.is_zero() {
                 break;
             }
         }

@@ -12,6 +12,10 @@ env:
 on:
   workflow_call:
     inputs:
+      name:
+        description: "Optional name for the underlying job"
+        type: string
+
       runner:
         description: "Runner to use for the workflow; one of: ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025"
         required: true
@@ -47,7 +51,7 @@ on:
 
 jobs:
   cargo-test:
-    name: ${{ format('{0} - {1}', inputs.runner, inputs.command) }}
+    name: ${{ inputs.name || format('{0} - {1}', inputs.runner, inputs.command) }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 90
     steps:

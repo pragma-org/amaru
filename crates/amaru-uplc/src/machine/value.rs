@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bumpalo::collections::Vec as BumpVec;
-
 use super::{MachineError, env::Env, runtime::Runtime};
 use crate::{
     arena::Arena,
     binder::Eval,
-    constant::{Constant, Integer},
+    constant::{Constant, Integer, List},
     ledger_value::LedgerValue,
     term::Term,
     typ::Type,
@@ -31,7 +29,7 @@ where
 {
     Con(&'a Constant<'a>),
     Lambda { parameter: &'a V, body: &'a Term<'a, V>, env: &'a Env<'a, V> },
-    Builtin(&'a Runtime<'a, V>),
+    Builtin(Runtime<'a, V>),
     Delay(&'a Term<'a, V>, &'a Env<'a, V>),
     Constr(usize, &'a [&'a Value<'a, V>]),
 }
@@ -53,8 +51,7 @@ where
     }
 
     pub fn constr_empty(arena: &'a Arena, tag: usize) -> &'a Value<'a, V> {
-        let empty = BumpVec::new_in(arena.as_bump());
-        let empty = arena.alloc(empty);
+        let empty: &'a [&'a Value<'a, V>] = &[];
 
         arena.alloc(Value::Constr(tag, empty))
     }
@@ -63,7 +60,7 @@ where
         arena.alloc(Value::Constr(tag, values))
     }
 
-    pub fn builtin(arena: &'a Arena, runtime: &'a Runtime<'a, V>) -> &'a Value<'a, V> {
+    pub fn builtin(arena: &'a Arena, runtime: Runtime<'a, V>) -> &'a Value<'a, V> {
         arena.alloc(Value::Builtin(runtime))
     }
 
@@ -143,7 +140,7 @@ where
         Ok((t1, t2, first, second))
     }
 
-    pub fn unwrap_list(&'a self) -> Result<(&'a Type<'a>, &'a [&'a Constant<'a>]), MachineError<'a, V>> {
+    pub fn unwrap_list(&'a self) -> Result<(&'a Type<'a>, &'a List<'a>), MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(t1, list) = inner else {
@@ -163,7 +160,7 @@ where
         Ok((t1, array))
     }
 
-    pub fn unwrap_map(&'a self) -> Result<(&'a Type<'a>, &'a [&'a Constant<'a>]), MachineError<'a, V>> {
+    pub fn unwrap_map(&'a self) -> Result<(&'a Type<'a>, &'a List<'a>), MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(t1, list) = inner else {
@@ -191,7 +188,7 @@ where
         Ok(())
     }
 
-    pub(super) fn unwrap_int_list(&'a self) -> Result<&'a [&'a Constant<'a>], MachineError<'a, V>> {
+    pub(super) fn unwrap_int_list(&'a self) -> Result<&'a List<'a>, MachineError<'a, V>> {
         let inner = self.unwrap_constant()?;
 
         let Constant::ProtoList(Type::Integer, list) = inner else {

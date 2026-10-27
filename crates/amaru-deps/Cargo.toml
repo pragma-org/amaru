@@ -23,11 +23,12 @@ ignored = [
   "bytes",
   "clap",
   "clap_builder",
-  "crc32fast",
   "console",
+  "crc32fast",
   "criterion",
   "crossbeam-epoch",
   "crossbeam-utils",
+  "dashu-base",
   "digest",
   "digest-93f6ce9d446188ac",
   "digest-a6292c17cd707f01",
@@ -49,7 +50,10 @@ ignored = [
   "hyper-util",
   "insta",
   "itertools",
+  "itertools-582f2526e08bb6a0",
+  "itertools-594e8ee84c453af0",
   "libc",
+  "libm",
   "log",
   "memchr",
   "num-bigint",
@@ -122,6 +126,7 @@ crc32fast = { version = "1" }
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-epoch = { version = "0.9" }
 crossbeam-utils = { version = "0.8" }
+dashu-base = { version = "0.4" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 ed25519 = { version = "2", default-features = false, features = ["alloc", "serde", "std"] }
@@ -138,7 +143,9 @@ getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-f
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 insta = { version = "1", features = ["yaml"] }
-itertools = { version = "0.13" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libm = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }
@@ -185,6 +192,7 @@ zeroize = { version = "1", features = ["serde", "zeroize_derive"] }
 [build-dependencies]
 bytes = { version = "1", features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
+dashu-base = { version = "0.4" }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 either = { version = "1", features = ["use_std"] }
 form_urlencoded = { version = "1" }
@@ -192,7 +200,9 @@ futures-core = { version = "0.3" }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
-itertools = { version = "0.13" }
+itertools-582f2526e08bb6a0 = { package = "itertools", version = "0.14" }
+itertools-594e8ee84c453af0 = { package = "itertools", version = "0.13" }
+libm = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
 num-bigint = { version = "0.4" }
@@ -408,7 +418,7 @@ windows-result = { version = "0.4" }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_IO", "Win32_System_Kernel", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.wasm32-unknown-unknown.dependencies]
-bumpalo = { version = "3", features = ["collections"] }
+bumpalo = { version = "3", features = ["allocator_api", "collections"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
 js-sys = { version = "0.3" }
 libc = { version = "0.2" }
@@ -420,7 +430,7 @@ wasm-bindgen = { version = "0.2" }
 web-sys = { version = "0.3", features = ["AbortController", "AbortSignal", "BlobPropertyBag", "CanvasRenderingContext2d", "Document", "DomRect", "File", "FormData", "Headers", "HtmlCanvasElement", "QueuingStrategy", "ReadableByteStreamController", "ReadableStream", "ReadableStreamByobReader", "ReadableStreamByobRequest", "ReadableStreamDefaultController", "ReadableStreamDefaultReader", "ReadableStreamGetReaderOptions", "ReadableStreamReadResult", "ReadableStreamReaderMode", "ReadableStreamType", "ReadableWritablePair", "ReferrerPolicy", "Request", "RequestCache", "RequestCredentials", "RequestInit", "RequestMode", "Response", "ServiceWorkerGlobalScope", "StreamPipeOptions", "TransformStream", "TransformStreamDefaultController", "Transformer", "UnderlyingSink", "UnderlyingSource", "Window", "WritableStream", "WritableStreamDefaultController", "WritableStreamDefaultWriter"] }
 
 [target.wasm32-unknown-unknown.build-dependencies]
-bumpalo = { version = "3", features = ["collections"] }
+bumpalo = { version = "3", features = ["allocator_api", "collections"] }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 js-sys = { version = "0.3" }

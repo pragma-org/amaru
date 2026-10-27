@@ -18,7 +18,7 @@ pub use case_on_constants::CaseOnConstants;
 mod cek;
 pub use cek::*;
 
-pub mod context;
+mod context;
 
 pub mod cost_model;
 pub use cost_model::{CostModel, ex_budget::*};
@@ -45,6 +45,7 @@ pub use semantics::Semantics;
 pub mod state;
 
 pub mod value;
+pub use value::Value;
 
 mod version;
 pub use version::MachineVersion;

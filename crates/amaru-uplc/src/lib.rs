@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(allocator_api)]
+
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
@@ -23,6 +25,7 @@ pub mod builtin;
 pub mod constant;
 pub mod data;
 pub mod flat;
+pub(crate) mod integer;
 pub mod ledger_value;
 pub mod machine;
 pub mod program;
@@ -199,7 +202,7 @@ mod tests {
 
         let result = program.eval_default(&arena);
 
-        assert_eq!(result.term.unwrap(), Term::integer_from(&arena, 4));
+        assert_eq!(result.into_term().unwrap(), Term::integer_from(&arena, 4));
     }
 
     #[test]
@@ -219,7 +222,7 @@ mod tests {
 
         let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
 
-        assert_eq!(result.term.unwrap(), Term::bool(&arena, false));
+        assert_eq!(result.into_term().unwrap(), Term::bool(&arena, false));
     }
 
     #[test]
@@ -247,7 +250,7 @@ mod tests {
 
         let result = Program::<DeBruijn>::new(&arena, MachineVersion::V1_1_0, term).eval_default(&arena);
 
-        assert!(result.term.is_err());
+        assert!(!result.is_success());
     }
 
     #[test]
@@ -339,7 +342,7 @@ mod tests {
 
         let result = program.eval_default(arena);
 
-        assert_eq!(result.term.unwrap(), Term::integer_from(arena, 610));
+        assert_eq!(result.into_term().unwrap(), Term::integer_from(arena, 610));
     }
     // --- eval_with_params protocol_version gating tests ---
 
@@ -365,11 +368,13 @@ mod tests {
             program.eval(&arena, CostModel::default_for(PlutusVersion::V3, PROTOCOL_VERSION_11), ExBudget::default());
 
         // All should produce the correct result
-        assert_eq!(r10.term.unwrap(), Term::integer_from(&arena, 4));
-        assert_eq!(r11.term.unwrap(), Term::integer_from(&arena, 4));
+        let budget10 = r10.info.consumed_budget;
+        let budget11 = r11.info.consumed_budget;
+        assert_eq!(r10.into_term().unwrap(), Term::integer_from(&arena, 4));
+        assert_eq!(r11.into_term().unwrap(), Term::integer_from(&arena, 4));
 
         // Base builtin budgets should be identical regardless of protocol version
-        assert_eq!(r10.info.consumed_budget, r11.info.consumed_budget);
+        assert_eq!(budget10, budget11);
     }
 
     // TODO: Convert into conformance test cases
@@ -428,7 +433,7 @@ mod tests {
                 CostModel::default_for(PlutusVersion::V2, PROTOCOL_VERSION_10),
                 ExBudget::default(),
             );
-            assert!(dbg!(pre_v11.term).is_ok(), "{builtin:?}");
+            assert!(dbg!(pre_v11.is_success()), "{builtin:?}");
 
             let post_v11 = program.eval(
                 &arena,
@@ -436,7 +441,7 @@ mod tests {
                 ExBudget::default(),
             );
             assert!(
-                matches!(dbg!(post_v11.term), Err(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))),
+                matches!(dbg!(post_v11.error()), Some(MachineError::Runtime(RuntimeError::IntegerOutOfBounds(..)))),
                 "{builtin:?}"
             );
         }
@@ -511,6 +516,6 @@ mod tests {
             "builtin introduced in v11 should be decoded successfully in v11"
         );
 
-        assert!(dbg!(program.eval_default(&arena).term.is_ok()))
+        assert!(dbg!(program.eval_default(&arena).is_success()))
     }
 }
