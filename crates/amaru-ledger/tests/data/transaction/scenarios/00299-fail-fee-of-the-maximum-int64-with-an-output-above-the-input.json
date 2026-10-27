@@ -1,0 +1,27 @@
+{
+  "title": "declared fee of the maximum int64 with an output above the input",
+  "description": "Single input of 5 ada, one output of 10 ada and a declared fee of 2^63 - 1 lovelace.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820f1f32c29cbd04b4c3df83faf59d2f726478c6f79d796240c29a61f2c9e6dc4bd00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820f1f32c29cbd04b4c3df83faf59d2f726478c6f79d796240c29a61f2c9e6dc4bd000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00989680021b7fffffffffffffff0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840fb44d3bda98110cf9bd2e3a356bdfe88c866e440424dd38d79fe03ec2b41a36e2e8333a186c94dd73249b5508929b351cd287c848034222cb0cba47909fecd03f5f6",
+  "expected": {
+    "predicate": "ValueNotConservedUTxO"
+  }
+}

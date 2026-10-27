@@ -1,0 +1,27 @@
+{
+  "title": "outputs summing past the maximum int64",
+  "description": "Single input of 5 ada and two outputs of 3 * 2^61 lovelace each.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820266ab49403b2599abb09bebf6e1bdb7a4312368137164f07b7ac1c088fb0684c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820266ab49403b2599abb09bebf6e1bdb7a4312368137164f07b7ac1c088fb0684c000182a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b6000000000000000a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b6000000000000000021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b9476f74c3c9403b32b62ffd6dc76adeb69ea2307447a9e3e50129ba7477547d285204bddb12ef977381dd6f1e80dc4f7e74454c3cc10c6e1972bd0d51077908f5f6",
+  "expected": {
+    "predicate": "ValueNotConservedUTxO"
+  }
+}
