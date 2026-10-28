@@ -32,7 +32,7 @@ use mithril_client::{
 use thiserror::Error;
 
 use crate::immutable::{
-    chunk_for_slot, immutable_chunk_is_complete, validate_immutable_files, validate_immutable_resume_point,
+    ImmutableChunkSize, immutable_chunk_is_complete, validate_immutable_files, validate_immutable_resume_point,
     validated_download_boundary,
 };
 
@@ -531,9 +531,9 @@ pub async fn download_from_mithril_for_range_with_observer(
     observer: Arc<dyn MithrilDownloadObserver>,
 ) -> Result<MithrilDownloadReport, MithrilDownloadError> {
     let immutable_dir = target_dir.join("immutable");
-    let resume_chunk = chunk_for_slot(network, resume_point.slot_or_default())?;
-    let requested_through_chunk =
-        until_slot.map(|slot| chunk_for_slot(network, slot).map(|chunk| chunk.max(resume_chunk))).transpose()?;
+    let chunk_size = ImmutableChunkSize::for_network(network).map_err(anyhow::Error::from)?;
+    let resume_chunk = chunk_size.chunk_for_slot(resume_point.slot_or_default());
+    let requested_through_chunk = until_slot.map(|slot| chunk_size.chunk_for_slot(slot).max(resume_chunk));
     let observer = Arc::new(MonotonicDownloadObserver::new(observer));
     let mut rebuilt = false;
     let mut repair = |source: anyhow::Error| {

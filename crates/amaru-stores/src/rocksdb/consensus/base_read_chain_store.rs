@@ -18,14 +18,14 @@ use amaru_kernel::{
     Hash, Header, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock, Slot, from_cbor, size,
     size::HEADER,
 };
-use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError, block_addressed_by, header_addressed_by};
+use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError, verify_header_integrity};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
     DbOps, OPCERT_PREFIX, RocksDBStore,
     util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-        HEADER_PREFIX, NONCES_PREFIX,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_METADATA_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, NONCES_PREFIX,
     },
 };
 
@@ -40,7 +40,7 @@ where
             .ok()
             .flatten()
             .and_then(|bytes| from_cbor(bytes.as_ref()))
-            .map(|header| header_addressed_by(header, hash))
+            .map(|header| verify_header_integrity(header, hash))
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
@@ -50,7 +50,7 @@ where
         let header = results
             .next()
             .and_then(|bytes| from_cbor(bytes.ok()??.as_ref()))
-            .map(|header| header_addressed_by(header, hash));
+            .map(|header| verify_header_integrity(header, hash));
         let validity = results.next().and_then(|bytes| {
             let bytes = bytes.ok()??;
             if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
@@ -128,7 +128,21 @@ where
         Ok(self
             .db
             .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
-            .map(|bytes| block_addressed_by(bytes.as_ref().into(), hash)))
+            .map(|bytes| bytes.as_ref().into()))
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        if let Some((slot, parent)) = self.read_block_metadata(hash)? {
+            return Ok(Some((NetworkPoint::Specific(slot, *hash), parent)));
+        }
+        if !self.has_block(hash)? {
+            return Ok(None);
+        }
+        let header = match self.load_header(hash) {
+            Some(header) => Some(header),
+            None => self.load_block(hash)?.and_then(|block| block.decode_header().ok()),
+        };
+        Ok(header.map(|header| (header.point().into(), header.parent())))
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
@@ -220,6 +234,18 @@ where
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
+    }
+}
+
+impl<T: DbOps + Send + Sync> RocksDBStore<T> {
+    fn read_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(Slot, Option<HeaderHash>)>, StoreError> {
+        self.db
+            .get_pinned(&[&BLOCK_METADATA_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
+            .map(|bytes| {
+                from_cbor(bytes.as_ref())
+                    .ok_or_else(|| StoreError::ReadError { error: format!("invalid block metadata for {hash}") })
+            })
+            .transpose()
     }
 }
 

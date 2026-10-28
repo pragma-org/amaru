@@ -30,7 +30,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::warn;
 use amaru_ouroboros_traits::{
     CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated,
-    PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError, verify_block_integrity,
 };
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -265,10 +265,12 @@ impl CanValidateBlocks for BlockValidator {
         let forward_blocks = forward_tips
             .iter()
             .map(|forward_tip| {
-                self.chain_store
+                let block = self
+                    .chain_store
                     .load_block(&forward_tip.hash())
                     .map_err(|e| BlockValidationError::new(anyhow!(e)))?
-                    .ok_or_else(|| BlockValidationError::new(anyhow!("block not found")))?
+                    .ok_or_else(|| BlockValidationError::new(anyhow!("block not found")))?;
+                verify_block_integrity(block, &forward_tip.hash())
                     .decode()
                     .map_err(|e| BlockValidationError::new(anyhow!(e)))
             })

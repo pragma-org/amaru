@@ -20,9 +20,9 @@ use std::{
 use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{
-    DiagnosticChainStore, FullChainStore, Nonces, OpcertSequenceNumbers, StoreError, block_addressed_by,
-    header_addressed_by,
+    DiagnosticChainStore, FullChainStore, Nonces, OpcertSequenceNumbers, StoreError,
     stores::chain_store::{BaseReadChainStore, ReadChainStore, WriteChainStore},
+    verify_header_integrity,
 };
 
 /// An in-memory implementation of a ChainStore used by the consensus stages.
@@ -101,13 +101,13 @@ impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let inner = self.inner.lock().unwrap();
-        inner.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash))
+        inner.headers.get(hash).cloned().map(|header| verify_header_integrity(header, hash))
     }
 
     #[expect(clippy::unwrap_used)]
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         let inner = self.inner.lock().unwrap();
-        let header = inner.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash));
+        let header = inner.headers.get(hash).cloned().map(|header| verify_header_integrity(header, hash));
         let validity = inner.block_validity.get(hash).copied();
         header.map(|h| (h, validity))
     }
@@ -121,7 +121,7 @@ impl BaseReadChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         let inner = self.inner.lock().unwrap();
-        Ok(inner.blocks.get(hash).cloned().map(|block| block_addressed_by(block, hash)))
+        Ok(inner.blocks.get(hash).cloned())
     }
 
     #[expect(clippy::unwrap_used)]
@@ -315,11 +315,11 @@ struct InMemConsensusSnapshot {
 
 impl BaseReadChainStore for InMemConsensusSnapshot {
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
-        self.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash))
+        self.headers.get(hash).cloned().map(|header| verify_header_integrity(header, hash))
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
-        let header = self.headers.get(hash).cloned().map(|header| header_addressed_by(header, hash));
+        let header = self.headers.get(hash).cloned().map(|header| verify_header_integrity(header, hash));
         let validity = self.block_validity.get(hash).copied();
         header.map(|h| (h, validity))
     }
@@ -329,7 +329,7 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
-        Ok(self.blocks.get(hash).cloned().map(|block| block_addressed_by(block, hash)))
+        Ok(self.blocks.get(hash).cloned())
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
@@ -470,7 +470,7 @@ impl DiagnosticChainStore for InMemoryChainStore {
             inner
                 .headers
                 .iter()
-                .map(|(hash, header)| header_addressed_by(header.clone(), hash))
+                .map(|(hash, header)| verify_header_integrity(header.clone(), hash))
                 .collect::<Vec<_>>()
                 .into_iter(),
         )
@@ -495,14 +495,7 @@ impl DiagnosticChainStore for InMemoryChainStore {
     #[expect(clippy::unwrap_used)]
     fn load_blocks(&self) -> Box<dyn Iterator<Item = (HeaderHash, RawBlock)> + '_> {
         let inner = self.inner.lock().unwrap();
-        Box::new(
-            inner
-                .blocks
-                .iter()
-                .map(|(hash, block)| (*hash, block_addressed_by(block.clone(), hash)))
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
+        Box::new(inner.blocks.clone().into_iter())
     }
 
     #[expect(clippy::unwrap_used)]
@@ -561,17 +554,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "chain-store integrity failure")]
-    fn load_block_panics_when_block_is_stored_under_the_wrong_hash() {
+    fn load_block_returns_bytes_without_checking_the_hash() {
         let store = InMemoryChainStore::new();
         let stored = EncodedTestBlock::from_seed(&make_header(1, 0, None), &amaru_kernel::EraHistory::default());
         let requested =
             EncodedTestBlock::from_seed(&make_header(2, 1, None), &amaru_kernel::EraHistory::default()).header.hash();
         {
             let mut inner = store.inner.lock().unwrap();
-            inner.blocks.insert(requested, stored.raw);
+            inner.blocks.insert(requested, stored.raw.clone());
         }
-        let _ = store.load_block(&requested);
+        assert_eq!(store.load_block(&requested).unwrap(), Some(stored.raw.clone()));
+        assert_eq!(store.snapshot().load_block(&requested).unwrap(), Some(stored.raw));
     }
 
     #[test]
@@ -588,27 +581,26 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "chain-store integrity failure")]
-    fn load_block_panics_when_body_hash_does_not_match_header() {
+    fn load_block_returns_bytes_without_checking_the_body() {
         let store = InMemoryChainStore::new();
         let block = EncodedTestBlock::from_seed(&make_header(1, 0, None), &amaru_kernel::EraHistory::default());
         let mut bytes = block.raw.to_vec();
         *bytes.last_mut().unwrap() ^= 0xff;
-        store.store_block(&block.header.hash(), &RawBlock::from(bytes.as_slice())).unwrap();
-        let _ = store.load_block(&block.header.hash());
+        let raw = RawBlock::from(bytes.as_slice());
+        store.store_block(&block.header.hash(), &raw).unwrap();
+        assert_eq!(store.load_block(&block.header.hash()).unwrap(), Some(raw));
     }
 
     #[test]
-    #[should_panic(expected = "chain-store integrity failure")]
-    fn load_blocks_panics_when_a_key_does_not_match_the_block() {
+    fn load_blocks_returns_bytes_without_checking_the_hash() {
         let store = InMemoryChainStore::new();
         let stored = EncodedTestBlock::from_seed(&make_header(1, 0, None), &amaru_kernel::EraHistory::default());
         let requested =
             EncodedTestBlock::from_seed(&make_header(2, 1, None), &amaru_kernel::EraHistory::default()).header.hash();
         {
             let mut inner = store.inner.lock().unwrap();
-            inner.blocks.insert(requested, stored.raw);
+            inner.blocks.insert(requested, stored.raw.clone());
         }
-        let _ = store.load_blocks().count();
+        assert_eq!(store.load_blocks().collect::<Vec<_>>(), vec![(requested, stored.raw)]);
     }
 }

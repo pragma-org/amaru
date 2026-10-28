@@ -20,12 +20,14 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
+use amaru_kernel::{HeaderHash, NetworkPoint, NonEmptyVec, Peer, RawBlock};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
 use amaru_observability::{debug, error};
 use amaru_ouroboros::{ConnectionId, RemoteProtocol};
+use amaru_ouroboros_traits::StoreError;
 use amaru_pure_stage::{
-    DeserializerGuards, Effects, StageRef, Void, define_role_tag, make_states, on_receive, typestate::prelude::*,
+    BoxFuture, DeserializerGuards, Effects, ExternalEffectAPI, Resources, SendData, StageRef, Void, define_role_tag,
+    make_states, on_receive, typestate::prelude::*,
 };
 
 use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
@@ -37,7 +39,7 @@ use crate::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
         ingress_limit,
     },
-    store_effects::Store,
+    store_effects::{ResourceHeaderStore, Store},
 };
 
 /// Maximum number of blocks that can be streamed for a single request
@@ -59,23 +61,24 @@ on_receive!(Done as DoneIn {});
 
 /// Range of points to fetch, newest first, at least one point.
 #[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PointsRange(NonEmptyVec<Point>);
+pub struct PointsRange(NonEmptyVec<NetworkPoint>);
 
 type Mail = Inputs<Void>;
 
 impl PointsRange {
     /// Create a points range with a single point
-    pub fn singleton(first: Point) -> PointsRange {
-        PointsRange(NonEmptyVec::singleton(first))
+    #[cfg(test)]
+    pub fn singleton(first: impl Into<NetworkPoint>) -> PointsRange {
+        PointsRange(NonEmptyVec::singleton(first.into()))
     }
 
     /// Create a points range from a vector of points.
-    pub fn from_vec(vec: Vec<Point>) -> Option<PointsRange> {
-        NonEmptyVec::try_from(vec).ok().map(PointsRange)
+    pub fn from_vec(vec: Vec<impl Into<NetworkPoint>>) -> Option<PointsRange> {
+        NonEmptyVec::try_from(vec.into_iter().map(Into::into).collect::<Vec<_>>()).ok().map(PointsRange)
     }
 
     #[cfg(test)]
-    pub fn points(&self) -> Vec<Point> {
+    pub fn points(&self) -> Vec<NetworkPoint> {
         self.0.to_vec()
     }
 
@@ -91,34 +94,22 @@ impl PointsRange {
     }
 
     /// Return a points range:
-    ///  - Check that `from` <= `through`
+    ///  - Reject inverted slot ranges; order same-slot blocks by ancestry.
     ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
     ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
     ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub async fn request_range(
-        store: &Store,
+    ///
+    /// The metadata lookup must use a consistent view of the chain, such as a store snapshot.
+    pub fn request_range(
+        mut load_metadata: impl FnMut(&HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError>,
         from: NetworkPoint,
         through: NetworkPoint,
-    ) -> anyhow::Result<Option<PointsRange>> {
-        // make sure that from <= through
-        if from > through {
+    ) -> Result<Option<PointsRange>, StoreError> {
+        // Byron boundary blocks can share a slot with the following regular block.
+        if from.slot_or_default() > through.slot_or_default() {
             debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
             return Ok(None);
         };
-
-        if from == through {
-            return if let Some(block) = store.load_block(&from.hash()).await? {
-                match block.decode_header() {
-                    Ok(header) if NetworkPoint::from(header.point()) == from => {
-                        Ok(Some(PointsRange::singleton(header.point())))
-                    }
-                    Err(_) => Ok(None),
-                    Ok(_) => Ok(None),
-                }
-            } else {
-                Ok(None)
-            };
-        }
 
         let mut current_hash = through.hash();
         let mut result = vec![];
@@ -133,36 +124,37 @@ impl PointsRange {
                 );
                 return Ok(None);
             }
-            let Some(block) = store.load_block(&current_hash).await? else {
+            let Some((point, parent)) = load_metadata(&current_hash)? else {
                 return Ok(None);
             };
-            if let Ok(header) = block.decode_header() {
-                let point = header.point();
-                if result.is_empty() && NetworkPoint::from(point) != through {
-                    return Ok(None);
-                }
-                result.push(point);
-                // if we found the from point, we're done
-                if current_hash == from.hash() {
-                    if NetworkPoint::from(point) != from {
-                        return Ok(None);
-                    }
-                    break;
-                }
-                // if we reached a slot before 'from', abort
-                if header.slot() < from.slot_or_default() {
-                    return Ok(None);
-                }
-                if let Some(parent_hash) = header.parent_hash() {
-                    current_hash = parent_hash
-                } else {
-                    return Ok(None);
-                }
-            } else {
+            if result.is_empty() && point != through {
                 return Ok(None);
             }
+            result.push(point);
+            if current_hash == from.hash() {
+                return Ok(if point == from { PointsRange::from_vec(result) } else { None });
+            }
+            if point.slot_or_default() < from.slot_or_default() {
+                return Ok(None);
+            }
+            let Some(parent) = parent else {
+                return Ok(None);
+            };
+            current_hash = parent;
         }
-        Ok(PointsRange::from_vec(result))
+    }
+}
+
+impl ExternalEffectAPI for RequestRange {
+    type Response = Result<Option<PointsRange>, StoreError>;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let store = resources.get::<ResourceHeaderStore>().expect("RequestRange requires a chain store");
+            let snapshot = store.snapshot();
+            PointsRange::request_range(|hash| snapshot.load_block_metadata(hash), self.from, self.through)
+        })
     }
 }
 
@@ -195,6 +187,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     vec![
         amaru_pure_stage::register_data_deserializer::<Instance>().boxed(),
         amaru_pure_stage::register_data_deserializer::<MuxClient>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<RequestRange>().boxed(),
     ]
 }
 
@@ -223,7 +216,7 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             Ok(ServerIdleIn::Pull(pull)) => idle.receive(&pull, eff).send(&mux, WantNext).await.finish().into(),
             Ok(ServerIdleIn::RequestRange(range)) => {
                 let store = Store::new(eff.clone());
-                match PointsRange::request_range(&store, range.from, range.through).await {
+                match eff.external(range.clone()).await {
                     Ok(Some(mut points)) => {
                         let metrics_eff = eff.clone();
                         let for_err = eff.clone();
@@ -319,13 +312,13 @@ pub mod tests {
     use std::sync::{Arc, OnceLock};
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_headers_chain,
-        any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Point, Slot,
+        any_headers_chain, any_headers_chain_with_root,
         cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
         cbor,
         utils::tests::run_strategy,
     };
-    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+    use amaru_ouroboros_traits::{BaseReadChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
         simulation::{Run, SimulationBuilder, simulation_builder::run_test},
@@ -338,7 +331,6 @@ pub mod tests {
     use crate::{
         mux::{MuxMessage, Sent},
         protocol::Inputs,
-        store_effects::ResourceHeaderStore,
     };
 
     fn remaining<S, In>() -> String
@@ -397,6 +389,22 @@ pub mod tests {
         let (store, chain) = make_store_with_chain(5);
         let result = request_range(store, chain[3].header.point(), chain[1].header.point());
         assert_eq!(result, None, "should return None when from > through");
+    }
+
+    #[test]
+    fn request_range_orders_same_slot_blocks_by_ancestry() {
+        let boundary = NetworkPoint::Specific(0.into(), [2; 32].into());
+        let regular = NetworkPoint::Specific(0.into(), [1; 32].into());
+        let load = |hash: &HeaderHash| {
+            Ok(if *hash == boundary.hash() { Some((boundary, None)) } else { Some((regular, Some(boundary.hash()))) })
+        };
+        assert_eq!(
+            PointsRange::request_range(load, boundary, regular).unwrap(),
+            PointsRange::from_vec(vec![regular, boundary])
+        );
+        assert_eq!(PointsRange::request_range(load, regular, boundary).unwrap(), None);
+        let wrong_slot = NetworkPoint::Specific(1.into(), regular.hash());
+        assert_eq!(PointsRange::request_range(load, boundary, wrong_slot).unwrap(), None);
     }
 
     #[test]
@@ -736,58 +744,23 @@ pub mod tests {
         }
     }
 
-    /// Invoke the PointsRange::request_range method via a stage
     fn request_range(
         store: Arc<InMemoryChainStore>,
         from: impl Into<NetworkPoint>,
         through: impl Into<NetworkPoint>,
     ) -> Option<PointsRange> {
-        let from = from.into();
-        let through = through.into();
-        match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
-            PointsRangeTestResult::RequestRange(result) => result,
-            PointsRangeTestResult::NextBlock(_) => unreachable!(),
-        }
+        PointsRange::request_range(|hash| store.load_block_metadata(hash), from.into(), through.into()).unwrap()
     }
 
     /// Invoke the PointsRange::next_block method via a stage
     fn next_block(store: Arc<InMemoryChainStore>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
-        match run_points_range_test(store, PointsRangeTestMsg::NextBlock { range }) {
-            PointsRangeTestResult::NextBlock(result) => result,
-            PointsRangeTestResult::RequestRange(_) => unreachable!(),
-        }
-    }
-
-    /// Invoke the PointsRange methods via a stage
-    fn run_points_range_test(store: Arc<InMemoryChainStore>, msg: PointsRangeTestMsg) -> PointsRangeTestResult {
         run_test(
             |resources| {
                 resources.put::<ResourceHeaderStore>(store.clone());
             },
-            msg,
-            |_state, msg, eff| async move {
-                match msg {
-                    PointsRangeTestMsg::RequestRange { from, through } => Some(PointsRangeTestResult::RequestRange(
-                        PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
-                    )),
-                    PointsRangeTestMsg::NextBlock { range } => Some(PointsRangeTestResult::NextBlock(
-                        range.next_block(&Store::new(eff.clone())).await.unwrap(),
-                    )),
-                }
-            },
+            range,
+            |_state, range, eff| async move { Some(range.next_block(&Store::new(eff)).await.unwrap()) },
         )
         .unwrap()
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    enum PointsRangeTestMsg {
-        RequestRange { from: NetworkPoint, through: NetworkPoint },
-        NextBlock { range: PointsRange },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    enum PointsRangeTestResult {
-        RequestRange(Option<PointsRange>),
-        NextBlock((RawBlock, Option<PointsRange>)),
     }
 }

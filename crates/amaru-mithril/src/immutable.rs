@@ -17,12 +17,67 @@ use std::{
     fs,
     io::{self, Read, Seek, SeekFrom},
     mem::size_of,
+    num::NonZeroU64,
     path::{Path, PathBuf},
-    vec::IntoIter,
 };
 
-use amaru_kernel::{GlobalParameters, Hasher, HeaderHash, NetworkName, Point, Slot, cbor, extract_block_header_cbor};
-use anyhow::Result as ImmutableResult;
+use amaru_kernel::{
+    EraName, Hasher, HeaderHash, NetworkName, NetworkPoint, Point, Slot, cbor, extract_block_header_cbor, size,
+};
+use anyhow::{Context, Result as ImmutableResult};
+
+const BYRON_EBB_TAG: u8 = 0;
+const BYRON_BLOCK_TAG: u8 = EraName::Byron as u8;
+const SHELLEY_BLOCK_TAG: u8 = EraName::Shelley as u8;
+const DIJKSTRA_BLOCK_TAG: u8 = EraName::Dijkstra as u8;
+const CBOR_PAIR_PREFIX: u8 = 0x82;
+const IMMUTABLE_EXTENSIONS: [&str; 3] = ["chunk", "primary", "secondary"];
+
+/// Number of regular slots per chunk in a uniform cardano-node immutable store.
+///
+/// Chunks are numbered from slot zero. If Byron EBBs are present, this must also be the
+/// Byron epoch length: each EBB belongs to the chunk numbered by its epoch. The chunk
+/// size remains fixed across hard forks, even when the ledger's epoch length changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct ImmutableChunkSize(NonZeroU64);
+
+impl ImmutableChunkSize {
+    /// Use the chunk size of the source database, in regular slots (excluding the EBB entry).
+    pub fn new(slots_per_chunk: u64) -> io::Result<Self> {
+        NonZeroU64::new(slots_per_chunk)
+            .map(Self)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "immutable chunk size must be nonzero"))
+    }
+
+    /// The standard cardano-node layout for a known network.
+    ///
+    /// Uses ten times the security parameter from the network's built-in global parameters.
+    /// For these networks, this matches the Byron genesis chunk layout. Custom networks must
+    /// supply their source database's layout via [`Self::new`].
+    pub fn for_network(network: NetworkName) -> io::Result<Self> {
+        let parameters = network.as_global_parameters().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("immutable chunk size not known for network {network}"))
+        })?;
+        let slots_per_chunk = parameters
+            .consensus_security_param
+            .checked_mul(10)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "immutable chunk size overflow"))?;
+        Self::new(slots_per_chunk)
+    }
+
+    /// The chunk containing an absolute slot, in any era.
+    pub fn chunk_for_slot(self, slot: Slot) -> u64 {
+        slot.as_u64() / self.0
+    }
+
+    fn first_slot(self, chunk: u64) -> io::Result<Slot> {
+        chunk
+            .checked_mul(self.0.get())
+            .map(Slot::from)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "chunk slot overflow"))
+    }
+}
 
 /// A block read from the cardano-node immutable store.
 #[derive(Debug)]
@@ -32,46 +87,126 @@ pub struct ImmutableBlock {
     pub raw_block: Vec<u8>,
 }
 
-struct ChunkBlockIter {
-    chunk_file: fs::File,
-    offsets: std::iter::Peekable<IntoIter<u64>>,
-    chunk_len: u64,
+#[derive(Clone, Copy)]
+struct SecondaryEntry {
+    offset: u64,
+    hash: HeaderHash,
+    /// Absolute slot for regular blocks, epoch number for Byron EBBs.
+    slot_or_epoch: u64,
 }
 
-impl ChunkBlockIter {
-    fn open(immutable_dir: &Path, chunk: u64) -> ImmutableResult<Self> {
-        let chunk_path = immutable_file_path(immutable_dir, chunk, "chunk");
-        let secondary_path = immutable_file_path(immutable_dir, chunk, "secondary");
-        let chunk_file = fs::File::open(chunk_path)?;
-        let chunk_len = chunk_file.metadata()?.len();
-        let offsets = read_secondary_offsets(&secondary_path, chunk_len)?.into_iter().peekable();
-        Ok(Self { chunk_file, offsets, chunk_len })
-    }
+struct IndexedBlock {
+    chunk: u64,
+    index: SecondaryEntry,
+    bytes: Vec<u8>,
+}
 
-    fn read_block(&mut self, start: u64, end: u64) -> ImmutableResult<Vec<u8>> {
-        let mut raw_block = vec![0; usize::try_from(end - start)?];
-        self.chunk_file.seek(SeekFrom::Start(start))?;
-        self.chunk_file.read_exact(&mut raw_block)?;
-        Ok(raw_block)
+impl IndexedBlock {
+    fn verified_point(
+        &self,
+        chunk_size: ImmutableChunkSize,
+        previous: Option<HeaderHash>,
+    ) -> ImmutableResult<NetworkPoint> {
+        let era = verify_historical_header(&self.bytes, self.index.hash, previous)?;
+        let slot = if era == BYRON_EBB_TAG {
+            anyhow::ensure!(
+                self.index.slot_or_epoch == self.chunk,
+                "EBB epoch {} does not match chunk {}",
+                self.index.slot_or_epoch,
+                self.chunk
+            );
+            chunk_size.first_slot(self.chunk)?
+        } else {
+            let slot = Slot::from(self.index.slot_or_epoch);
+            anyhow::ensure!(
+                chunk_size.chunk_for_slot(slot) == self.chunk,
+                "indexed slot {slot} does not belong to chunk {} with layout {chunk_size:?}",
+                self.chunk
+            );
+            slot
+        };
+        Ok(NetworkPoint::Specific(slot, self.index.hash))
     }
 }
 
-impl Iterator for ChunkBlockIter {
-    type Item = ImmutableResult<(u64, Vec<u8>)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let start = self.offsets.next()?;
-        let end = self.offsets.peek().copied().unwrap_or(self.chunk_len);
-        Some(self.read_block(start, end).map(|block| (start, block)))
-    }
+fn read_chunk(
+    immutable_dir: &Path,
+    chunk: u64,
+) -> ImmutableResult<impl DoubleEndedIterator<Item = ImmutableResult<IndexedBlock>> + use<>> {
+    let mut file = fs::File::open(immutable_file_path(immutable_dir, chunk, "chunk"))?;
+    let chunk_len = file.metadata()?.len();
+    let entries = read_secondary_entries(&immutable_file_path(immutable_dir, chunk, "secondary"), chunk_len)?;
+    Ok((0..entries.len()).map(move |position| {
+        let index = entries[position];
+        let end = entries.get(position + 1).map_or(chunk_len, |next| next.offset);
+        let mut bytes = vec![0; usize::try_from(end - index.offset)?];
+        file.seek(SeekFrom::Start(index.offset))?;
+        file.read_exact(&mut bytes)?;
+        Ok(IndexedBlock { chunk, index, bytes })
+    }))
 }
 
-impl DoubleEndedIterator for ChunkBlockIter {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        let start = self.offsets.next_back()?;
-        let end = std::mem::replace(&mut self.chunk_len, start);
-        Some(self.read_block(start, end).map(|block| (start, block)))
+/// Read opaque blocks and their indexed network points in immutable chain order.
+///
+/// The directory must come from a verified Mithril download starting at genesis. Each subsequent
+/// header's parent must match the preceding hash, and every header must hash to its indexed hash.
+/// Block bodies remain opaque. `chunk_size` must match the source database's uniform layout;
+/// index entries inconsistent with that layout are rejected.
+pub fn iter_immutable_raw_blocks(
+    immutable_dir: &Path,
+    chunk_size: ImmutableChunkSize,
+) -> io::Result<impl Iterator<Item = ImmutableResult<(NetworkPoint, Vec<u8>)>> + use<>> {
+    Ok(immutable_raw_blocks_iter(immutable_dir, list_immutable_chunks(immutable_dir)?).scan(
+        None,
+        move |previous, block| {
+            Some(block.and_then(|block| {
+                let point = block.verified_point(chunk_size, *previous).with_context(|| {
+                    format!("historical block in chunk {} at offset {}", block.chunk, block.index.offset)
+                })?;
+                *previous = Some(point.hash());
+                Ok((point, block.bytes))
+            }))
+        },
+    ))
+}
+
+/// Verify the header hash and parent link without interpreting the block body.
+fn verify_historical_header(bytes: &[u8], hash: HeaderHash, previous: Option<HeaderHash>) -> ImmutableResult<u8> {
+    let mut decoder = cbor::Decoder::new(bytes);
+    decoder.array()?;
+    let era = decoder.u8()?;
+    decoder.array()?;
+    let start = decoder.position();
+    decoder.skip()?;
+    let header = &bytes[start..decoder.position()];
+    let mut decoder = cbor::Decoder::new(header);
+    decoder.array()?;
+    match era {
+        BYRON_EBB_TAG | BYRON_BLOCK_TAG => {
+            // Byron headers start with protocol magic, then the parent hash.
+            decoder.u32()?;
+        }
+        SHELLEY_BLOCK_TAG..=DIJKSTRA_BLOCK_TAG => {
+            // Shelley onwards: header body starts with block number, slot, parent hash.
+            decoder.array()?;
+            decoder.u64()?;
+            decoder.u64()?;
+        }
+        _ => anyhow::bail!("unsupported historical block era"),
     }
+    let parent = decoder.decode::<Option<HeaderHash>>()?;
+    let mut hasher = Hasher::<256>::new();
+    if matches!(era, BYRON_EBB_TAG | BYRON_BLOCK_TAG) {
+        // Byron hashes the CBOR pair [block type, header], including for epoch boundary blocks.
+        hasher.input(&[CBOR_PAIR_PREFIX, era]);
+    }
+    hasher.input(header);
+    let actual_hash = hasher.finalize();
+    anyhow::ensure!(actual_hash == hash, "historical header hash mismatch: indexed {hash}, actual {actual_hash}");
+    if let Some(previous) = previous {
+        anyhow::ensure!(parent == Some(previous), "broken historical chain: expected parent {previous}");
+    }
+    Ok(era)
 }
 
 /// Iterates over every decodable block in immutable chunk order.
@@ -82,9 +217,13 @@ pub fn iter_immutable_blocks(
     immutable_dir: &Path,
 ) -> io::Result<impl Iterator<Item = ImmutableResult<ImmutableBlock>> + use<>> {
     Ok(immutable_raw_blocks_iter(immutable_dir, list_immutable_chunks(immutable_dir)?).map(|block| {
-        let (chunk, offset, raw_block) = block?;
-        decode_immutable_block(raw_block)
-            .ok_or_else(|| anyhow::anyhow!("failed to decode immutable block in chunk {chunk} at offset {offset}"))
+        let block = block?;
+        let header_cbor = extract_block_header_cbor(&block.bytes)
+            .with_context(|| {
+                format!("failed to decode immutable block in chunk {} at offset {}", block.chunk, block.index.offset)
+            })?
+            .to_vec();
+        Ok(ImmutableBlock { hash: Hasher::<256>::hash(&header_cbor), header_cbor, raw_block: block.bytes })
     }))
 }
 
@@ -100,13 +239,13 @@ pub fn read_blocks_after_point(
     let chunks = list_immutable_chunks(immutable_dir)?;
     let first_chunk = match point {
         Point::Origin => None,
-        Point::Specific(slot, _, _) => Some(chunk_for_slot(network, slot)?),
+        Point::Specific(slot, _, _) => Some(ImmutableChunkSize::for_network(network)?.chunk_for_slot(slot)),
     };
     let chunks =
         chunks.into_iter().skip_while(|chunk| first_chunk.is_some_and(|first_chunk| *chunk < first_chunk)).collect();
-    let mut blocks = immutable_raw_blocks_iter(immutable_dir, chunks).map(|block| block.map(|(_, _, bytes)| bytes));
-    if let Point::Specific(slot, _, _) = point {
-        consume_through_point(&mut blocks, point, slot.as_u64())?;
+    let mut blocks = immutable_raw_blocks_iter(immutable_dir, chunks).map(|block| block.map(|block| block.bytes));
+    if let Point::Specific(..) = point {
+        consume_through_point(&mut blocks, point)?;
     }
     Ok(blocks)
 }
@@ -125,63 +264,68 @@ pub fn last_immutable_point(immutable_dir: &Path, until_slot: Option<Slot>) -> I
 }
 
 fn last_point_in_chunk(immutable_dir: &Path, chunk: u64, until_slot: Option<Slot>) -> ImmutableResult<Option<Point>> {
-    for block in ChunkBlockIter::open(immutable_dir, chunk)?.rev() {
-        let point = parse_block_point(&block?.1)?;
-        if until_slot.is_none_or(|limit| point.slot_or_default() <= limit) {
-            return Ok(Some(point));
-        }
-    }
-    Ok(None)
+    read_chunk(immutable_dir, chunk)?
+        .rev()
+        .map(|block| {
+            let point = parse_block_point(&block?.bytes)?;
+            Ok(until_slot.is_none_or(|limit| point.slot_or_default() <= limit).then_some(point))
+        })
+        .find_map(Result::transpose)
+        .transpose()
 }
 
 fn immutable_raw_blocks_iter(
     immutable_dir: &Path,
     chunks: Vec<u64>,
-) -> impl Iterator<Item = ImmutableResult<(u64, u64, Vec<u8>)>> + use<> {
+) -> impl Iterator<Item = ImmutableResult<IndexedBlock>> + use<> {
     let immutable_dir = immutable_dir.to_path_buf();
     let mut chunks = chunks.into_iter();
-    let mut current = None::<(u64, ChunkBlockIter)>;
+    let mut current = None;
     std::iter::from_fn(move || {
         loop {
-            if let Some((chunk, blocks)) = &mut current
-                && let Some(block) = blocks.next()
-            {
-                return Some(block.map(|(offset, bytes)| (*chunk, offset, bytes)));
+            if current.is_none() {
+                current = match read_chunk(&immutable_dir, chunks.next()?) {
+                    Ok(blocks) => Some(blocks),
+                    Err(error) => return Some(Err(error)),
+                };
             }
-            let chunk = chunks.next()?;
-            match ChunkBlockIter::open(&immutable_dir, chunk) {
-                Ok(blocks) => current = Some((chunk, blocks)),
-                Err(error) => return Some(Err(error)),
+            if let Some(block) = current.as_mut().and_then(Iterator::next) {
+                return Some(block);
             }
+            current = None;
         }
     })
 }
 
 fn list_immutable_chunks(immutable_dir: &Path) -> Result<Vec<u64>, io::Error> {
     fs::read_dir(immutable_dir)?
-        .map(|entry| entry.map(|entry| immutable_chunk_number(&entry.path())))
+        .map(|entry| {
+            entry.map(|entry| {
+                immutable_file_parts(&entry.path())
+                    .and_then(|(chunk, extension)| (extension == "chunk").then_some(chunk))
+            })
+        })
         .filter_map(Result::transpose)
         .collect::<Result<BTreeSet<_>, _>>()
         .map(|chunks| chunks.into_iter().collect())
 }
 
-fn immutable_chunk_number(path: &Path) -> Option<u64> {
-    (path.extension().and_then(|extension| extension.to_str()) == Some("chunk"))
-        .then_some(path)
-        .and_then(|path| path.file_stem()?.to_str()?.parse().ok())
+fn immutable_file_parts(path: &Path) -> Option<(u64, &'static str)> {
+    let extension = path.extension()?.to_str()?;
+    let extension = IMMUTABLE_EXTENSIONS.into_iter().find(|expected| *expected == extension)?;
+    Some((path.file_stem()?.to_str()?.parse().ok()?, extension))
 }
 
 fn consume_through_point(
     blocks: &mut impl Iterator<Item = ImmutableResult<Vec<u8>>>,
     point: Point,
-    target_slot: u64,
 ) -> ImmutableResult<()> {
     for block in blocks {
         let block_point = parse_block_point(&block?)?;
         if block_point == point {
             return Ok(());
         }
-        if block_point.slot_or_default().as_u64() > target_slot {
+        if block_point.slot_or_default() > point.slot_or_default() {
             break;
         }
     }
@@ -200,7 +344,8 @@ pub(crate) fn validated_download_boundary(
     resume_point: Point,
 ) -> ImmutableResult<u64> {
     let cache_boundary = validate_immutable_files(immutable_dir)?.map(|last_chunk| last_chunk.saturating_sub(1));
-    let resume_boundary = chunk_for_slot(network, resume_point.slot_or_default())?.saturating_sub(1);
+    let resume_boundary =
+        ImmutableChunkSize::for_network(network)?.chunk_for_slot(resume_point.slot_or_default()).saturating_sub(1);
     Ok(cache_boundary.map_or(resume_boundary, |boundary| boundary.min(resume_boundary)))
 }
 
@@ -227,13 +372,7 @@ pub(crate) fn validate_immutable_files(immutable_dir: &Path) -> ImmutableResult<
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        let Some(extension) = path.extension().and_then(|extension| extension.to_str()).and_then(|extension| {
-            ["chunk", "primary", "secondary"].into_iter().find(|expected| *expected == extension)
-        }) else {
-            continue;
-        };
-        let Some(chunk) = path.file_stem().and_then(|stem| stem.to_str()).and_then(|stem| stem.parse::<u64>().ok())
-        else {
+        let Some((chunk, extension)) = immutable_file_parts(&path) else {
             continue;
         };
         if !entry.file_type()?.is_file() {
@@ -242,19 +381,14 @@ pub(crate) fn validate_immutable_files(immutable_dir: &Path) -> ImmutableResult<
         files_by_chunk.entry(chunk).or_default().insert(extension);
     }
 
-    let chunks = files_by_chunk.keys().copied().collect::<Vec<_>>();
-    for pair in chunks.windows(2) {
-        if pair[0].checked_add(1) != Some(pair[1]) {
-            return Err(anyhow::anyhow!(
-                "immutable chunk sequence is not continuous between {} and {}",
-                pair[0],
-                pair[1]
-            ));
+    for (previous, next) in files_by_chunk.keys().zip(files_by_chunk.keys().skip(1)) {
+        if previous.checked_add(1) != Some(*next) {
+            return Err(anyhow::anyhow!("immutable chunk sequence is not continuous between {previous} and {next}"));
         }
     }
 
     for (chunk, extensions) in &files_by_chunk {
-        for extension in ["chunk", "primary", "secondary"] {
+        for extension in IMMUTABLE_EXTENSIONS {
             if !extensions.contains(extension) {
                 return Err(anyhow::anyhow!(
                     "missing immutable file {}",
@@ -264,10 +398,10 @@ pub(crate) fn validate_immutable_files(immutable_dir: &Path) -> ImmutableResult<
         }
         let chunk_path = immutable_file_path(immutable_dir, *chunk, "chunk");
         let chunk_len = fs::metadata(chunk_path)?.len();
-        read_secondary_offsets(&immutable_file_path(immutable_dir, *chunk, "secondary"), chunk_len)?;
+        read_secondary_entries(&immutable_file_path(immutable_dir, *chunk, "secondary"), chunk_len)?;
     }
 
-    Ok(chunks.last().copied())
+    Ok(files_by_chunk.last_key_value().map(|(chunk, _)| *chunk))
 }
 
 /// Returns the first chunk number without a complete `.chunk`, `.primary`, and `.secondary` file set.
@@ -283,7 +417,7 @@ pub fn first_missing_immutable_chunk(immutable_dir: &Path) -> Result<u64, io::Er
 }
 
 pub(crate) fn immutable_chunk_is_complete(immutable_dir: &Path, chunk: u64) -> io::Result<bool> {
-    ["chunk", "primary", "secondary"].into_iter().try_fold(true, |complete, extension| {
+    IMMUTABLE_EXTENSIONS.into_iter().try_fold(true, |complete, extension| {
         if !complete {
             return Ok(false);
         }
@@ -304,56 +438,42 @@ fn immutable_file_path(immutable_dir: &Path, chunk: u64, extension: &str) -> Pat
     immutable_dir.join(format!("{chunk:05}.{extension}"))
 }
 
-/// Returns the immutable chunk containing `slot` for `network`.
-///
-/// Returns an error when global parameters are unavailable for the requested network.
-pub fn chunk_for_slot(network: NetworkName, slot: Slot) -> anyhow::Result<u64> {
-    let global_parameters: &GlobalParameters = network
-        .as_global_parameters()
-        .ok_or_else(|| anyhow::anyhow!("GlobalParameters not known for network name `{}`", network))?;
-    let slots_per_chunk = 10 * global_parameters.consensus_security_param;
-    Ok(slot.as_u64() / slots_per_chunk)
-}
+const SECONDARY_HASH_OFFSET: usize = 16;
+const SECONDARY_SLOT_OFFSET: usize = SECONDARY_HASH_OFFSET + size::HEADER;
+const SECONDARY_ENTRY_SIZE: usize = SECONDARY_SLOT_OFFSET + size_of::<u64>();
 
-const SECONDARY_ENTRY_SIZE: usize = 56;
-
-fn read_secondary_offsets(secondary_path: &Path, chunk_len: u64) -> io::Result<Vec<u64>> {
+fn read_secondary_entries(secondary_path: &Path, chunk_len: u64) -> io::Result<Vec<SecondaryEntry>> {
     let secondary = fs::read(secondary_path)?;
-    if secondary.len() % SECONDARY_ENTRY_SIZE != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "invalid immutable secondary index size for {}: {} bytes",
-                secondary_path.display(),
-                secondary.len()
-            ),
-        ));
-    }
-
-    let offsets =
-        secondary.as_chunks::<SECONDARY_ENTRY_SIZE>().0.iter().map(secondary_block_offset).collect::<Vec<_>>();
-    let valid = match (chunk_len, offsets.first(), offsets.last()) {
-        (0, None, None) => true,
-        (0, _, _) | (_, None, None) => false,
-        (_, Some(first), Some(last)) => {
-            *first == 0 && *last < chunk_len && offsets.windows(2).all(|pair| pair[0] < pair[1])
-        }
-        (_, _, _) => false,
-    };
-    if !valid {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid immutable secondary index offsets in {}", secondary_path.display()),
-        ));
-    }
-
-    Ok(offsets)
+    parse_secondary_entries(&secondary, chunk_len)
+        .map_err(|error| io::Error::new(error.kind(), format!("{error} in {}", secondary_path.display())))
 }
 
-fn secondary_block_offset(entry: &[u8; SECONDARY_ENTRY_SIZE]) -> u64 {
-    let mut offset = [0; size_of::<u64>()];
-    offset.copy_from_slice(&entry[..size_of::<u64>()]);
-    u64::from_be_bytes(offset)
+fn parse_secondary_entries(secondary: &[u8], chunk_len: u64) -> io::Result<Vec<SecondaryEntry>> {
+    if !secondary.len().is_multiple_of(SECONDARY_ENTRY_SIZE) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid immutable secondary index size: {} bytes", secondary.len()),
+        ));
+    }
+
+    let entries = secondary
+        .as_chunks::<SECONDARY_ENTRY_SIZE>()
+        .0
+        .iter()
+        .map(|entry| SecondaryEntry {
+            offset: u64::from_be_bytes(std::array::from_fn(|i| entry[i])),
+            hash: HeaderHash::from(std::array::from_fn(|i| entry[SECONDARY_HASH_OFFSET + i])),
+            slot_or_epoch: u64::from_be_bytes(std::array::from_fn(|i| entry[SECONDARY_SLOT_OFFSET + i])),
+        })
+        .collect::<Vec<_>>();
+    let valid = entries.first().map_or(chunk_len == 0, |first| first.offset == 0)
+        && entries.last().is_none_or(|last| last.offset < chunk_len)
+        && entries.windows(2).all(|pair| pair[0].offset < pair[1].offset);
+    if !valid {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid immutable secondary index offsets"));
+    }
+
+    Ok(entries)
 }
 
 fn parse_block_point(input: &[u8]) -> Result<Point, cbor::decode::Error> {
@@ -366,22 +486,16 @@ fn parse_block_point(input: &[u8]) -> Result<Point, cbor::decode::Error> {
     Ok(Point::Specific(slot.into(), Hasher::<256>::hash(header), height.into()))
 }
 
-fn decode_immutable_block(raw_block: Vec<u8>) -> Option<ImmutableBlock> {
-    let header_cbor = extract_block_header_cbor(&raw_block).ok()?.to_vec();
-    let hash = Hasher::<256>::hash(&header_cbor);
-    Some(ImmutableBlock { hash, header_cbor, raw_block })
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{fs, path::Path};
+    use std::{fs, mem::size_of, path::Path};
 
     use amaru_kernel::{Hasher, NetworkName, Point, cbor};
     use tempfile::TempDir;
 
     use super::{
-        first_missing_immutable_chunk, immutable_file_path, iter_immutable_blocks, last_immutable_point,
-        read_blocks_after_point, validate_immutable_resume_point, validated_download_boundary,
+        SECONDARY_ENTRY_SIZE, first_missing_immutable_chunk, immutable_file_path, iter_immutable_blocks,
+        last_immutable_point, read_blocks_after_point, validate_immutable_resume_point, validated_download_boundary,
     };
 
     fn block(slot: u64) -> (Point, Vec<u8>) {
@@ -403,8 +517,8 @@ pub(crate) mod tests {
         let mut chunk = Vec::new();
         let mut secondary = Vec::new();
         for block in blocks {
-            let mut entry = [0_u8; 56];
-            entry[0..8].copy_from_slice(&(chunk.len() as u64).to_be_bytes());
+            let mut entry = [0_u8; SECONDARY_ENTRY_SIZE];
+            entry[..size_of::<u64>()].copy_from_slice(&(chunk.len() as u64).to_be_bytes());
             secondary.extend_from_slice(&entry);
             chunk.extend_from_slice(block);
         }

@@ -26,7 +26,7 @@ use amaru_kernel::{
     utils::{self, path::relative_path},
 };
 use amaru_mithril::{
-    ImmutableBlock, chunk_for_slot, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks,
+    ImmutableBlock, ImmutableChunkSize, download_from_mithril, first_missing_immutable_chunk, iter_immutable_blocks,
 };
 use amaru_observability::info;
 use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
@@ -271,7 +271,10 @@ async fn run(args: Args) -> anyhow::Result<()> {
     );
 
     let from_chunk = first_missing_immutable_chunk(&immutable_dir)?;
-    let required_chunk = targets.last().and_then(|t| chunk_for_slot(network, t.slot).ok()).unwrap_or(0);
+    let required_chunk = targets
+        .last()
+        .and_then(|t| ImmutableChunkSize::for_network(network).ok().map(|size| size.chunk_for_slot(t.slot)))
+        .unwrap_or(0);
 
     let progress_factory: Arc<dyn Fn(usize, &str) -> Box<dyn ProgressBar + Send + Sync> + Send + Sync> =
         Arc::new(|size: usize, template: &str| {
