@@ -58,6 +58,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: fix a pre-existing availability issue where a peer-supplied block with an indefinite-length outer CBOR array could trigger an integrity-check panic despite valid header and body hashes.
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.

@@ -179,7 +179,7 @@ pub(crate) fn migrate_to_v6(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
     set_version(store, 6)
 }
 
-/// Reserve the archive metadata prefix. Existing blocks keep using their stored headers.
+/// Reserve the archive metadata and slot index prefixes. Historical imports populate both.
 pub(crate) fn migrate_to_v7(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
     set_version(store, 7)
 }
