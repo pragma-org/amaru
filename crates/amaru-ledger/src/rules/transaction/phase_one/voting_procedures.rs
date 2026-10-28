@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, ProposalSlim,
-    ProtocolVersion, RedeemerTag, RequiredScript, TransactionPointer, Voter, VotingProcedure, VotingProcedures,
-    protocol_version::PROTOCOL_VERSION_11, utils::string::display_map,
+    Credential, Epoch, EraHistory, HasOwnership, MemoizedDatum, ProposalId, ProposalSlim, ProtocolVersion, RedeemerTag,
+    RequiredScript, TransactionPointer, Voter, VotingProcedures, protocol_version::PROTOCOL_VERSION_11,
+    utils::string::display_map,
 };
 use itertools::Itertools;
 use thiserror::Error;
@@ -44,13 +44,9 @@ pub enum InvalidVotingProcedures {
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
-type VotesByProposal = NonEmptyKeyValuePairs<ProposalId, VotingProcedure>;
-
-/// Requires the witnesses the voters demand. When the transaction is valid, the votes are then validated and recorded.
-/// When it is invalid, nothing else happens.
-pub(crate) fn execute<C>(
+/// Requires the witnesses the voters demand, then validates and records their votes.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     protocol_version: ProtocolVersion,
     era_history: &EraHistory,
     pointer: TransactionPointer,
@@ -58,21 +54,6 @@ pub(crate) fn execute<C>(
 ) -> Result<(), InvalidVotingProcedures>
 where
     C: ProposalsSliceMut + CommitteeSlice + DRepsSlice + PoolsSlice + WitnessSlice,
-{
-    require_witnesses(context, voting_procedures.as_ref().map(|xs| xs.iter().as_slice()).unwrap_or_default());
-
-    if is_valid { when_valid(context, protocol_version, era_history, pointer, voting_procedures) } else { Ok(()) }
-}
-
-fn when_valid<C>(
-    context: &mut C,
-    protocol_version: ProtocolVersion,
-    era_history: &EraHistory,
-    pointer: TransactionPointer,
-    voting_procedures: Option<VotingProcedures>,
-) -> Result<(), InvalidVotingProcedures>
-where
-    C: ProposalsSliceMut + CommitteeSlice + DRepsSlice + PoolsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
         // NOTE: Some conformance tests fail this check because the Haskell imp tests run on a
@@ -86,7 +67,9 @@ where
         let mut expired_proposals = BTreeMap::new();
         let mut disallowed_voters = BTreeMap::new();
 
-        voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).for_each(|(voter, votes)| {
+        voting_procedures.into_iter().sorted_by_key(|(k, _)| *k).enumerate().for_each(|(index, (voter, votes))| {
+            require_witness(context, index, &voter);
+
             if !is_known_voter(context, protocol_version, &voter) {
                 unknown_voters.insert(voter);
                 return;
@@ -144,20 +127,29 @@ where
     Ok(())
 }
 
-fn require_witnesses<C>(context: &mut C, voting_procedures: &[(Voter, VotesByProposal)])
+/// Requires the witnesses the voters demand, without validating or recording their votes.
+pub(crate) fn when_invalid<C>(context: &mut C, voting_procedures: Option<VotingProcedures>)
 where
     C: WitnessSlice,
 {
-    for (index, voter) in voting_procedures.iter().map(|(voter, _)| voter).sorted().enumerate() {
-        match voter.owner() {
-            Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
-                hash,
-                index: index as u32,
-                purpose: RedeemerTag::Vote,
-                datum: MemoizedDatum::None,
-            }),
-            Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
-        }
+    for (index, voter) in voting_procedures.iter().flat_map(|xs| xs.iter()).map(|(voter, _)| voter).sorted().enumerate()
+    {
+        require_witness(context, index, voter);
+    }
+}
+
+fn require_witness<C>(context: &mut C, index: usize, voter: &Voter)
+where
+    C: WitnessSlice,
+{
+    match voter.owner() {
+        Credential::ScriptHash(hash) => context.require_script_witness(RequiredScript {
+            hash,
+            index: index as u32,
+            purpose: RedeemerTag::Vote,
+            datum: MemoizedDatum::None,
+        }),
+        Credential::KeyHash(hash) => context.require_verification_key_witness(hash),
     }
 }
 

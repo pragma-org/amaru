@@ -49,30 +49,61 @@ pub enum InvalidCollateral {
 }
 
 /// Validates declared fee against the computed minimum and, when the transaction carries
-/// redeemers, its collateral. Then collects the fee into the context pots, or the
-/// effective collateral when the transaction is invalid.
+/// redeemers, its collateral. Then collects the fee into the context pots.
 ///
 /// `ref_scripts_size` is the total on-wire byte size of every script attached
 /// to the transaction's reference-input UTxO entries; already accumulated by
 /// [`crate::rules::transaction::phase_one::inputs::execute`].
 ///
 /// Reference: <https://github.com/IntersectMBO/cardano-ledger/blob/0cfbf861cfb456660a7b73281c6fb714a53d40f9/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L89>
-#[expect(clippy::too_many_arguments)]
-pub(crate) fn execute<C>(
-    context: &mut C,
-    is_valid: bool,
-    fees: Lovelace,
-    collateral: ResolvedCollateral,
-    collateral_return: Option<&MemoizedTransactionOutput>,
-    declared_collateral: Option<Lovelace>,
-    tx_size: u64,
-    witness_set: &WitnessSet,
-    ref_scripts_size: u64,
-    pp: &ProtocolParameters,
-) -> Result<(), InvalidFees>
+pub(crate) fn when_valid<C>(context: &mut C, declared: DeclaredFees<'_>) -> Result<(), InvalidFees>
 where
     C: PotsSliceMut + BalanceSlice,
 {
+    let fees = declared.fees;
+    validate(context, declared)?;
+    context.add_fees(fees);
+    Ok(())
+}
+
+/// Validates declared fee and collateral like [`when_valid`], then collects the effective collateral into the
+/// context pots instead of the fee.
+pub(crate) fn when_invalid<C>(context: &mut C, declared: DeclaredFees<'_>) -> Result<(), InvalidFees>
+where
+    C: PotsSliceMut + BalanceSlice,
+{
+    let effective_collateral = validate(context, declared)?;
+    context.add_fees(effective_collateral);
+    Ok(())
+}
+
+pub(crate) struct DeclaredFees<'a> {
+    pub fees: Lovelace,
+    pub collateral: ResolvedCollateral,
+    pub collateral_return: Option<&'a MemoizedTransactionOutput>,
+    pub declared_collateral: Option<Lovelace>,
+    pub tx_size: u64,
+    pub witness_set: &'a WitnessSet,
+    pub ref_scripts_size: u64,
+    pub protocol_parameters: &'a ProtocolParameters,
+}
+
+/// Returns the effective collateral, zero when the transaction carries no redeemers.
+fn validate<C>(context: &mut C, declared: DeclaredFees<'_>) -> Result<Lovelace, InvalidFees>
+where
+    C: BalanceSlice,
+{
+    let DeclaredFees {
+        fees,
+        collateral,
+        collateral_return,
+        declared_collateral,
+        tx_size,
+        witness_set,
+        ref_scripts_size,
+        protocol_parameters: pp,
+    } = declared;
+
     let minimum = compute_min_fee(tx_size, witness_set, ref_scripts_size, pp);
 
     if fees < minimum {
@@ -87,9 +118,7 @@ where
 
     context.produce_lovelace(fees);
 
-    context.add_fees(if is_valid { fees } else { effective_collateral });
-
-    Ok(())
+    Ok(effective_collateral)
 }
 
 /// Collateral validation occurs during fee validation in the Haskell node. See the comments below for notes on
