@@ -188,7 +188,8 @@ fn validate_reference_script(
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Value};
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, utils::tests::run_strategy};
+    use proptest::prelude::any;
     use test_case::test_case;
 
     use super::*;
@@ -199,26 +200,22 @@ mod tests {
     fn produced_utxo(is_valid: bool, expected_index: u16) {
         let mut context = DefaultValidationContext::default();
         let transaction_id = TransactionId::new(Hash::new([0; 32]));
+        let output = run_strategy(any::<MemoizedTransactionOutput>());
+        let network = output.address.network();
 
         let execute = if is_valid { when_valid } else { when_invalid };
         execute(
             &mut context,
             &ArenaPool::new(1, 1_024_000),
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-            Network::Testnet,
+            network,
             transaction_id,
-            vec![output()],
-            Some(output()),
+            vec![output.clone()],
+            Some(output),
         )
         .expect("valid outputs");
 
         let produced: Vec<_> = VolatileFragment::from(context).utxo.produced.keys().copied().collect();
         assert_eq!(produced, vec![TransactionInput { transaction_id: *transaction_id, index: expected_index }]);
-    }
-
-    fn output() -> MemoizedTransactionOutput {
-        let address = Address::from_bech32("addr_test1vp0ksclfnd0zjtfu70npnccut6sjex8w9k0h246xrsl089qnvvmuc")
-            .expect("valid address");
-        MemoizedTransactionOutput::new(address, Value::Coin(2_000_000), MemoizedDatum::None, None)
     }
 }
