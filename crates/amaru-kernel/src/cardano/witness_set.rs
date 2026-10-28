@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    BootstrapWitness, NativeScript, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers, VerificationKeyWitness, cbor,
+    BootstrapWitness, NativeScript, NonEmptyUniqueVec, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers,
+    VerificationKeyWitness, cbor,
 };
 
 /// FIXME(cbor): Accidentally not a set
@@ -48,7 +49,7 @@ pub struct WitnessSet {
     pub bootstrap_witness: Option<NonEmptyVec<BootstrapWitness>>,
 
     #[n(3)]
-    pub plutus_v1_script: Option<NonEmptyVec<PlutusScript<1>>>,
+    pub plutus_v1_script: Option<NonEmptyUniqueVec<PlutusScript<1>>>,
 
     #[n(4)]
     pub plutus_data: Option<PlutusDataSet>,
@@ -57,10 +58,10 @@ pub struct WitnessSet {
     pub redeemer: Option<Redeemers>,
 
     #[n(6)]
-    pub plutus_v2_script: Option<NonEmptyVec<PlutusScript<2>>>,
+    pub plutus_v2_script: Option<NonEmptyUniqueVec<PlutusScript<2>>>,
 
     #[n(7)]
-    pub plutus_v3_script: Option<NonEmptyVec<PlutusScript<3>>>,
+    pub plutus_v3_script: Option<NonEmptyUniqueVec<PlutusScript<3>>>,
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for WitnessSet {
@@ -130,6 +131,16 @@ mod tests {
     #[test_case("a1186380"                        => matches Err(_) ; "an unknown key")]
     #[test_case("a20481182a186380"                => matches Err(_) ; "a known key and an unknown one")]
     fn decode_rejects_unknown_and_duplicate_keys(input: &str) -> Result<WitnessSet, cbor::decode::Error> {
+        from_cbor_no_leftovers(&hex::decode(input).unwrap())
+    }
+
+    /// The ledger reads the scripts of one language into a map keyed by script hash, and fails on a repeated script.
+    #[test_case("a1038241004101"         => matches Ok(_)  ; "two distinct V1 scripts")]
+    #[test_case("a1038241004100"         => matches Err(_) ; "a repeated V1 script")]
+    #[test_case("a1068241004100"         => matches Err(_) ; "a repeated V2 script")]
+    #[test_case("a1078241004100"         => matches Err(_) ; "a repeated V3 script")]
+    #[test_case("a107d90102824100410041" => matches Err(_) ; "a repeated V3 script in a tagged set")]
+    fn decode_rejects_repeated_plutus_scripts(input: &str) -> Result<WitnessSet, cbor::decode::Error> {
         from_cbor_no_leftovers(&hex::decode(input).unwrap())
     }
 }
