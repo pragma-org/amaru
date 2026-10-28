@@ -22,6 +22,7 @@ use std::sync::Mutex;
 
 use amaru_kernel::{
     Ed25519Signature, KesPeriod, KesSignature, OperationalCert, VerificationKey,
+    cardano::fixed_bytes::FixedBytes,
     ed25519::{self, Signer},
 };
 use amaru_ouroboros::{kes, vrf};
@@ -59,14 +60,14 @@ impl TestCredentials {
         max_kes_evolutions: u64,
     ) -> Self {
         let mut kes = kes::SecretKey::for_tests();
-        let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
+        let hot = kes::PublicKey::from(&mut kes);
         let sequence_number = 0u64;
         let mut message = Vec::with_capacity(48);
         message.extend_from_slice(&hot[..]);
         message.extend_from_slice(&sequence_number.to_be_bytes());
         message.extend_from_slice(&u64::from(ocert_start_period).to_be_bytes());
         let ocert = OperationalCert {
-            operational_cert_hot_verification_key: hot,
+            operational_cert_kes_verification_key: FixedBytes::from(*hot),
             operational_cert_sequence_number: sequence_number,
             operational_cert_kes_period: ocert_start_period,
             operational_cert_sigma: Ed25519Signature::from(cold.sign(&message).to_bytes()),
@@ -143,7 +144,7 @@ mod tests {
 
     fn verify(credentials: &TestCredentials, period: KesPeriod, header: &Header, max: u64) {
         let ocert = &header.body().operational_cert;
-        let hot = kes::PublicKey::from(ocert.operational_cert_hot_verification_key.as_array());
+        let hot = kes::PublicKey::from(ocert.operational_cert_kes_verification_key.as_array());
         let signature = kes::Signature::from(header.signature().as_array());
         assert_eq!(ocert, credentials.operational_cert());
         AssertKesSignatureError::new(period, ocert.operational_cert_kes_period, header.body(), &hot, &signature, max)

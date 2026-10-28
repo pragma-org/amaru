@@ -14,14 +14,16 @@
 
 use std::{array::TryFromSliceError, fs, io, mem::ManuallyDrop, ops::Deref, path::Path};
 
-use amaru_kernel::{KesEvolution, cbor};
+use amaru_kernel::{
+    KesEvolution, cbor,
+    utils::envelope::{self, HasEnvelope, ReadEnvelopeError},
+};
 use amaru_observability::trace;
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
     traits::{KesSig, KesSk},
 };
-use serde_json::Value;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -70,27 +72,12 @@ impl SecretKey {
     /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
         let path = path.as_ref();
-        let bytes = fs::read(path)?;
+        let bytes = Zeroizing::new(fs::read(path)?);
         if bytes.len() == Self::SIZE {
-            return Self::from_bytes(bytes);
+            return Self::from_bytes(bytes.to_vec());
         }
-        let envelope = Zeroizing::new(bytes);
-        let cbor_hex: Zeroizing<String> = serde_json::from_value(
-            serde_json::from_slice::<Value>(&envelope)?.get_mut("cborHex").map(Value::take).unwrap_or_default(),
-        )?;
-        if !cbor_hex.len().is_multiple_of(2) {
-            return Err(hex::FromHexError::OddLength.into());
-        }
-        if cbor_hex.is_empty() {
-            return Err(KesError::EmptyEnvelopePayload);
-        }
-        let mut payload = Zeroizing::new(vec![0u8; cbor_hex.len() / 2]);
-        hex::decode_to_slice(cbor_hex.as_bytes(), &mut payload)?;
-        let mut decoder = cbor::Decoder::new(&payload);
-        let key = Self::from_bytes(cbor::decode_bytes(&mut decoder)?.into_owned())?;
-        if decoder.position() != payload.len() {
-            return Err(KesError::TrailingEnvelopeBytes(payload.len() - decoder.position()));
-        }
+        drop(bytes);
+        let key = envelope::read_envelope(path, &mut ())?;
         trace!(consensus::kes::LEGACY_KEY_ENVELOPE, path = path.to_string_lossy());
         Ok(key)
     }
@@ -157,9 +144,22 @@ impl SecretKey {
     }
 }
 
+impl HasEnvelope for SecretKey {
+    /// Legacy envelopes have never had their `type` field checked, and some carry
+    /// none at all, so any type is accepted.
+    const ACCEPTED_TYPES: &'static [&'static str] = &[];
+}
+
+impl<'d, C> cbor::Decode<'d, C> for SecretKey {
+    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Self::from_bytes(cbor::decode_bytes(d)?.into_owned()).map_err(cbor::decode::Error::message)
+    }
+}
+
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
+#[derive(Debug, PartialEq, Eq)]
 pub struct PublicKey(kes::PublicKey);
 
 impl PublicKey {
@@ -289,18 +289,10 @@ pub enum KesError {
     Kes(#[from] kes_summed_ed25519::errors::Error),
     #[error("KES key is at period {current} and cannot be evolved back to period {target}")]
     CannotEvolveBackwards { current: KesEvolution, target: KesEvolution },
-    #[error("KES key envelope payload has {0} trailing bytes")]
-    TrailingEnvelopeBytes(usize),
-    #[error("KES key envelope cborHex is empty")]
-    EmptyEnvelopePayload,
-    #[error("invalid KES key envelope hex: {0}")]
-    Hex(#[from] hex::FromHexError),
-    #[error("invalid KES key envelope CBOR: {0}")]
-    Cbor(#[from] cbor::decode::Error),
     #[error("failed to read KES key file: {0}")]
     Io(#[from] std::io::Error),
-    #[error("malformed KES key envelope: {0}")]
-    Envelope(#[from] serde_json::Error),
+    #[error("failed to read KES key envelope: {0}")]
+    Envelope(#[from] ReadEnvelopeError),
 }
 
 #[cfg(test)]
@@ -401,9 +393,9 @@ mod tests {
     }
 
     #[test_case("invalid", "expected value"; "neither raw nor envelope")]
-    #[test_case("[]", "expected a string"; "missing payload")]
+    #[test_case("[]", "expected struct Envelope"; "missing payload")]
     #[test_case(&envelope("0"), "Odd number of digits"; "odd hex length")]
-    #[test_case(&envelope(""), "cborHex is empty"; "empty payload")]
+    #[test_case(&envelope(""), "end of input"; "empty payload")]
     #[test_case(&envelope(&format!("590260{KES_SK_HEX}00")), "1 trailing bytes"; "trailing bytes")]
     #[test_case(&envelope(&format!("5820{}", "00".repeat(32))), "secret key size"; "wrong key size")]
     fn from_file_rejects_invalid_data(data: &str, expected_error: &str) {

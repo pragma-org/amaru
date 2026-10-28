@@ -141,7 +141,7 @@ pub fn assert_all<'a>(
                 slot_to_kes_period,
                 opcert.operational_cert_kes_period,
                 header.body(),
-                &kes::PublicKey::from(opcert.operational_cert_hot_verification_key.as_array()),
+                &kes::PublicKey::from(opcert.operational_cert_kes_verification_key.as_array()),
                 &kes::Signature::from(header.signature().as_array()),
                 max_kes_evolutions,
             )?;
@@ -404,7 +404,7 @@ impl AssertOperationalCertificateError {
 
         // The opcert message is a concatenation of the KES verification key, the sequence number, and the kes period
         let mut message = Vec::new();
-        message.extend_from_slice(&certificate.operational_cert_hot_verification_key[..]);
+        message.extend_from_slice(&certificate.operational_cert_kes_verification_key[..]);
         message.extend_from_slice(&certificate.operational_cert_sequence_number.to_be_bytes());
         message.extend_from_slice(&u64::from(certificate.operational_cert_kes_period).to_be_bytes());
 

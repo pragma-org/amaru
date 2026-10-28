@@ -292,7 +292,7 @@ mod tests {
                 block_body_size,
                 block_body_hash,
                 operational_cert: OperationalCert {
-                    operational_cert_hot_verification_key: FixedBytes::zeroes(),
+                    operational_cert_kes_verification_key: FixedBytes::zeroes(),
                     operational_cert_sequence_number: op_cert_seq,
                     operational_cert_kes_period: KesPeriod::from(0),
                     operational_cert_sigma: FixedBytes::zeroes(),

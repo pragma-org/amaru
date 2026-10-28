@@ -117,7 +117,7 @@ fn amaru_help(args: &[&str]) -> anyhow::Result<String> {
 fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
     let help = amaru_help(&[])?;
     assert!(help.contains("node"), "top-level help should show 'node'");
-    assert!(help.contains("keys"), "top-level help should show 'keys'");
+    assert!(help.contains("pool"), "top-level help should show 'pool'");
     assert!(help.contains("snapshot"), "top-level help should show 'snapshot'");
     assert_eq!(help.contains("mithril"), cfg!(feature = "mithril"));
     assert!(!help.contains("dev"), "top-level help should NOT show hidden 'dev'");

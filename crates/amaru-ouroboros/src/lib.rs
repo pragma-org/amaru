@@ -22,6 +22,10 @@ pub mod praos;
 mod serde_util;
 pub mod vrf;
 
+pub use amaru_kernel::utils::envelope::ReadEnvelopeError;
 pub use amaru_ouroboros_traits::*;
-pub use credentials::{ensure_operational_certificate_accepted, forging_credentials_from_files};
+pub use credentials::{
+    ensure_operational_certificate_accepted, forging_credentials_from_files, load_cold_verification_key,
+    load_operational_certificate,
+};
 pub use mempool::*;

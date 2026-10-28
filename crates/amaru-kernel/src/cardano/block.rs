@@ -387,7 +387,7 @@ mod tests {
                 block_body_size: 0,
                 block_body_hash: Hash::new([0u8; BLOCK_BODY]),
                 operational_cert: OperationalCert {
-                    operational_cert_hot_verification_key: VerificationKey::zeroes(),
+                    operational_cert_kes_verification_key: FixedBytes::zeroes(),
                     operational_cert_sequence_number: 0,
                     operational_cert_kes_period: KesPeriod::from(0),
                     operational_cert_sigma: Ed25519Signature::zeroes(),

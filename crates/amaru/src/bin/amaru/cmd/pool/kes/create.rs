@@ -21,74 +21,57 @@ use std::{
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_ouroboros::kes::SecretKey;
 use anyhow::{Context, ensure};
-use clap::{Args, Subcommand};
 use tempfile::NamedTempFile;
 
-#[derive(Debug, Subcommand)]
-pub(crate) enum KeysCommand {
-    /// Manage hot KES signing keys.
-    #[command(subcommand)]
-    Kes(KesCommand),
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum KesCommand {
-    /// Generate a KES key pair.
-    Create(CreateArgs),
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct CreateArgs {
+/// Generate a KES key pair.
+#[derive(Debug, clap::Args)]
+pub struct CreateArgs {
     /// Destination for the raw binary KES signing key.
-    #[arg(long)]
+    #[arg(long, value_name = amaru::value_names::FILEPATH)]
     signing_key: PathBuf,
 
     /// Destination for the raw binary KES verification key. Not generated if unspecified.
-    #[arg(long)]
+    #[arg(long, value_name = amaru::value_names::FILEPATH)]
     verification_key: Option<PathBuf>,
 }
 
-impl KeysCommand {
-    pub(crate) fn into_runnable(self) -> Runnable {
-        match self {
-            Self::Kes(KesCommand::Create(args)) => {
-                Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { create(args) })
-            }
+impl CreateArgs {
+    pub fn into_runnable(self) -> Runnable {
+        Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { self.run() })
+    }
+
+    pub fn run(self) -> anyhow::Result<()> {
+        let Self { signing_key, verification_key } = self;
+
+        if let Some(verification_key) = verification_key.as_ref() {
+            ensure!(&signing_key != verification_key, "KES key paths must differ");
         }
+
+        for path in [Some(&signing_key), verification_key.as_ref()].iter().flatten() {
+            let exists = path.try_exists().with_context(|| format!("could not check {}", path.display()))?;
+            ensure!(!exists, "{} already exists", path.display());
+        }
+
+        let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
+        let signing = prepare_key(|file| secret.write_raw(file), &signing_key)?;
+
+        if let Some(verification_key) = verification_key.as_ref() {
+            let verification = prepare_key(|file| file.write_all(public.as_ref()), verification_key)?;
+            verification
+                .persist_noclobber(verification_key)
+                .with_context(|| format!("could not save {}", verification_key.display()))?;
+        };
+
+        signing
+            .persist_noclobber(&signing_key)
+            .inspect_err(|_| {
+                if let Some(verification_key) = verification_key.as_ref() {
+                    let _ = fs::remove_file(verification_key);
+                }
+            })
+            .with_context(|| format!("could not save {}", signing_key.display()))?;
+        Ok(())
     }
-}
-
-fn create(args: CreateArgs) -> anyhow::Result<()> {
-    let CreateArgs { signing_key, verification_key } = args;
-
-    if let Some(verification_key) = verification_key.as_ref() {
-        ensure!(&signing_key != verification_key, "KES key paths must differ");
-    }
-
-    for path in [Some(&signing_key), verification_key.as_ref()].iter().flatten() {
-        let exists = path.try_exists().with_context(|| format!("could not check {}", path.display()))?;
-        ensure!(!exists, "{} already exists", path.display());
-    }
-
-    let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
-    let signing = prepare_key(|file| secret.write_raw(file), &signing_key)?;
-
-    if let Some(verification_key) = verification_key.as_ref() {
-        let verification = prepare_key(|file| file.write_all(public.as_ref()), verification_key)?;
-        verification
-            .persist_noclobber(verification_key)
-            .with_context(|| format!("could not save {}", verification_key.display()))?;
-    };
-
-    signing
-        .persist_noclobber(&signing_key)
-        .inspect_err(|_| {
-            if let Some(verification_key) = verification_key.as_ref() {
-                let _ = fs::remove_file(verification_key);
-            }
-        })
-        .with_context(|| format!("could not save {}", signing_key.display()))?;
-    Ok(())
 }
 
 fn prepare_key(
@@ -107,21 +90,24 @@ fn parent(path: &Path) -> &Path {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use amaru_kernel::KesEvolution;
-    use amaru_ouroboros::kes::PublicKey;
+    use amaru_ouroboros::kes::{PublicKey, SecretKey};
     use tempfile::TempDir;
     use test_case::test_case;
 
-    use super::*;
-
-    fn args(directory: &Path) -> CreateArgs {
-        CreateArgs { signing_key: directory.join("kes.skey"), verification_key: Some(directory.join("kes.vkey")) }
+    fn args(directory: &Path) -> super::CreateArgs {
+        super::CreateArgs {
+            signing_key: directory.join("kes.skey"),
+            verification_key: Some(directory.join("kes.vkey")),
+        }
     }
 
     #[test]
     fn generated_key_files_sign_and_verify() {
         let directory = TempDir::new().unwrap();
-        create(args(directory.path())).unwrap();
+        super::CreateArgs::run(args(directory.path())).unwrap();
         let mut secret = SecretKey::from_file(directory.path().join("kes.skey")).unwrap();
         assert_eq!(secret.period(), KesEvolution::from(0));
         let verification = fs::read(directory.path().join("kes.vkey")).unwrap();
@@ -147,7 +133,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let existing = directory.path().join(name);
         fs::write(&existing, b"existing key").unwrap();
-        assert!(create(args(directory.path())).is_err());
+        assert!(super::CreateArgs::run(args(directory.path())).is_err());
         assert_eq!(fs::read(existing).unwrap(), b"existing key");
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
@@ -159,7 +145,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let existing = directory.path().join(name);
         std::os::unix::fs::symlink("missing", &existing).unwrap();
-        assert!(create(args(directory.path())).is_err());
+        assert!(super::CreateArgs::run(args(directory.path())).is_err());
         assert_eq!(fs::read_link(existing).unwrap(), Path::new("missing"));
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }
@@ -170,7 +156,7 @@ mod tests {
         let mut args = args(directory.path());
         let missing = directory.path().join("missing").join("kes.skey");
         args.signing_key = missing.clone();
-        let error = create(args).unwrap_err();
+        let error = super::CreateArgs::run(args).unwrap_err();
         assert!(error.to_string().contains(&missing.display().to_string()));
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
@@ -180,7 +166,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let mut args = args(directory.path());
         args.verification_key = Some(args.signing_key.clone());
-        assert!(create(args).is_err());
+        assert!(super::CreateArgs::run(args).is_err());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
@@ -190,7 +176,7 @@ mod tests {
         fs::create_dir(directory.path().join("alias")).unwrap();
         let mut args = args(directory.path());
         args.verification_key = Some(directory.path().join("alias/../kes.skey"));
-        assert!(create(args).is_err());
+        assert!(super::CreateArgs::run(args).is_err());
         assert!(!directory.path().join("kes.skey").exists());
         assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     }

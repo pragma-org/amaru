@@ -143,7 +143,7 @@ pub use cardano::{
     network_tip::NetworkTip,
     non_zero_int::NonZeroInt,
     nonce::{Nonce, parse_nonce},
-    operational_cert::OperationalCert,
+    operational_cert::{self, OperationalCert},
     orphan_proposal::{self, OrphanProposal},
     output_reference::OutputReference,
     peer::{DnsName, DnsNameError, Peer, PeerCandidate, PeerCandidateParseError, PeerError},

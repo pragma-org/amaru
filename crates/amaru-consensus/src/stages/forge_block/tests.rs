@@ -198,7 +198,7 @@ fn lead_slot_forges_a_signed_header() {
         parameters.slot_to_kes_period(slot),
         ocert.operational_cert_kes_period,
         header.body(),
-        &kes::PublicKey::from(ocert.operational_cert_hot_verification_key.as_array()),
+        &kes::PublicKey::from(ocert.operational_cert_kes_verification_key.as_array()),
         &kes::Signature::from(header.signature().as_array()),
         parameters.max_kes_evolutions(),
     )

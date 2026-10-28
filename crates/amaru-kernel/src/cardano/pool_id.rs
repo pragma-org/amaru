@@ -18,7 +18,9 @@ use std::{fmt, ops::Deref, str::FromStr};
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{
-    Hash, bech32, cbor,
+    Hash, Hasher, bech32,
+    cardano::fixed_bytes::FixedBytes,
+    cbor,
     hash::{InvalidHashSize, size::POOL_COLD_KEY},
 };
 
@@ -49,6 +51,13 @@ impl PoolId {
     pub fn to_bech32(&self) -> String {
         bech32::encode(*bech32::HRP_POOL, self)
             .unwrap_or_else(|| unreachable!("pool id can always be encoded to bech32"))
+    }
+}
+
+impl From<FixedBytes<32>> for PoolId {
+    #[inline]
+    fn from(cold: FixedBytes<32>) -> Self {
+        Self::from(Hasher::<{ 8 * POOL_COLD_KEY }>::hash(cold.as_slice()))
     }
 }
 

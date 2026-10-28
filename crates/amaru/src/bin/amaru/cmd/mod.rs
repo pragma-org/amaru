@@ -17,10 +17,10 @@ use std::{ops::Deref, str::FromStr};
 use amaru_kernel::{HeaderHash, Point};
 
 pub(crate) mod dev;
-pub(crate) mod keys;
 #[cfg(feature = "mithril")]
 pub(crate) mod mithril;
 pub(crate) mod node;
+pub(crate) mod pool;
 pub(crate) mod shell_completions;
 pub(crate) mod snapshot;
 

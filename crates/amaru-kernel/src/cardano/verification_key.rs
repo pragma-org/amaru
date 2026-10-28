@@ -14,4 +14,8 @@
 
 use crate::cardano::{fixed_bytes::FixedBytes, hash::size::VRF_KEY};
 
+// TODO: VRF_KEY associated to VerificationKey
+//
+// The 'VerificationKey', without prefix ALWAYS refer to row Ed25519 keys, not the VRF ones. The VRF
+// being also based on Ed25519, the keys happen to have the same length. But the type is confusing.
 pub type VerificationKey = FixedBytes<VRF_KEY>;
