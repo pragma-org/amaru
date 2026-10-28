@@ -15,8 +15,8 @@
 use std::{collections::BTreeSet, path::Path};
 
 use amaru_kernel::{
-    Address, Anchor, AssetName, AuxiliaryData, Block, BlockHeight, BootstrapWitness, Certificate, Certificates,
-    Constitution, CostModels, Credential, DRep, DRepVotingThresholds, Ed25519Signature, Epoch, ExUnitPrices, ExUnits,
+    Address, Anchor, AssetName, AuxiliaryData, BlockHeight, BootstrapWitness, Certificate, Certificates, Constitution,
+    CostModels, Credential, DRep, DRepVotingThresholds, Ed25519Signature, Epoch, ExUnitPrices, ExUnits,
     GovernanceAction, Hash, Header, HeaderBody, InlineData, KesPeriod, Lovelace, MajorProtocolVersion, MaxString128,
     MemoizedDatum, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Metadatum, Mint, Multiasset,
     NativeScript, Network, NonZeroInt, OperationalCert, PlutusData, PlutusScript, PlutusVersion, PoolId, PoolMetadata,
@@ -34,7 +34,7 @@ use amaru_kernel::{
 };
 
 use crate::{
-    RoundTrip, TestConfiguration, TestResults, normalize_rule_name, read_directory, round_trip,
+    RoundTrip, TestConfiguration, TestResults, normalize_rule_name, read_directory, round_trip, round_trip_block,
     round_trip_without_context,
 };
 
@@ -56,7 +56,7 @@ pub const RULES: &[(&str, RoundTrip)] = &[
     ("auxiliary_scripts", round_trip::<Vec<NativeScript>>),
     ("babbage_transaction_output", round_trip::<MemoizedTransactionOutput>),
     ("big_int", round_trip::<BigInt>),
-    ("block", round_trip::<Block>),
+    ("block", round_trip_block),
     ("block_number", round_trip::<BlockHeight>),
     ("bootstrap_witness", round_trip::<BootstrapWitness>),
     ("bounded_bytes", round_trip::<BoundedBytes>),
