@@ -19,7 +19,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
     BlockValidationError, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult, ForkSwitchOutcome,
-    HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
+    HasStakePools, Nonces, PoolSummaries, TransactionValidationError, verify_block_integrity,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
@@ -205,7 +205,8 @@ impl ExternalEffectAPI for ValidateBlockEffect {
                 let block = store
                     .load_block(&point.hash())
                     .map_err(|e| BlockValidationError::new(e.into()))?
-                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
+                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?;
+                let block = verify_block_integrity(block, &point.hash())
                     .decode()
                     .map_err(|e| BlockValidationError::new(e.into()))?;
                 let validator = resources

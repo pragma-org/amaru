@@ -156,31 +156,25 @@ impl Block {
     }
 
     /// Hash the body of an already-encoded block term `[header, bodies, witnesses, aux, invalid]`.
+    ///
+    /// Accepts definite- and indefinite-length outer arrays, preserving the original body item encodings.
     pub fn hash_encoded_body(encoded_block: &[u8]) -> Result<Hash<BLOCK_BODY>, cbor::decode::Error> {
         let mut decoder = cbor::Decoder::new(encoded_block);
-        let len = decoder.array()?;
-        if len != Some(Self::CBOR_FIELD_COUNT) {
-            return Err(cbor::decode::Error::message(format!(
-                "invalid Block array length. Expected {}, got {len:?}",
-                Self::CBOR_FIELD_COUNT
-            )));
-        }
-        decoder.skip()?;
-        let mut ranges = [(0usize, 0usize); 4];
-        for range in &mut ranges {
-            let start = decoder.position();
-            decoder.skip()?;
-            *range = (start, decoder.position());
-        }
+        let items = cbor::heterogeneous_array(&mut decoder, |decoder, assert_len| {
+            assert_len(Self::CBOR_FIELD_COUNT)?;
+            let mut items = [&[][..]; Self::CBOR_FIELD_COUNT as usize];
+            for item in &mut items {
+                if decoder.datatype()? == cbor::data::Type::Break {
+                    return Err(cbor::decode::Error::message("unexpected break in block array"));
+                }
+                *item = cbor::tee(decoder, |decoder| decoder.skip())?.1;
+            }
+            Ok(items)
+        })?;
         if decoder.position() != encoded_block.len() {
             return Err(cbor::decode::Error::message("trailing data after block body"));
         }
-        Ok(Self::hash_body_cbor([
-            &encoded_block[ranges[0].0..ranges[0].1],
-            &encoded_block[ranges[1].0..ranges[1].1],
-            &encoded_block[ranges[2].0..ranges[2].1],
-            &encoded_block[ranges[3].0..ranges[3].1],
-        ]))
+        Ok(Self::hash_body_cbor([items[1], items[2], items[3], items[4]]))
     }
 
     /// Get the size in bytes of the serialised block.

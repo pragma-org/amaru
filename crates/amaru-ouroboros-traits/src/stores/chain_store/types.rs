@@ -80,11 +80,11 @@ Pass `--db-chain-automatic-migration` (or set `AMARU_DB_CHAIN_AUTOMATIC_MIGRATIO
     }
 }
 
-/// Abort if `header` is not the content addressed by `hash`.
+/// Verify that `header` hashes to `hash`, returning it unchanged.
 ///
-/// A content-addressed store that yields the wrong blob is corrupt; the node cannot continue.
+/// Panics on a hash mismatch: the database is corrupt and the node cannot continue.
 #[expect(clippy::panic)]
-pub fn header_addressed_by(header: Header, hash: &HeaderHash) -> Header {
+pub fn verify_header_integrity(header: Header, hash: &HeaderHash) -> Header {
     let actual = header.hash();
     if actual != *hash {
         panic!(
@@ -94,12 +94,12 @@ pub fn header_addressed_by(header: Header, hash: &HeaderHash) -> Header {
     header
 }
 
-/// Abort if `block` is not stored under its header hash `hash`, or if the body does not match
-/// the header's `block_body_hash`.
+/// Verify that `block` has header hash `hash` and its body matches the header's
+/// `block_body_hash`, returning it unchanged.
 ///
-/// Decode failure or a hash mismatch means the database is corrupt.
+/// Panics on a decode failure or hash mismatch: the database is corrupt and the node cannot continue.
 #[expect(clippy::panic)]
-pub fn block_addressed_by(block: RawBlock, hash: &HeaderHash) -> RawBlock {
+pub fn verify_block_integrity(block: RawBlock, hash: &HeaderHash) -> RawBlock {
     let header = match block.decode_header() {
         Ok(header) => header,
         Err(error) => panic!(

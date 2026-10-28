@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use amaru_kernel::{Epoch, NetworkPoint};
+use amaru_kernel::{Epoch, HeaderHash, NetworkPoint, RawBlock};
 use amaru_observability::info;
 use amaru_progress_bar::{NoProgressBar, ProgressBar, ProgressBarFactory, TerminalProgressBar};
 
@@ -73,12 +73,18 @@ pub enum BootstrapProgress {
     Completed { epoch: Epoch, point: NetworkPoint },
 }
 
-/// Receives canonical bootstrap progress.
+/// Receives canonical bootstrap progress and historical blocks.
 ///
 /// Observers are passive: return values cannot influence snapshot selection, downloads, imports,
 /// cancellation, or completion.
 pub trait BootstrapObserver: Send + Sync {
     fn on_progress(&self, progress: BootstrapProgress);
+
+    /// Receives the indexed hash and borrowed raw block after its database batch commits,
+    /// in archive order. Runs synchronously; clone any data needed after this call returns.
+    /// Reimporting the same history emits the callbacks again. Failed or uncommitted batches
+    /// emit no callbacks. Historical blocks are stored without ledger replay or adoption events.
+    fn on_historical_block(&self, _hash: HeaderHash, _raw_block: &RawBlock) {}
 }
 
 /// The standard bootstrap observer used by [`crate::bootstrap`].

@@ -32,7 +32,7 @@ use amaru_kernel::{
 use amaru_ouroboros_traits::{
     BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
     FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
+    OpcertSequenceNumbers, ReadChainStore, SampleAncestorPointsResult, StoreError, WriteChainStore,
     in_memory_chain_store::InMemoryChainStore,
 };
 use proptest::prelude::{any, any_with};
@@ -123,27 +123,26 @@ fn load_header_panics_when_blob_is_stored_under_the_wrong_hash() {
 }
 
 #[test]
-#[should_panic(expected = "chain-store integrity failure")]
-fn load_block_panics_when_blob_is_stored_under_the_wrong_hash() {
+fn load_block_returns_bytes_without_checking_the_hash() {
     let tempdir = tempfile::tempdir().unwrap();
     let store = initialise_test_rw_store(tempdir.path());
     let stored = encoded(&make_header(1, 0, None));
     let requested = encoded(&make_header(2, 1, None)).header.hash();
 
-    store.db.put([&BLOCK_PREFIX[..], &requested[..]].concat(), stored.raw.as_ref()).unwrap();
-
-    let _ = store.load_block(&requested);
+    store.store_block(&requested, &stored.raw).unwrap();
+    assert_eq!(store.load_block(&requested).unwrap(), Some(stored.raw.clone()));
+    assert_eq!(store.snapshot().load_block(&requested).unwrap(), Some(stored.raw));
 }
 
 #[test]
-#[should_panic(expected = "chain-store integrity failure")]
-fn load_block_panics_when_body_hash_does_not_match_header() {
+fn load_block_returns_bytes_without_checking_the_body() {
     with_db(|db| {
         let block = encoded(&make_header(1, 0, None));
         let mut bytes = block.raw.to_vec();
         *bytes.last_mut().unwrap() ^= 0xff;
-        db.store_block(&block.header.hash(), &RawBlock::from(bytes.as_slice())).unwrap();
-        let _ = db.load_block(&block.header.hash());
+        let raw = RawBlock::from(bytes.as_slice());
+        db.store_block(&block.header.hash(), &raw).unwrap();
+        assert_eq!(db.load_block(&block.header.hash()).unwrap(), Some(raw));
     })
 }
 
@@ -161,8 +160,7 @@ fn load_headers_panics_when_a_key_does_not_match_the_header() {
 }
 
 #[test]
-#[should_panic(expected = "chain-store integrity failure")]
-fn load_blocks_panics_when_a_key_does_not_match_the_block() {
+fn load_blocks_returns_bytes_without_checking_the_hash() {
     let tempdir = tempfile::tempdir().unwrap();
     let store = initialise_test_rw_store(tempdir.path());
     let stored = encoded(&make_header(1, 0, None));
@@ -170,7 +168,7 @@ fn load_blocks_panics_when_a_key_does_not_match_the_block() {
 
     store.db.put([&BLOCK_PREFIX[..], &requested[..]].concat(), stored.raw.as_ref()).unwrap();
 
-    let _ = store.load_blocks().count();
+    assert_eq!(store.load_blocks().collect::<Vec<_>>(), vec![(requested, stored.raw)]);
 }
 
 #[test]

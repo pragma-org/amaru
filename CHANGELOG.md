@@ -43,6 +43,10 @@ Other guiding principles:
 - **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
 - **amaru**: `amaru pool id inspect` derives the pool ID from a cold verification key file.
 
+### Added
+
+- **amaru**: `node bootstrap --historical-blocks` downloads and imports historical blocks, including Byron, from Mithril through the bootstrap point for serving to peers over N2N. Import rejects broken header parent links, mismatches between indexed hashes and block headers, and index entries inconsistent with the network's immutable chunk layout. This requires additional download time and disk space.
+
 ### Changed
 
 - **amaru**: KES key pairs are generated with `amaru pool kes create`. The former `amaru keys kes create` command is removed.
@@ -50,9 +54,11 @@ Other guiding principles:
 - **amaru-uplc**: release builds now explicitly use the faster LGPL-licensed Malachite backend for integer arithmetic, while regular builds continue to use Dashu. See `THIRD_PARTY_NOTICES.md` for the applicable notices.
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
 - **amaru-uplc**: turn runtime arguments into a chain of pointers, rather than a vec.
+- **amaru-stores**: chain databases now use version 7 to index imported historical blocks. Upgrade version 6 databases with `--db-chain-automatic-migration`; existing blocks require no rewrite. Previously imported history needs reimporting from its verified Mithril archive to populate the index.
 
 ### Fixed
 
+- **amaru**: fix a pre-existing availability issue where a peer-supplied block with an indefinite-length outer CBOR array could trigger an integrity-check panic despite valid header and body hashes.
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.
@@ -65,6 +71,8 @@ Other guiding principles:
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 - **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
+- **amaru-protocols**: blockfetch can serve imported historical blocks across all eras, including Byron epoch boundary blocks.
+- **amaru**: raw chain dumps can include blocks with malformed headers or bodies. Corrupted blocks are still rejected before ledger processing.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
