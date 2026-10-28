@@ -52,6 +52,7 @@ use amaru_pure_stage::{
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
+use futures_util::FutureExt;
 use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::runtime::Handle;
@@ -263,20 +264,7 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
         running.request_abort();
         runtime.spawn(running.shutdown());
     });
-    let readiness = tokio::select! {
-        biased;
-        result = running.lifecycle.connections.wait_for_listener() => {
-            result.map_err(|source| {
-                let address = running.listen_address;
-                if source.kind() == std::io::ErrorKind::AddrInUse {
-                    NodeStartError::AddressInUse { address }
-                } else {
-                    NodeStartError::ListenerBind { address, source }
-                }
-            })
-        }
-        () = running.termination() => Err(NodeStartError::Terminated { failures: Vec::new() }),
-    };
+    let readiness = await_listener(&running.lifecycle.connections, running.listen_address, running.termination()).await;
     let mut error = match readiness {
         Ok(address) if !running.tokio_running.is_terminated() => {
             running.listen_address = address;
@@ -300,6 +288,31 @@ async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeR
             Err(error)
         }
         Err(cleanup) => Err(NodeStartError::CleanupFailed { source: Box::new(error), cleanup }),
+    }
+}
+
+async fn await_listener(
+    connections: &TokioConnections,
+    address: SocketAddr,
+    termination: impl Future<Output = ()>,
+) -> Result<SocketAddr, NodeStartError> {
+    let listener = connections.wait_for_listener().map(|result| {
+        result.map_err(|source| {
+            if source.kind() == std::io::ErrorKind::AddrInUse {
+                NodeStartError::AddressInUse { address }
+            } else {
+                NodeStartError::ListenerBind { address, source }
+            }
+        })
+    });
+    tokio::pin!(listener);
+    tokio::select! {
+        biased;
+        result = &mut listener => result,
+        // The bind failure may have been published after the listener poll, before manager termination.
+        () = termination => listener.now_or_never().unwrap_or_else(|| {
+            Err(NodeStartError::Terminated { failures: Vec::new() })
+        }),
     }
 }
 

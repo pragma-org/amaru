@@ -53,6 +53,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-node**: startup reliably reports listener bind errors, including an occupied port, when the network manager exits immediately after the failed bind.
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
 - **amaru-ledger**: transactions without redeemers are rejected when a collateral input lacks its owner's signature.
