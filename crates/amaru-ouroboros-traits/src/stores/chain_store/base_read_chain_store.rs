@@ -56,7 +56,18 @@ pub trait BaseReadChainStore: Send + Sync {
     /// `Point`, if it exists.
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
+    /// Load stored block bytes without decoding or checking their integrity.
+    /// Callers requiring integrity checks must use [`crate::verify_block_integrity`] before processing them.
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
+
+    /// Point and parent link used to serve a block range, independently of the block's era.
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        Ok(self.load_block(hash)?.and_then(|block| {
+            let header = block.decode_header().ok()?;
+            Some((header.point().into(), header.parent()))
+        }))
+    }
+
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
 
@@ -103,6 +114,10 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.as_ref().load_block(hash)
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {

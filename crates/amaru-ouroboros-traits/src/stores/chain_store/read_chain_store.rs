@@ -408,6 +408,10 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
         self.as_ref().load_block(hash)
     }
 
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
+    }
+
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
         self.as_ref().has_block(hash)
     }

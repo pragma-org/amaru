@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{Hash, Header, HeaderHash, PoolId, RawBlock, Slot, from_cbor, size, size::HEADER};
-use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces, block_addressed_by, header_addressed_by};
+use amaru_ouroboros_traits::{DiagnosticChainStore, Nonces, verify_header_integrity};
 use rocksdb::{IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
@@ -32,7 +32,7 @@ impl DiagnosticChainStore for RocksDBStore {
                     return None;
                 }
                 let hash = Hash::try_from(&k[CONSENSUS_PREFIX_LEN..]).ok()?;
-                from_cbor(v.as_ref()).map(|header| header_addressed_by(header, &hash))
+                from_cbor(v.as_ref()).map(|header| verify_header_integrity(header, &hash))
             }
             Err(err) => panic!("error iterating over headers: {}", err),
         }))
@@ -70,8 +70,7 @@ impl DiagnosticChainStore for RocksDBStore {
             Ok((k, v)) => {
                 let hash =
                     Hash::try_from(&k[CONSENSUS_PREFIX_LEN..]).unwrap_or_else(|e| panic!("malformed block key: {e}"));
-                let block = RawBlock::from(v);
-                (hash, block_addressed_by(block, &hash))
+                (hash, RawBlock::from(v))
             }
             Err(err) => panic!("error iterating over blocks: {}", err),
         }))
