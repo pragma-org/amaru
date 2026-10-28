@@ -95,6 +95,8 @@ pub enum ReadEnvelopeError {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
 
     struct Strict(u8);
@@ -137,15 +139,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rejects_unlisted_and_missing_types() {
-        let (_dir, path) = write(r#"{"type":"Other","cborHex":"07"}"#);
-        let err = read_envelope::<_, Strict>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::UnexpectedType { ref found, .. } if found == "Other"), "{err}");
-
-        let (_dir, path) = write(r#"{"cborHex":"07"}"#);
-        let err = read_envelope::<_, Strict>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::UnexpectedType { ref found, .. } if found.is_empty()), "{err}");
+    #[test_case(r#"{"type":"Other","cborHex":"07"}"# => matches ReadEnvelopeError::UnexpectedType { ref found, .. } if found == "Other")]
+    #[test_case(r#"{"cborHex":"07"}"# => matches ReadEnvelopeError::UnexpectedType { ref found, .. } if found.is_empty())]
+    fn rejects_unlisted_and_missing_types(bytes: &str) -> ReadEnvelopeError {
+        let (_dir, path) = write(bytes);
+        read_envelope::<_, Strict>(&path, &mut ()).map(|_| ()).unwrap_err()
     }
 
     #[test]
@@ -158,28 +156,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_malformed_files() {
+    fn rejects_non_existing_file() {
         let err = read_envelope::<_, Lenient>("/nonexistent/file.json", &mut ()).map(|_| ()).unwrap_err();
         assert!(matches!(err, ReadEnvelopeError::Io(_)), "{err}");
+    }
 
-        let (_dir, path) = write("not json");
-        let err = read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::Json(_)), "{err}");
-
-        let (_dir, path) = write(r#"{"cborHex":"0"}"#);
-        let err = read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::Hex(hex::FromHexError::OddLength)), "{err}");
-
-        let (_dir, path) = write(r#"{"cborHex":"zz"}"#);
-        let err = read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::Hex(_)), "{err}");
-
-        let (_dir, path) = write(r#"{"cborHex":""}"#);
-        let err = read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::Cbor(_)), "{err}");
-
-        let (_dir, path) = write(r#"{"cborHex":"0700"}"#);
-        let err = read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err();
-        assert!(matches!(err, ReadEnvelopeError::TrailingBytes(1)), "{err}");
+    #[test_case("not json" => matches ReadEnvelopeError::Json(_))]
+    #[test_case(r#"{"cborHex":"0"}"# => matches ReadEnvelopeError::Hex(hex::FromHexError::OddLength))]
+    #[test_case(r#"{"cborHex":"zz"}"# => matches ReadEnvelopeError::Hex(_))]
+    #[test_case(r#"{"cborHex":""}"# => matches ReadEnvelopeError::Cbor(_))]
+    #[test_case(r#"{"cborHex":"0700"}"# => matches ReadEnvelopeError::TrailingBytes(_))]
+    fn rejects_malformed_files(bytes: &str) -> ReadEnvelopeError {
+        let (_dir, path) = write(bytes);
+        read_envelope::<_, Lenient>(&path, &mut ()).map(|_| ()).unwrap_err()
     }
 }
