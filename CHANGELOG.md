@@ -53,6 +53,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru**: Linux (musl) release binaries no longer segfault at startup or shutdown. They are linked with a pinned zig 0.15.2, because zig 0.17 lets libc allocations bypass jemalloc.
 - **amaru-node**: startup reliably reports listener bind errors, including an occupied port, when the network manager exits immediately after the failed bind.
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
 - **amaru-ledger**: reject transactions that delegate stake or votes from an unregistered stake credential, or that update an unregistered DRep.
