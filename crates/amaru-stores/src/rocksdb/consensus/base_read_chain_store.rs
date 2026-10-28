@@ -238,7 +238,10 @@ where
 }
 
 impl<T: DbOps + Send + Sync> RocksDBStore<T> {
-    fn read_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(Slot, Option<HeaderHash>)>, StoreError> {
+    pub(super) fn read_block_metadata(
+        &self,
+        hash: &HeaderHash,
+    ) -> Result<Option<(Slot, Option<HeaderHash>)>, StoreError> {
         self.db
             .get_pinned(&[&BLOCK_METADATA_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
             .map(|bytes| {
