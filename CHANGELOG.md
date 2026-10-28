@@ -39,7 +39,7 @@ Other guiding principles:
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
-### Added
+ ### Added
 
 - **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
 - **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
@@ -69,6 +69,8 @@ Other guiding principles:
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 - **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
 - **amaru-ledger**: a transaction whose fee or outputs add up to 2^63 lovelace or more is rejected as not value-conserved, instead of crashing the node.
+- **amaru-kernel**: implement the same faulty logic as the Haskell node for decoding invalid transactions in Conway.
+- **amaru-kernel**: check the uniqueness of the Plutus scripts during decoding.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
