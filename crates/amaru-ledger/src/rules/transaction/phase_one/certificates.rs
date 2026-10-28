@@ -86,12 +86,9 @@ pub enum InvalidCertificates {
     DRepNotRegistered(#[from] UnregisterError<DRepRegistration, Credential>),
 }
 
-/// Requires the witnesses the certificates demand. When the transaction is valid, each certificate is then validated
-/// and applied in order. When it is invalid, the certificates only count their deposits and refunds.
-#[expect(clippy::too_many_arguments)]
-pub(crate) fn execute<C>(
+/// Requires the witnesses each certificate demands, then validates and applies it, in order.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
@@ -102,30 +99,9 @@ pub(crate) fn execute<C>(
 where
     C: PoolsSliceMut + AccountsSliceMut + DRepsSliceMut + CommitteeSliceMut + BalanceSlice + WitnessSlice,
 {
-    require_witnesses(context, certificates.as_ref().map(|xs| xs.iter().as_slice()).unwrap_or_default());
-
-    if is_valid {
-        when_valid(context, network, protocol_parameters, era_history, governance_activity, transaction, certificates)
-    } else {
-        when_invalid(context, protocol_parameters, certificates);
-        Ok(())
-    }
-}
-
-fn when_valid<C>(
-    context: &mut C,
-    network: Network,
-    protocol_parameters: &ProtocolParameters,
-    era_history: &EraHistory,
-    governance_activity: GovernanceActivity,
-    transaction: TransactionPointer,
-    certificates: Option<Certificates>,
-) -> Result<(), InvalidCertificates>
-where
-    C: PoolsSliceMut + AccountsSliceMut + DRepsSliceMut + CommitteeSliceMut + BalanceSlice,
-{
     if let Some(certificates) = certificates {
         certificates.into_iter().enumerate().try_for_each(|(certificate_index, certificate)| {
+            require_witnesses_one(context, &certificate, certificate_index);
             execute_one(
                 context,
                 network,
@@ -141,10 +117,14 @@ where
     }
 }
 
-/// Counts the deposits and refunds of the certificates, without validating or applying them.
-fn when_invalid<C>(context: &mut C, protocol_parameters: &ProtocolParameters, certificates: Option<Certificates>)
-where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice,
+/// Requires the witnesses the certificates demand and counts their deposits and refunds, without validating or
+/// applying them.
+pub(crate) fn when_invalid<C>(
+    context: &mut C,
+    protocol_parameters: &ProtocolParameters,
+    certificates: Option<Certificates>,
+) where
+    C: PoolsSlice + AccountsSlice + DRepsSlice + BalanceSlice + WitnessSlice,
 {
     if let Some(certificates) = certificates {
         let mut pools = BTreeSet::new();
@@ -152,7 +132,8 @@ where
         let mut dreps = BTreeMap::new();
 
         let mut delta: i64 = 0;
-        for certificate in certificates.into_iter() {
+        for (certificate_index, certificate) in certificates.into_iter().enumerate() {
+            require_witnesses_one(context, &certificate, certificate_index);
             delta +=
                 count_lovelace_one(context, protocol_parameters, &mut pools, &mut accounts, &mut dreps, certificate);
         }
@@ -162,15 +143,6 @@ where
         } else if delta < 0 {
             context.consume_lovelace(delta.unsigned_abs())
         }
-    }
-}
-
-fn require_witnesses<C>(context: &mut C, certificates: &[Certificate])
-where
-    C: WitnessSlice,
-{
-    for (certificate_index, certificate) in certificates.iter().enumerate() {
-        require_witnesses_one(context, certificate, certificate_index);
     }
 }
 

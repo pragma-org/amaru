@@ -71,12 +71,9 @@ pub enum InvalidProposals {
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
-/// Requires the witnesses the proposals demand. When the transaction is valid, each proposal is then validated and
-/// acknowledged. When it is invalid, the proposals only count their deposits.
-#[expect(clippy::too_many_arguments)]
-pub(crate) fn execute<C>(
+/// Requires the witness each proposal demands, then validates and acknowledges it, in order.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     network: Network,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
@@ -87,29 +84,9 @@ pub(crate) fn execute<C>(
 where
     C: ProposalsSliceMut + AccountsSlice + BalanceSlice + WitnessSlice,
 {
-    require_witnesses(context, proposals.as_deref().unwrap_or_default());
-
-    if is_valid {
-        when_valid(context, network, protocol_parameters, era_history, guardrail_script, transaction, proposals)
-    } else {
-        when_invalid(context, protocol_parameters, proposals);
-        Ok(())
-    }
-}
-
-fn when_valid<C>(
-    context: &mut C,
-    network: Network,
-    protocol_parameters: &ProtocolParameters,
-    era_history: &EraHistory,
-    guardrail_script: Option<Hash<SCRIPT>>,
-    transaction: (TransactionId, TransactionPointer),
-    proposals: Option<Vec<Proposal>>,
-) -> Result<(), InvalidProposals>
-where
-    C: ProposalsSliceMut + AccountsSlice + BalanceSlice,
-{
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
+        require_witness(context, proposal_index, &proposal);
+
         validate_proposal(
             context,
             &proposal,
@@ -133,31 +110,39 @@ where
     Ok(())
 }
 
-fn require_witnesses<C>(context: &mut C, proposals: &[Proposal])
+fn require_witness<C>(context: &mut C, proposal_index: usize, proposal: &Proposal)
 where
     C: WitnessSlice,
 {
-    for (proposal_index, proposal) in proposals.iter().enumerate() {
-        if let Some(script_hash) = get_proposal_script_hash(proposal) {
-            context.require_script_witness(RequiredScript {
-                hash: script_hash,
-                index: proposal_index as u32,
-                purpose: RedeemerTag::Propose,
-                datum: MemoizedDatum::None,
-            });
-        }
+    if let Some(script_hash) = get_proposal_script_hash(proposal) {
+        context.require_script_witness(RequiredScript {
+            hash: script_hash,
+            index: proposal_index as u32,
+            purpose: RedeemerTag::Propose,
+            datum: MemoizedDatum::None,
+        });
     }
 }
 
-/// Counts the value produced by proposal deposits, without validating or acknowledging the proposals.
+/// Requires the witnesses the proposals demand and counts the value produced by their deposits, without validating or
+/// acknowledging them.
 ///
 /// Note that we use the deposit value from the protocol parameters in that context, not the one in
 /// the proposal since it isn't validated.
-fn when_invalid<C>(context: &mut C, protocol_parameters: &ProtocolParameters, proposals: Option<Vec<Proposal>>)
-where
-    C: BalanceSlice,
+pub(crate) fn when_invalid<C>(
+    context: &mut C,
+    protocol_parameters: &ProtocolParameters,
+    proposals: Option<Vec<Proposal>>,
+) where
+    C: BalanceSlice + WitnessSlice,
 {
-    context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.unwrap_or_default().len() as u64);
+    let proposals = proposals.unwrap_or_default();
+
+    for (proposal_index, proposal) in proposals.iter().enumerate() {
+        require_witness(context, proposal_index, proposal);
+    }
+
+    context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.len() as u64);
 }
 
 fn validate_proposal<C>(

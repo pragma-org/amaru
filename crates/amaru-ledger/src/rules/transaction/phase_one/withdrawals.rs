@@ -38,48 +38,27 @@ pub enum InvalidWithdrawals {
     NetworkMismatch { expected: Network, received: Network, context: TransactionField, position: usize },
 }
 
-/// Validates every withdrawal and requires its witness. When the transaction is valid, each withdrawal must
-/// drain a registered account in full, and that account is emptied. When it is invalid, account state is neither
-/// checked nor modified.
-pub(crate) fn execute<C>(
+/// Requires the witness of every withdrawal, which must drain a registered account in full. That account is then
+/// emptied.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSliceMut + BalanceSlice,
 {
-    let Some(withdrawals) = withdrawals else {
-        return Ok(());
-    };
-
-    if is_valid { when_valid(context, withdrawals, network) } else { when_invalid(context, withdrawals, network) }
-}
-
-fn when_valid<C>(
-    context: &mut C,
-    withdrawals: Vec<(RewardAccount, Lovelace)>,
-    network: Network,
-) -> Result<(), InvalidWithdrawals>
-where
-    C: WitnessSlice + AccountsSliceMut + BalanceSlice,
-{
-    let withdrawals = sorted_by_credential(withdrawals, network, |credential, amount| {
-        let account = context.lookup(credential).ok_or(InvalidWithdrawals::AccountNotRegistered(*credential))?;
+    for (position, (credential, amount)) in sorted_by_credential(withdrawals, network)?.into_iter().enumerate() {
+        let account = context.lookup(&credential).ok_or(InvalidWithdrawals::AccountNotRegistered(credential))?;
 
         if matches!(credential, Credential::KeyHash(_)) && account.drep.is_none() {
-            return Err(InvalidWithdrawals::MissingAccountDRepDelegation(*credential));
+            return Err(InvalidWithdrawals::MissingAccountDRepDelegation(credential));
         }
 
         if amount != account.rewards {
             return Err(InvalidWithdrawals::IncompleteWithdrawal { balance: account.rewards, withdrawal: amount });
         }
 
-        Ok(())
-    })?;
-
-    for (position, (credential, amount)) in withdrawals.into_iter().enumerate() {
         require_witness_and_consume(context, position, credential, amount);
 
         // TODO: Move state management to context
@@ -95,36 +74,34 @@ where
     Ok(())
 }
 
-fn when_invalid<C>(
+/// Requires the witness of every withdrawal, without checking or modifying account state.
+pub(crate) fn when_invalid<C>(
     context: &mut C,
-    withdrawals: Vec<(RewardAccount, Lovelace)>,
+    withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + BalanceSlice,
 {
-    let withdrawals = sorted_by_credential(withdrawals, network, |_, _| Ok(()))?;
-
-    for (position, (credential, amount)) in withdrawals.into_iter().enumerate() {
+    for (position, (credential, amount)) in sorted_by_credential(withdrawals, network)?.into_iter().enumerate() {
         require_witness_and_consume(context, position, credential, amount);
     }
 
     Ok(())
 }
 
-/// Checks the network of every reward account, then runs `check` on each withdrawal, in transaction order. Returns
-/// the withdrawals sorted by stake credential, the order that reward redeemer indexes refer to.
+/// Checks the network of every reward account, in transaction order. Returns the withdrawals sorted by stake
+/// credential, the order that reward redeemer indexes refer to.
 fn sorted_by_credential(
-    withdrawals: Vec<(RewardAccount, Lovelace)>,
+    withdrawals: Option<Vec<(RewardAccount, Lovelace)>>,
     network: Network,
-    mut check: impl FnMut(&Credential, Lovelace) -> Result<(), InvalidWithdrawals>,
 ) -> Result<BTreeMap<Credential, Lovelace>, InvalidWithdrawals> {
     withdrawals
+        .unwrap_or_default()
         .into_iter()
         .enumerate()
         .map(|(position, (account, amount))| {
-            let (credential, account_network) = (account.credential(), account.network());
-
+            let account_network = account.network();
             if network != account_network {
                 return Err(InvalidWithdrawals::NetworkMismatch {
                     expected: network,
@@ -134,9 +111,7 @@ fn sorted_by_credential(
                 });
             };
 
-            check(&credential, amount)?;
-
-            Ok((credential, amount))
+            Ok((account.credential(), amount))
         })
         .collect()
 }
@@ -176,7 +151,7 @@ mod test {
         let account = RewardAccount::new(Network::Mainnet, Credential::KeyHash(Hash::new([0; 28])));
 
         assert!(matches!(
-            super::execute(&mut context, true, Some(vec![(account, 1_000_000)]), Network::Testnet),
+            super::when_valid(&mut context, Some(vec![(account, 1_000_000)]), Network::Testnet),
             Err(InvalidWithdrawals::NetworkMismatch {
                 expected: Network::Testnet,
                 received: Network::Mainnet,
@@ -193,7 +168,12 @@ mod test {
 
         let account = RewardAccount::new(Network::Testnet, Credential::KeyHash(Hash::new([0; 28])));
 
-        super::execute(&mut context, is_valid, Some(vec![(account, 1_000_000)]), Network::Testnet)?;
+        let withdrawals = Some(vec![(account, 1_000_000)]);
+        if is_valid {
+            super::when_valid(&mut context, withdrawals, Network::Testnet)?;
+        } else {
+            super::when_invalid(&mut context, withdrawals, Network::Testnet)?;
+        }
 
         Ok(context.balance().coin())
     }

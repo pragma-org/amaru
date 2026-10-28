@@ -12,8 +12,120 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt, ops::Deref};
+
+use amaru_kernel::{
+    EraHistory, GlobalParameters, Hash, NetworkName, ProtocolParameters, TransactionPointer, TransactionRef,
+    size::SCRIPT,
+};
+use amaru_uplc::arena_pool::ArenaPool;
+
+use crate::{
+    context::ValidationContext,
+    epoch_transition::GovernanceActivity,
+    rules::{
+        block::TransactionInvalid,
+        transaction::{phase_one::PhaseOneError, phase_two::TagMismatch},
+    },
+};
+
 pub mod phase_one;
 pub mod phase_two;
+
+/// Everything a transaction is validated against, other than the validation context.
+#[derive(Clone, Copy)]
+pub struct Environment<'a> {
+    pub arena_pool: &'a ArenaPool,
+    pub network: NetworkName,
+    pub protocol_parameters: &'a ProtocolParameters,
+    pub era_history: &'a EraHistory,
+    pub global_parameters: &'a GlobalParameters,
+    pub governance_activity: GovernanceActivity,
+    pub guardrail_script: Option<Hash<SCRIPT>>,
+    pub pointer: TransactionPointer,
+}
+
+/// Validates a transaction against a validation context, then consumes the inputs it spends
+pub trait Execute {
+    fn execute<C>(self, context: &mut C, environment: &Environment<'_>) -> Result<(), TransactionInvalid>
+    where
+        C: ValidationContext + fmt::Debug;
+}
+
+/// A transaction whose `is_valid` flag declares that its scripts pass
+struct ValidTransaction<'a>(TransactionRef<'a>);
+
+/// A transaction whose `is_valid` flag declares that its scripts fail
+struct InvalidTransaction<'a>(TransactionRef<'a>);
+
+impl Execute for TransactionRef<'_> {
+    fn execute<C>(self, context: &mut C, environment: &Environment<'_>) -> Result<(), TransactionInvalid>
+    where
+        C: ValidationContext + fmt::Debug,
+    {
+        if self.is_expected_valid {
+            ValidTransaction(self).execute(context, environment)
+        } else {
+            InvalidTransaction(self).execute(context, environment)
+        }
+    }
+}
+
+impl Execute for ValidTransaction<'_> {
+    fn execute<C>(self, context: &mut C, environment: &Environment<'_>) -> Result<(), TransactionInvalid>
+    where
+        C: ValidationContext + fmt::Debug,
+    {
+        let spent = phase_one::when_valid(context, environment, self.0)?;
+
+        let failures = evaluate_scripts(context, environment, self.0)?;
+        if !failures.is_empty() {
+            return Err(TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(failures)));
+        }
+
+        spent.into_iter().for_each(|input| context.consume(input));
+
+        Ok(())
+    }
+}
+
+impl Execute for InvalidTransaction<'_> {
+    fn execute<C>(self, context: &mut C, environment: &Environment<'_>) -> Result<(), TransactionInvalid>
+    where
+        C: ValidationContext + fmt::Debug,
+    {
+        let spent = phase_one::when_invalid(context, environment, self.0)?;
+
+        if evaluate_scripts(context, environment, self.0)?.is_empty() {
+            return Err(TransactionInvalid::PhaseTwo(TagMismatch::PassedUnexpectedly));
+        }
+
+        spent.into_iter().for_each(|input| context.consume(input));
+
+        Ok(())
+    }
+}
+
+fn evaluate_scripts<C>(
+    context: &mut C,
+    environment: &Environment<'_>,
+    transaction: TransactionRef<'_>,
+) -> Result<Vec<phase_two::UplcMachineError>, PhaseOneError>
+where
+    C: ValidationContext + fmt::Debug,
+{
+    phase_two::execute(
+        context,
+        environment.arena_pool,
+        environment.protocol_parameters,
+        environment.era_history,
+        environment.global_parameters,
+        environment.pointer,
+        transaction.body,
+        transaction.witnesses.deref(),
+    )
+    .map_err(PhaseOneError::ScriptPreparation)
+}
 
 #[cfg(test)]
 mod fixture;

@@ -51,13 +51,9 @@ pub enum InvalidOutput {
     BootAddrAttrsTooBig { size: usize },
 }
 
-/// Validates every output, including the collateral return. When the transaction is valid, its
-/// regular outputs become UTxOs. When it is invalid, the collateral return does instead, at the
-/// index following the regular outputs.
-#[expect(clippy::too_many_arguments)]
-pub(crate) fn execute<C>(
+/// Validates every output, including the collateral return. The regular outputs become UTxOs.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     arena_pool: &ArenaPool,
     protocol_parameters: &ProtocolParameters,
     network: Network,
@@ -70,36 +66,70 @@ where
 {
     let mut invalid_outputs = Vec::new();
     let arena = arena_pool.acquire();
-    let collateral_return_index = outputs.len() as u16;
+    let collateral_return_index = outputs.len();
 
     for (position, output) in outputs.into_iter().enumerate() {
         validate(&output, position, protocol_parameters, network, &arena, &mut invalid_outputs);
-
-        if let MemoizedDatum::Hash(hash) = &output.datum {
-            context.allow_supplemental_datum(*hash.as_ref());
-        }
-
-        context.produce_value(&output.value);
-
-        if is_valid {
-            context.produce(TransactionInput { transaction_id: *transaction_id, index: position as u16 }, output);
-        }
+        count_output(context, &output);
+        context.produce(TransactionInput { transaction_id: *transaction_id, index: position as u16 }, output);
     }
 
     if let Some(output) = collateral_return {
-        validate(&output, collateral_return_index as usize, protocol_parameters, network, &arena, &mut invalid_outputs);
-
-        if !is_valid {
-            context
-                .produce(TransactionInput { transaction_id: *transaction_id, index: collateral_return_index }, output);
-        }
+        validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
     }
 
-    if !invalid_outputs.is_empty() {
-        return Err(InvalidOutputs { invalid_outputs });
+    InvalidOutputs::from_vec(invalid_outputs)
+}
+
+/// Validates every output, including the collateral return. The collateral return becomes a UTxO, at the index
+/// following the regular outputs.
+pub(crate) fn when_invalid<C>(
+    context: &mut C,
+    arena_pool: &ArenaPool,
+    protocol_parameters: &ProtocolParameters,
+    network: Network,
+    transaction_id: TransactionId,
+    outputs: Vec<MemoizedTransactionOutput>,
+    collateral_return: Option<MemoizedTransactionOutput>,
+) -> Result<(), InvalidOutputs>
+where
+    C: WitnessSlice + UtxoSliceMut + BalanceSlice,
+{
+    let mut invalid_outputs = Vec::new();
+    let arena = arena_pool.acquire();
+    let collateral_return_index = outputs.len();
+
+    for (position, output) in outputs.into_iter().enumerate() {
+        validate(&output, position, protocol_parameters, network, &arena, &mut invalid_outputs);
+        count_output(context, &output);
     }
 
-    Ok(())
+    if let Some(output) = collateral_return {
+        validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
+        context.produce(
+            TransactionInput { transaction_id: *transaction_id, index: collateral_return_index as u16 },
+            output,
+        );
+    }
+
+    InvalidOutputs::from_vec(invalid_outputs)
+}
+
+impl InvalidOutputs {
+    fn from_vec(invalid_outputs: Vec<WithPosition<InvalidOutput>>) -> Result<(), Self> {
+        if invalid_outputs.is_empty() { Ok(()) } else { Err(InvalidOutputs { invalid_outputs }) }
+    }
+}
+
+fn count_output<C>(context: &mut C, output: &MemoizedTransactionOutput)
+where
+    C: WitnessSlice + BalanceSlice,
+{
+    if let MemoizedDatum::Hash(hash) = &output.datum {
+        context.allow_supplemental_datum(*hash.as_ref());
+    }
+
+    context.produce_value(&output.value);
 }
 
 fn validate(
@@ -170,9 +200,9 @@ mod tests {
         let mut context = DefaultValidationContext::default();
         let transaction_id = TransactionId::new(Hash::new([0; 32]));
 
+        let execute = if is_valid { when_valid } else { when_invalid };
         execute(
             &mut context,
-            is_valid,
             &ArenaPool::new(1, 1_024_000),
             &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
             Network::Testnet,

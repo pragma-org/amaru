@@ -23,18 +23,16 @@ pub enum InvalidTreasury {
     ValueMismatch { provided: Lovelace, expected: Lovelace },
 }
 
-/// Counts the donation towards value preservation. When the transaction is valid, the declared treasury value must
-/// match the current treasury and the donation is credited to the treasury. When it is invalid, neither happens.
-pub(crate) fn execute<C>(
+/// Checks the declared treasury value against the current treasury, then credits the donation to it.
+pub(crate) fn when_valid<C>(
     context: &mut C,
-    is_valid: bool,
     treasury_value: Option<Lovelace>,
     donation: Option<Lovelace>,
 ) -> Result<(), InvalidTreasury>
 where
     C: PotsSliceMut + BalanceSlice,
 {
-    if is_valid && let Some(provided) = treasury_value {
+    if let Some(provided) = treasury_value {
         let expected = context.treasury();
         if provided != expected {
             return Err(InvalidTreasury::ValueMismatch { provided, expected });
@@ -43,12 +41,20 @@ where
 
     if let Some(donation) = donation {
         context.produce_lovelace(donation);
-        if is_valid {
-            context.add_donation(donation);
-        }
+        context.add_donation(donation);
     }
 
     Ok(())
+}
+
+/// Counts the donation towards value preservation, without checking the treasury value or crediting the donation.
+pub(crate) fn when_invalid<C>(context: &mut C, donation: Option<Lovelace>)
+where
+    C: BalanceSlice,
+{
+    if let Some(donation) = donation {
+        context.produce_lovelace(donation);
+    }
 }
 
 #[cfg(test)]
@@ -65,7 +71,11 @@ mod tests {
     fn donation(is_valid: bool, treasury_value: Option<Lovelace>) -> Result<(Lovelace, i128), InvalidTreasury> {
         let mut context = DefaultValidationContext::default();
 
-        execute(&mut context, is_valid, treasury_value, Some(1_000_000))?;
+        if is_valid {
+            when_valid(&mut context, treasury_value, Some(1_000_000))?;
+        } else {
+            when_invalid(&mut context, Some(1_000_000));
+        }
 
         let balance = context.balance().coin();
         Ok((VolatileFragment::from(context).donations, balance))

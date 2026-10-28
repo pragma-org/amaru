@@ -45,8 +45,10 @@ pub enum InvalidInputs {
 pub(crate) struct ResolvedInputs {
     pub ref_scripts_size: u64,
     pub collateral: ResolvedCollateral,
-    /// The inputs the transaction spends: its regular inputs when valid, its collateral inputs otherwise.
-    pub consumed: Vec<TransactionInput>,
+    /// The regular inputs, which a phase-two-valid transaction spends.
+    pub spent: Vec<TransactionInput>,
+    /// The collateral inputs, which a phase-two-invalid transaction spends instead.
+    pub collateral_inputs: Vec<TransactionInput>,
 }
 
 pub(crate) struct ResolvedCollateral {
@@ -58,7 +60,6 @@ pub(crate) struct ResolvedCollateral {
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    is_valid: bool,
     inputs: Set<TransactionInput>,
     reference_inputs: Option<&[TransactionInput]>,
     collateral: Vec<TransactionInput>,
@@ -158,7 +159,8 @@ where
     Ok(ResolvedInputs {
         ref_scripts_size,
         collateral: collateral_resolved,
-        consumed: if is_valid { inputs.into_iter().collect() } else { collateral },
+        spent: inputs.into_iter().collect(),
+        collateral_inputs: collateral,
     })
 }
 
