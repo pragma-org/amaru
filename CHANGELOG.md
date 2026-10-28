@@ -66,6 +66,8 @@ Other guiding principles:
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 - **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
+- **amaru-kernel**: implement the same faulty logic as the Haskell node for decoding invalid transactions in Conway.
+- **amaru-kernel**: check the uniqueness of the Plutus scripts during decoding.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
