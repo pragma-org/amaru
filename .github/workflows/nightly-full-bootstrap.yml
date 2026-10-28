@@ -66,7 +66,7 @@ jobs:
           )"
           echo "Network tip at test start: slot $target_slot"
 
-          source scripts/demos/common/amaru.sh
+          source scripts/lib/amaru.sh
           amaru_pid=""
           current_log=bootstrap.log
 

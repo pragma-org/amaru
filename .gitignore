@@ -40,7 +40,6 @@ crates/amaru-kernel/tests/data/cbor.dataset
 # json results of the serialization tests. Since the data is large, it is not committed to the repo.
 crates/amaru-kernel/tests/results
 
-# Files downloaded for the demo
 /snapshots
 
 # Files downloaded by mithril
@@ -79,13 +78,6 @@ data/**/blocks/**
 **/amaru-sim/test-data/
 **/amaru-uplc/benches/turbo/samples
 
-# Relay demos data
-scripts/demos/*/run/**
-
-# Payment signing keys generated for the relay demos; the committed demo keys
-# remain tracked, this only prevents committing new ones by accident
-scripts/demos/*/keys/**/*.skey
-
 # Ignore vendor-specific agent configuration
 /.opencode/
 /.grok/
@@ -103,3 +95,6 @@ dist/
 
 # Python scripts
 __pycache__
+
+# Work files of the tx-submission e2e script
+/scripts/e2e/run/

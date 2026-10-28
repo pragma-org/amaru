@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Downloads the pinned cardano-cli release used to build and sign the demo transactions.
+# Downloads the pinned cardano-cli release used to build and sign the e2e transactions.
 #
 # cardano-cli publishes its own releases, one static binary per platform, so this is a small
 # checksum-verified download. It is deliberately not a flox package: the only way to express it
 # as one is through the cardano-node flake, and realizing that closure requires a machine which
 # already trusts IOG's binary cache. Without it nix falls back to compiling GHC from source, so
-# the demo worked on machines that happened to have that cache configured and nowhere else.
+# the script worked on machines that happened to have that cache configured and nowhere else.
 #
 # Callers must set CARDANO_CLI_RELEASE_VERSION, CARDANO_CLI_HOME, CARDANO_CLI and LOGDIR.
 
