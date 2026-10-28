@@ -36,13 +36,12 @@ Other guiding principles:
 -->
 
 ## Unreleased
-## v10.11.20261029 _[unreleased; planned for 2026-10-29]_
 
 ### Added
 
-- **amaru**: `amaru pool cert inspect OPCERT` prints the pool ID, sequence number, KES period, and hot verification key from an operational certificate.
-- **amaru**: `amaru pool kes period --opcert OPCERT --slot SLOT` shows the current KES period and how many periods remain before key rotation is required.
-- **amaru**: `amaru pool id create COLD_VKEY` derives the pool ID from a cold verification key file.
+- **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
+- **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
+- **amaru**: `amaru pool id inspect` derives the pool ID from a cold verification key file.
 
 ### Changed
 

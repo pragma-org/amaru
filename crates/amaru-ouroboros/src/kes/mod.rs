@@ -159,6 +159,7 @@ impl<'d, C> cbor::Decode<'d, C> for SecretKey {
 // ------------------------------------------------------------------- PublicKey
 
 /// KES public key
+#[derive(Debug, PartialEq, Eq)]
 pub struct PublicKey(kes::PublicKey);
 
 impl PublicKey {

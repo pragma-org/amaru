@@ -85,8 +85,8 @@ impl InProcessCredentials {
         let mut kes = kes::SecretKey::from_file(kes_signing_key)?;
         let vrf = vrf::SecretKey::from_file(vrf_signing_key)?;
         let (certificate, cold) = load_operational_certificate(operational_certificate)?;
-        let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
-        if hot != certificate.operational_cert_hot_verification_key {
+        let hot = kes::PublicKey::from(&mut kes);
+        if *hot != *certificate.operational_cert_kes_verification_key {
             return Err(CredentialsError::HotKeyMismatch);
         }
         // The declared sequence compared with itself is always in range, so this
@@ -209,7 +209,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
             block_body_size: 0,
             block_body_hash: Hash::new([0u8; BLOCK_BODY]),
             operational_cert: OperationalCert {
-                operational_cert_hot_verification_key: VerificationKey::zeroes(),
+                operational_cert_kes_verification_key: VerificationKey::zeroes(),
                 operational_cert_sequence_number: 0,
                 operational_cert_kes_period: KesPeriod::from(0),
                 operational_cert_sigma: Ed25519Signature::zeroes(),
@@ -253,6 +253,9 @@ impl<'d> cbor::Decode<'d, ProtocolVersion> for OperationalCertificateFile {
 pub fn load_operational_certificate(
     path: impl AsRef<Path>,
 ) -> Result<(OperationalCert, VerificationKey), ReadEnvelopeError> {
+    // TODO: hard-coded protocol version
+    //
+    // This is wrong. Shouldn't be hardcoded but taken as parameter.
     let mut ctx = PROTOCOL_VERSION_12;
     let file: OperationalCertificateFile = read_envelope(path, &mut ctx)?;
     Ok((file.certificate, file.cold))
@@ -314,6 +317,9 @@ impl<'d> cbor::Decode<'d, ProtocolVersion> for ColdVerificationKeyFile {
 /// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
 /// [`VerificationKey`] suitable for pool ID derivation.
 pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ReadEnvelopeError> {
+    // TODO: Hard-coded protocol version
+    //
+    // This is wrong and shouldn't be hard-coded.
     let mut ctx = PROTOCOL_VERSION_12;
     Ok(read_envelope::<_, ColdVerificationKeyFile>(path, &mut ctx)?.0)
 }
@@ -360,13 +366,13 @@ mod tests {
     fn issue(sequence: u64, start: KesPeriod) -> Issued {
         let cold = ed25519::SigningKey::from_bytes(&[9u8; 32]);
         let mut kes = kes::SecretKey::for_tests();
-        let hot = VerificationKey::from(*kes::PublicKey::from(&mut kes));
+        let hot = kes::PublicKey::from(&mut kes);
         let mut message = Vec::with_capacity(48);
         message.extend_from_slice(&hot[..]);
         message.extend_from_slice(&sequence.to_be_bytes());
         message.extend_from_slice(&u64::from(start).to_be_bytes());
         let certificate = OperationalCert {
-            operational_cert_hot_verification_key: hot,
+            operational_cert_kes_verification_key: FixedBytes::from(*hot),
             operational_cert_sequence_number: sequence,
             operational_cert_kes_period: start,
             operational_cert_sigma: Ed25519Signature::from(cold.sign(&message).to_bytes()),
@@ -431,7 +437,7 @@ mod tests {
 
     fn assert_signature(credentials: &InProcessCredentials, period: KesPeriod, header: &Header) {
         let ocert = &header.body().operational_cert;
-        let hot = kes::PublicKey::from(ocert.operational_cert_hot_verification_key.as_array());
+        let hot = kes::PublicKey::from(ocert.operational_cert_kes_verification_key.as_array());
         let signature = kes::Signature::from(header.signature().as_array());
         AssertKesSignatureError::new(
             period,
@@ -502,7 +508,7 @@ mod tests {
         let credentials = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap();
         assert_eq!(credentials.issuer_verification_key().as_slice(), cold_vk.as_slice());
         let fields = credentials.issuer_fields();
-        assert_eq!(fields.operational_cert.operational_cert_hot_verification_key.as_slice(), kes_vk.as_slice());
+        assert_eq!(fields.operational_cert.operational_cert_kes_verification_key.as_slice(), kes_vk.as_slice());
         assert_eq!(fields.vrf_verification_key.as_slice(), vrf_vk.as_slice());
         assert_eq!(fields.operational_cert.operational_cert_sequence_number, 0);
         assert_eq!(u64::from(fields.operational_cert.operational_cert_kes_period), 7);
@@ -544,7 +550,7 @@ mod tests {
     #[test]
     fn hot_key_mismatch_fails_at_load() {
         let mut issued = issue(0, KesPeriod::from(0));
-        issued.certificate.operational_cert_hot_verification_key = VerificationKey::zeroes();
+        issued.certificate.operational_cert_kes_verification_key = FixedBytes::zeroes();
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), &issued);
         let err = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap_err();

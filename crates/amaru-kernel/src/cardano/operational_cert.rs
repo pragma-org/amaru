@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Ed25519Signature, KesPeriod, VerificationKey, cbor};
+use crate::{Ed25519Signature, KesPeriod, cardano::fixed_bytes::FixedBytes, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct OperationalCert {
     #[n(0)]
-    pub operational_cert_hot_verification_key: VerificationKey,
+    // TODO: Should use kes::PublicKey
+    //
+    // This requires moving the kes module to the kernel. As well as probably the other
+    // crypto-related modules.
+    pub operational_cert_kes_verification_key: FixedBytes<32>,
 
     #[n(1)]
     pub operational_cert_sequence_number: u64,
@@ -35,7 +39,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for OperationalCert {
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(4)?;
             Ok(Self {
-                operational_cert_hot_verification_key: d.decode_with(ctx)?,
+                operational_cert_kes_verification_key: d.decode_with(ctx)?,
                 operational_cert_sequence_number: d.decode_with(ctx)?,
                 operational_cert_kes_period: d.decode_with(ctx)?,
                 operational_cert_sigma: d.decode_with(ctx)?,
