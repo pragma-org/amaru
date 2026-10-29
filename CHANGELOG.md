@@ -42,9 +42,6 @@ Other guiding principles:
 - **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
 - **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
 - **amaru**: `amaru pool id inspect` derives the pool ID from a cold verification key file.
-- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in `docs/cip-023/README.md`. [#1360][]
-- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or dispaly the current tag this binary would forge blocks with. [#1360][]
-- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in `docs/cip-0203/README.md`. [#1360][]
 - **amaru**: forged block headers identify Amaru and its release day in the protocol version minor, following CIP-0203 (producer id `65`, payload defined in `docs/cip-0203/README.md`). Pass `--software-tag-off` (or set `AMARU_SOFTWARE_TAG_OFF=true`) to emit the CIP-0203 opt-out value `255` instead. [#1360][]
 - **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or display the current tag this binary would forge blocks with. [#1360][]
 - **amaru**: `amaru keys kes create --signing-key PATH --verification-key PATH` generates cardano-cli compatible KES key files without replacing existing files.

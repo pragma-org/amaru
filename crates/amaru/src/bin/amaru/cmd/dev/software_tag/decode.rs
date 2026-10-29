@@ -23,7 +23,7 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// A protocol version (`11.55808065`), a minor component (`55808065`), or a minor in hex (`0x03539041`).
+    /// A protocol version (`11.4374593`), a minor component (`4374593`), or a minor in hex (`0x0042c041`).
     #[arg(value_name = "VERSION")]
     version: Minor,
 }
