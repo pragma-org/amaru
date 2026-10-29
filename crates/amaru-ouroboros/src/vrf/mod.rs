@@ -16,7 +16,7 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
-use std::{array::TryFromSliceError, fs, io, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, io, ops::Deref, path::Path};
 
 use amaru_kernel::{
     Hash, Hasher, Slot, cbor,
@@ -68,12 +68,11 @@ impl SecretKey {
     /// Raw files contain exactly 32 bytes. Envelope CBOR payloads contain the seed followed by the verification key.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, SecretKeyError> {
         let path = path.as_ref();
-        let bytes = Zeroizing::new(fs::read(path).map_err(ReadEnvelopeError::from)?);
-        if let Ok(seed) = <&[u8; Self::SIZE]>::try_from(bytes.as_slice()) {
-            return Ok(Self::from(seed));
-        }
-        drop(bytes);
-        Ok(envelope::read_envelope(path, &mut ())?)
+        crate::read_key_file::<{ Self::SIZE }, _, _>(
+            path,
+            |seed| Ok(Self::from(seed)),
+            || Ok(envelope::read_envelope(path, &mut ())?),
+        )
     }
 }
 
@@ -298,6 +297,8 @@ impl Derivation {
 /// Failure to load a raw or cardano-cli VRF signing key.
 #[derive(Error, Debug)]
 pub enum SecretKeyError {
+    #[error("failed to read VRF signing key: {0}")]
+    Io(#[from] io::Error),
     #[error(
         "VRF signing-key envelope payload must be {FILE_LEN} bytes (32-byte seed followed by its verification key), found {0}",
         FILE_LEN = SecretKey::FILE_LEN
@@ -333,6 +334,8 @@ mod serde_remote {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use amaru_kernel::cbor;
     use proptest::prelude::*;
     use serde::Deserialize;
@@ -466,7 +469,7 @@ mod tests {
     #[test]
     fn from_file_reports_missing_file() {
         let err = SecretKey::from_file("/nonexistent/vrf.skey").map(|_| ()).unwrap_err();
-        assert!(matches!(err, SecretKeyError::Envelope(ReadEnvelopeError::Io(_))), "{err}");
+        assert!(matches!(err, SecretKeyError::Io(_)), "{err}");
     }
 
     #[test]
