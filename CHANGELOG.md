@@ -37,6 +37,8 @@ Other guiding principles:
 
 ## Unreleased
 
+## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
+
 ### Added
 
 - **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
