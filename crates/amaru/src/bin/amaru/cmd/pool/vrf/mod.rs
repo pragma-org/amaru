@@ -15,17 +15,20 @@
 use amaru::lifecycle::Runnable;
 
 pub mod create;
+pub mod inspect;
 
-/// Manage VRF signing keys.
+/// Manage VRF keys.
 #[derive(Debug, clap::Subcommand)]
 pub enum VrfCommand {
     Create(create::CreateArgs),
+    Inspect(inspect::InspectArgs),
 }
 
 impl VrfCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
             Self::Create(cmd) => cmd.into_runnable(),
+            Self::Inspect(cmd) => cmd.into_runnable(),
         }
     }
 }
