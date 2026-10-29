@@ -49,18 +49,14 @@ Other guiding principles:
 
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
 - **amaru**: with OpenTelemetry enabled, metrics are now exported every second by default (previously every 60 seconds), including when running interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) to use a different interval. The generated environment files (`/etc/default/amaru`, `/etc/sysconfig/amaru`, `.env.example`) now list it.
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
 
 ### Fixed
 
 - **amaru-metrics**: the `amaru_consensus_*_duration_microseconds` histograms have buckets from 0.5 ms to 30 s. They used the OpenTelemetry default boundaries (0 to 10,000), meant for milliseconds, so nearly every header and block timing fell in the overflow bucket and percentiles could not be computed.
 - **amaru-ledger**: a transaction or block carrying a witness whose verification key is not a valid Ed25519 point no longer crashes the node.
 - **amaru-ouroboros**: align leader eligibility with the Cardano node at fixed-point rounding and threshold boundaries, for both block production and header validation. ([#1577](https://github.com/pragma-org/amaru/issues/1577))
-### Changed
-
-- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
-
-### Fixed
-
+- **amaru-ledger**: transactions whose witness set includes the datum for a collateral-return datum hash are accepted.
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 - **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
 

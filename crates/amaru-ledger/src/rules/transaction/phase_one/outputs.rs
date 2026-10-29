@@ -76,6 +76,7 @@ where
 
     if let Some(output) = collateral_return {
         validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
+        allow_supplemental_datum(context, &output);
     }
 
     InvalidOutputs::from_vec(invalid_outputs)
@@ -106,6 +107,7 @@ where
 
     if let Some(output) = collateral_return {
         validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
+        allow_supplemental_datum(context, &output);
         context.produce(
             TransactionInput { transaction_id: *transaction_id, index: collateral_return_index as u16 },
             output,
@@ -125,11 +127,17 @@ fn count_output<C>(context: &mut C, output: &MemoizedTransactionOutput)
 where
     C: WitnessSlice + BalanceSlice,
 {
+    allow_supplemental_datum(context, output);
+    context.produce_value(&output.value);
+}
+
+fn allow_supplemental_datum<C>(context: &mut C, output: &MemoizedTransactionOutput)
+where
+    C: WitnessSlice,
+{
     if let MemoizedDatum::Hash(hash) = &output.datum {
         context.allow_supplemental_datum(*hash.as_ref());
     }
-
-    context.produce_value(&output.value);
 }
 
 fn validate(

@@ -1,6 +1,6 @@
 {
   "title": "collateral return carrying a datum hash",
-  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, whose collateral return carries a datum hash. The collateral return is validated under SupplementalDatumPolicy::Disallow, so unlike a normal output its datum hash registers no supplemental datum and the absent datum is not an extraneous one.",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, whose collateral return carries a datum hash and whose witness set carries no datums.",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
