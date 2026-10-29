@@ -690,5 +690,5 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
-[#1453]: https://github.com/pragma-org/amaru/issues/1453
 [#1360]: https://github.com/pragma-org/amaru/issues/1360
+[#1453]: https://github.com/pragma-org/amaru/issues/1453
