@@ -12,16 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::{io::Write, path::PathBuf};
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_ouroboros::kes::SecretKey;
-use anyhow::{Context, ensure};
-use tempfile::NamedTempFile;
+use anyhow::Context;
+
+use super::super::write_key_pair;
 
 /// Generate a KES key pair.
 #[derive(Debug, clap::Args)]
@@ -43,49 +40,14 @@ impl CreateArgs {
     pub fn run(self) -> anyhow::Result<()> {
         let Self { signing_key, verification_key } = self;
 
-        if let Some(verification_key) = verification_key.as_ref() {
-            ensure!(&signing_key != verification_key, "KES key paths must differ");
-        }
-
-        for path in [Some(&signing_key), verification_key.as_ref()].iter().flatten() {
-            let exists = path.try_exists().with_context(|| format!("could not check {}", path.display()))?;
-            ensure!(!exists, "{} already exists", path.display());
-        }
-
         let (secret, public) = SecretKey::generate().context("could not generate KES key")?;
-        let signing = prepare_key(|file| secret.write_raw(file), &signing_key)?;
-
-        if let Some(verification_key) = verification_key.as_ref() {
-            let verification = prepare_key(|file| file.write_all(public.as_ref()), verification_key)?;
-            verification
-                .persist_noclobber(verification_key)
-                .with_context(|| format!("could not save {}", verification_key.display()))?;
-        };
-
-        signing
-            .persist_noclobber(&signing_key)
-            .inspect_err(|_| {
-                if let Some(verification_key) = verification_key.as_ref() {
-                    let _ = fs::remove_file(verification_key);
-                }
-            })
-            .with_context(|| format!("could not save {}", signing_key.display()))?;
-        Ok(())
+        write_key_pair(
+            &signing_key,
+            verification_key.as_deref(),
+            |file| secret.write_raw(file),
+            |file| file.write_all(public.as_ref()),
+        )
     }
-}
-
-fn prepare_key(
-    write_raw: impl FnOnce(&mut NamedTempFile) -> io::Result<()>,
-    path: &Path,
-) -> anyhow::Result<NamedTempFile> {
-    let mut file = NamedTempFile::new_in(parent(path))
-        .with_context(|| format!("could not create temporary key file for {}", path.display()))?;
-    write_raw(&mut file).with_context(|| format!("could not write key file for {}", path.display()))?;
-    Ok(file)
-}
-
-fn parent(path: &Path) -> &Path {
-    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
 }
 
 #[cfg(test)]
