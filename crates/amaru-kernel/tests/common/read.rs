@@ -22,7 +22,7 @@ use anyhow::{Context, anyhow};
 use crate::{Category, Corpus, TestKey, check_no_unknown_rules};
 
 /// Suffix of a sample file. One recursive scan of the corpus finds every sample by this suffix alone.
-const INPUT_SUFFIX: &str = ".input.cbor";
+pub const INPUT_SUFFIX: &str = ".input.cbor";
 
 /// Suffix of the reference re-encoding of a sample, which sits beside it under the same name.
 const EXPECTED_SUFFIX: &str = ".expected.cbor";
@@ -112,6 +112,22 @@ pub fn corpus_root(corpus: Corpus) -> PathBuf {
 /// Return the root of the dataset, e.g. `tests/cbor-dataset`.
 pub fn dataset_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/cbor.dataset")
+}
+
+/// The commit of the dataset repository that the corpus is downloaded from, as pinned in `cbor.dataset.pin`.
+pub fn dataset_commit() -> anyhow::Result<String> {
+    let pin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/cbor.dataset.pin");
+    let commit = String::from_utf8(read_file(&pin)?)?.trim().to_string();
+    check_commit(&commit).context(format!("pin file {}", pin.display()))
+}
+
+/// Return a commit unchanged if it is a full hash: 40 lowercase hexadecimal digits.
+pub fn check_commit(commit: &str) -> anyhow::Result<String> {
+    let is_full_hash = commit.len() == 40 && commit.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c));
+    if !is_full_hash {
+        anyhow::bail!("`{commit}` is not a full commit hash (40 lowercase hexadecimal digits)");
+    }
+    Ok(commit.to_string())
 }
 
 /// Return the contents of a file

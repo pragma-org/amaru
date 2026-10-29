@@ -17,7 +17,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{TestConfiguration, TestKey, TestResults};
+use anyhow::Context;
+
+use crate::{TestConfiguration, TestKey, TestResults, check_commit, dataset_commit};
 
 /// Report the results of a test run to both JSON (if configured) and the console.
 pub fn report(test_configuration: &TestConfiguration, test_results: &TestResults) -> anyhow::Result<()> {
@@ -185,29 +187,59 @@ fn counts(actual: usize, expected: usize) -> String {
 /// The file the run writes its results to, named the way the dataset names a report of its own.
 const REPORT_FILE: &str = "amaru-latest.json";
 
-/// Write the structured run summary consumed by the node-diversity-conformance site.
+/// The version of the dataset's report format that `report_json` writes.
+const REPORT_VERSION: &str = "2";
+
+/// Write the report in the format of the dataset, `schema/report.schema.json` in
+/// <https://github.com/r2rationality/cardano-cbor-dataset>: the era, commits and protocol version of the run, and the
+/// outcome of every sample, `true` or the reason of its failure.
+///
+/// Acknowledged failures are reported as failures: the acknowledgements only keep the test green.
 #[expect(clippy::expect_used)]
 fn report_json(test_configuration: &TestConfiguration, test_results: &TestResults) -> anyhow::Result<()> {
     let Some(directory) = test_configuration.report_directory() else { return Ok(()) };
 
+    let results: BTreeMap<String, serde_json::Value> = test_results
+        .samples
+        .iter()
+        .map(|test_key| {
+            let outcome = match test_results.failures.get(test_key) {
+                Some(reason) => serde_json::Value::from(reason.as_str()),
+                None => serde_json::Value::Bool(true),
+            };
+            (test_key.corpus_path(), outcome)
+        })
+        .collect();
+
     let report = serde_json::json!({
-        "version": "1",
-        "scenario": "cbor-decoding",
+        "version": REPORT_VERSION,
+        "era": test_configuration.corpus().to_string(),
         "generated_at": SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock is before Unix epoch")
             .as_millis() as u64,
-        "implementation": { "name": "amaru" },
-        "corpus": test_configuration.corpus().to_string(),
         "protocol_version": test_configuration.protocol_version().to_string(),
-        "successful": test_results.is_successful(),
-        "totals": test_results.totals(),
-        "rules": test_results.per_rule
+        "dataset_commit": dataset_commit()?,
+        "implementation_commit": implementation_commit()?,
+        "results": results,
     });
 
     std::fs::create_dir_all(directory)?;
     std::fs::write(directory.join(REPORT_FILE), serde_json::to_string_pretty(&report)?)?;
     Ok(())
+}
+
+/// The commit of the Amaru code that ran the samples: the `HEAD` of the repository holding this crate.
+fn implementation_commit() -> anyhow::Result<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .context("run git rev-parse HEAD")?;
+    if !output.status.success() {
+        anyhow::bail!("git rev-parse HEAD failed: {}", String::from_utf8_lossy(&output.stderr).trim());
+    }
+    check_commit(String::from_utf8(output.stdout)?.trim())
 }
 
 /// Print a checkmark if the actual count matches the expected count, otherwise print a cross.

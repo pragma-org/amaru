@@ -25,8 +25,8 @@ pub use common::*;
 ///
 /// If the data is missing, the test just prints a warning.
 ///
-/// Set `AMARU_TEST_REPORT_DIRECTORY=<directory>` to also write the per-rule counters and the failures to a JSON file
-/// that will be used to report the Amaru node conformance.
+/// Set `AMARU_TEST_REPORT_DIRECTORY=<directory>` to also write the outcome of every sample to a JSON file, in the
+/// report format of the dataset, that will be used to report the Amaru node conformance.
 #[test]
 fn test_cbor_dataset() {
     let Some(test_configuration) = TestConfiguration::create(PROTOCOL_VERSION_11).unwrap() else {
