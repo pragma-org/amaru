@@ -17,7 +17,7 @@
 use std::fmt;
 
 /// Block producer identifier carried in the minor component of a header's `protocol_version`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoftwareTag {
     NoSignal,
     OptOut,
@@ -73,7 +73,7 @@ pub enum SoftwareTagError {
 }
 
 /// Registered producer id; `0` and `255` are not ids.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ProducerId(u8);
 
@@ -117,7 +117,7 @@ impl fmt::Display for ProducerId {
 pub struct ProducerIdError(u8);
 
 /// Implementation-defined 22 bits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Payload(u32);
 
@@ -162,7 +162,7 @@ pub struct PayloadError(u32);
 /// ```
 ///
 /// No flags are assigned: they are written as `0` and ignored when read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AmaruTag {
     release_day: ReleaseDay,
 }
@@ -231,7 +231,7 @@ pub enum AmaruTagError {
 }
 
 /// Days since 2026-01-01 (UTC); `0` is an unreleased build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ReleaseDay(u16);
 
@@ -308,7 +308,7 @@ pub enum ReleaseDayError {
     OutOfRange(CalendarDate),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CalendarDate {
     pub year: u16,
     pub month: u8,
