@@ -16,7 +16,7 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
-use std::{array::TryFromSliceError, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, fs, io, ops::Deref, path::Path};
 
 use amaru_kernel::{
     Hash, Hasher, Slot, cbor,
@@ -44,15 +44,35 @@ impl SecretKey {
     /// `type` field of the cardano-cli envelope that wraps a VRF signing key.
     const ENVELOPE_TYPE: &str = "VrfSigningKey_PraosVRF";
 
+    /// Generate a VRF key pair from operating-system randomness.
+    pub fn generate() -> Result<(Self, PublicKey), getrandom::Error> {
+        let mut seed = Zeroizing::new([0u8; Self::SIZE]);
+        getrandom::fill(&mut *seed)?;
+        let secret = Self::from(&*seed);
+        let public = PublicKey::from(&secret);
+        Ok((secret, public))
+    }
+
+    /// Write the raw 32-byte signing seed, without an envelope or verification key.
+    pub fn write_raw(&self, mut writer: impl io::Write) -> io::Result<()> {
+        writer.write_all(self.0.as_bytes())
+    }
+
     /// Raw signing seed.
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
         self.0.to_bytes()
     }
 
-    /// Load a key from an unencrypted envelope file written by cardano-cli.
+    /// Load a raw signing seed or an unencrypted cardano-cli envelope.
     ///
-    /// The CBOR payload is a 64-byte string: the 32-byte seed followed by the verification key.
+    /// Raw files contain exactly 32 bytes. Envelope CBOR payloads contain the seed followed by the verification key.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, SecretKeyError> {
+        let path = path.as_ref();
+        let bytes = Zeroizing::new(fs::read(path).map_err(ReadEnvelopeError::from)?);
+        if let Ok(seed) = <&[u8; Self::SIZE]>::try_from(bytes.as_slice()) {
+            return Ok(Self::from(seed));
+        }
+        drop(bytes);
         Ok(envelope::read_envelope(path, &mut ())?)
     }
 }
@@ -275,11 +295,11 @@ impl Derivation {
 
 // ---------------------------------------------------------------------- Errors
 
-/// Failure to load a cardano-cli VRF signing key.
+/// Failure to load a raw or cardano-cli VRF signing key.
 #[derive(Error, Debug)]
 pub enum SecretKeyError {
     #[error(
-        "VRF signing key must be {FILE_LEN} bytes (32-byte seed followed by its verification key), found {0}",
+        "VRF signing-key envelope payload must be {FILE_LEN} bytes (32-byte seed followed by its verification key), found {0}",
         FILE_LEN = SecretKey::FILE_LEN
     )]
     InvalidSecretKeySize(usize),
@@ -447,6 +467,23 @@ mod tests {
     fn from_file_reports_missing_file() {
         let err = SecretKey::from_file("/nonexistent/vrf.skey").map(|_| ()).unwrap_err();
         assert!(matches!(err, SecretKeyError::Envelope(ReadEnvelopeError::Io(_))), "{err}");
+    }
+
+    #[test]
+    fn raw_signing_keys_roundtrip_without_an_envelope() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("vrf.skey");
+        for seed in [hex::decode(GOLDEN_SEED).unwrap(), vec![b'{'; SecretKey::SIZE]] {
+            let key = SecretKey::try_from(seed.as_slice()).unwrap();
+            let mut written = Vec::new();
+            key.write_raw(&mut written).unwrap();
+            assert_eq!(written, seed);
+            fs::write(&path, &written).unwrap();
+            let restored = SecretKey::from_file(&path).unwrap();
+            assert_eq!(restored.to_bytes().as_slice(), seed);
+            let input = Input::from(&[11u8; Input::SIZE]);
+            restored.prove(&input).verify(&PublicKey::from(&key), &input).unwrap();
+        }
     }
 
     #[test]

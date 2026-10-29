@@ -42,6 +42,7 @@ Other guiding principles:
 - **amaru**: `amaru pool cert inspect` prints the pool ID, sequence number, KES period, and KES verification key from an operational certificate.
 - **amaru**: `amaru pool kes period` shows the current KES period and how many periods remain before key rotation is required.
 - **amaru**: `amaru pool id inspect` derives the pool ID from a cold verification key file.
+- **amaru**: `amaru pool vrf create --signing-key PATH --verification-key PATH` generates raw binary VRF keys for block production without replacing existing files. The node automatically accepts raw signing keys and cardano-cli JSON text envelopes.
 
 ### Changed
 
