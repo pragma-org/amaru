@@ -34,7 +34,7 @@ pub enum InvalidCollateral {
     #[error("a collateral input is locked at a script address: {0}")]
     LockedAtScriptAddress(TransactionInput),
     #[error("effective collateral value (={effective}) is insufficient; at least {required} is required")]
-    InsufficientBalance { effective: Lovelace, required: Lovelace },
+    InsufficientBalance { effective: Lovelace, required: u128 },
     #[error("declared collateral (={declared}) does not equal effective collateral (={effective})")]
     DeclaredCollateralMismatch { effective: Lovelace, declared: Lovelace },
     #[error("No collateral was provided, but collateral is required")]
@@ -111,10 +111,11 @@ where
             return Err(InvalidCollateral::ValueNotConserved(effective_collateral));
         }
 
-        let required = fee * protocol_parameters.collateral_percentage as Lovelace;
-        let effective = effective_collateral.coin() as Lovelace;
+        let required = u128::from(fee) * u128::from(protocol_parameters.collateral_percentage);
+        let effective = Lovelace::try_from(effective_collateral.coin())
+            .unwrap_or_else(|_| unreachable!("collateral exceeds the total supply"));
 
-        if effective as i128 * 100 < required as i128 {
+        if u128::from(effective) * 100 < required {
             return Err(InvalidCollateral::InsufficientBalance { effective, required: required.div_ceil(100) });
         }
 

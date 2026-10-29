@@ -1,0 +1,27 @@
+{
+  "title": "declared fee of two to the sixty-three",
+  "description": "Single input of 5 ada, one output of 4.8 ada and a declared fee of 2^63 lovelace.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582098e31be7a20d3bc969e3b36433f8e9ad45dca4a0c3efdb0510fb1181be59aacc00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582098e31be7a20d3bc969e3b36433f8e9ad45dca4a0c3efdb0510fb1181be59aacc000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021b80000000000000000f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840e316b880e1a8034628b3e1fb3968d07172533d260bacf82894f2d6ddad59dd7d6e01e32f36b54208e1f595b91b71f26a45102f9b341ed45611e56ea3bf26c60ef5f6",
+  "expected": {
+    "predicate": "ValueNotConservedUTxO"
+  }
+}

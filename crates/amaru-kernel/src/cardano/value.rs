@@ -178,7 +178,7 @@ impl<'a> From<&'a Mint> for PlutusMint<'a> {
 /// Multiasset entires cannot be zero.
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct Balance {
-    coin: i64,
+    coin: i128,
     multiasset: BTreeMap<(Hash<{ SCRIPT }>, AssetName), i128>,
 }
 
@@ -206,7 +206,7 @@ impl Balance {
         Self::default()
     }
 
-    pub fn coin(&self) -> i64 {
+    pub fn coin(&self) -> i128 {
         self.coin
     }
 
@@ -218,17 +218,13 @@ impl Balance {
     }
 
     fn add_coin(&mut self, amount: u64) {
-        self.coin = self
-            .coin
-            .checked_add(lovelace_to_i64(amount))
-            .unwrap_or_else(|| unreachable!("Lovelace accumulator overflow"));
+        self.coin =
+            self.coin.checked_add(i128::from(amount)).unwrap_or_else(|| unreachable!("Lovelace accumulator overflow"));
     }
 
     fn sub_coin(&mut self, amount: u64) {
-        self.coin = self
-            .coin
-            .checked_sub(lovelace_to_i64(amount))
-            .unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
+        self.coin =
+            self.coin.checked_sub(i128::from(amount)).unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
     }
 
     /// Apply a signed `delta` to the multi-asset entry at `key`. A delta of zero is a no-op; an
@@ -331,10 +327,6 @@ fn split_value(value: &Value) -> (u64, Option<&Multiasset<PositiveCoin>>) {
         Value::Coin(c) => (*c, None),
         Value::Multiasset(c, ma) => (*c, Some(ma)),
     }
-}
-
-fn lovelace_to_i64(amount: u64) -> i64 {
-    i64::try_from(amount).unwrap_or_else(|_| unreachable!("Lovelace exceeds i64::MAX: {amount}"))
 }
 
 fn positive_to_i128(qty: &PositiveCoin) -> i128 {

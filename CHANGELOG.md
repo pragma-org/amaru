@@ -68,6 +68,7 @@ Other guiding principles:
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
 - **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 - **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
+- **amaru-ledger**: a transaction whose fee or outputs add up to 2^63 lovelace or more is rejected as not value-conserved, instead of crashing the node.
 
 ## [v10.11.20261022](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261022)
 
