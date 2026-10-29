@@ -43,6 +43,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-ledger**: transactions whose witness set includes the datum for a collateral-return datum hash are accepted.
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 - **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
 
