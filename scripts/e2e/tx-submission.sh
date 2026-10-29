@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AMARU_DIR="${AMARU_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-COMMON_DIR="$AMARU_DIR/scripts/demos/common"
+LIB_DIR="$AMARU_DIR/scripts/lib"
 
 NETWORK="${AMARU_NETWORK:-preprod}"
 BUILD_PROFILE="${BUILD_PROFILE:-dev}"
-RUNDIR="${E2E_TX_WORK_DIR:-$AMARU_DIR/scripts/demos/relay-1/run/e2e-tx-submission}"
+RUNDIR="${E2E_TX_WORK_DIR:-$AMARU_DIR/scripts/e2e/run/tx-submission}"
 LOGDIR="${E2E_TX_LOG_DIR:-$RUNDIR/logs}"
 RESULTS_DIR="${E2E_TX_RESULTS_DIR:-$RUNDIR/results}"
 RUN_ID="${E2E_TX_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
@@ -59,7 +59,6 @@ TX_WALLET_VKEY="${TX_WALLET_VKEY:-$TX_WALLET_DIR/payment.vkey}"
 TX_WALLET_ADDRESS_FILE="${TX_WALLET_ADDRESS_FILE:-$TX_WALLET_DIR/payment.addr}"
 TX_PAYMENT_SKEY="${TX_PAYMENT_SKEY:-$TX_WALLET_SKEY}"
 TX_SUBMIT_API_ADDRESS="$AMARU_SUBMIT_API_LISTEN_ON"
-TX_QUERY_SOURCE=koios
 TX_METADATA_MESSAGE="${TX_METADATA_MESSAGE:-amaru e2e $RUN_ID}"
 TX_SYNC_TIMEOUT_SECONDS="${TX_SYNC_TIMEOUT_SECONDS:-3600}"
 TX_SYNC_POLL_INTERVAL_SECONDS="${TX_SYNC_POLL_INTERVAL_SECONDS:-15}"
@@ -70,10 +69,10 @@ TX_INPUT_POLL_INTERVAL_SECONDS="${TX_INPUT_POLL_INTERVAL_SECONDS:-2}"
 TX_CONFIRM_TIMEOUT_SECONDS="${TX_CONFIRM_TIMEOUT_SECONDS:-600}"
 TX_CONFIRM_POLL_INTERVAL_SECONDS="${TX_CONFIRM_POLL_INTERVAL_SECONDS:-10}"
 
-. "$COMMON_DIR/common.sh"
-. "$COMMON_DIR/cardano-cli.sh"
-. "$COMMON_DIR/amaru.sh"
-. "$COMMON_DIR/tx.sh"
+. "$LIB_DIR/common.sh"
+. "$LIB_DIR/cardano-cli.sh"
+. "$LIB_DIR/amaru.sh"
+. "$LIB_DIR/tx.sh"
 
 E2E_FAILURE_MESSAGE=""
 
@@ -305,7 +304,7 @@ wait_for_transaction_input() {
   local timeout="$TX_INPUT_TIMEOUT_SECONDS" interval="$TX_INPUT_POLL_INTERVAL_SECONDS" elapsed record
 
   for ((elapsed = 0; elapsed < timeout; elapsed += interval)); do
-    if query_address_utxo "" "$address" "$utxo_file" && record="$(select_transaction_input "$utxo_file")"; then
+    if query_address_utxo "$address" "$utxo_file" && record="$(select_transaction_input "$utxo_file")"; then
       SELECTED_TX_RECORD="$record"
       return
     fi
@@ -374,7 +373,7 @@ run_transaction_test() {
   e2e_log "using payment address $address"
 
   wait_for_transaction_input "$address" "$utxo_file"
-  query_upstream_protocol_parameters "" "$protocol_params_file"
+  query_upstream_protocol_parameters "$protocol_params_file"
   input_available_slot="$(koios_tip_slot)"
   [[ "$input_available_slot" =~ ^[0-9]+$ ]] || die "could not determine upstream tip slot"
   record="$SELECTED_TX_RECORD"

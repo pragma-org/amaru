@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-# Removes ANSI escape sequences from stdin. The nodes colorize their output so the log levels
-# stand out in the process-compose panes, and that output is also what lands in the log files,
-# so anything parsing those files has to see through the escapes.
+# Removes ANSI escape sequences from stdin. The node colorizes its output, and that output is also
+# what lands in the log files, so anything parsing those files has to see through the escapes.
 strip_ansi() {
   LC_ALL=C awk '{ gsub(/\033\[[0-9;]*[A-Za-z]/, ""); print }'
 }
@@ -69,11 +68,6 @@ adopted_slot_from_log() {
   echo "$slot"
 }
 
-# Reads the latest adopted slot from the downstream Amaru log.
-downstream_adopted_slot() {
-  adopted_slot_from_log "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}"
-}
-
 amaru_network_from_log() {
   local log="$1"
   [[ -f "$log" ]] || { echo ""; return; }
@@ -120,14 +114,6 @@ eta_hint() {
   else
     printf ' eta=%ss' "$eta"
   fi
-}
-
-wait_for_downstream_slot() {
-  wait_for_amaru_slot \
-    "${AMARU_DOWNSTREAM_LOG_FILE:-$LOGDIR/amaru-downstream.log}" \
-    "downstream" \
-    "$1" \
-    "$TX_SYNC_TIMEOUT_SECONDS"
 }
 
 # Waits until an Amaru process has adopted a target slot according to its structured log.
