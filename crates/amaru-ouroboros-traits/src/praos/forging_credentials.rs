@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     Hash, Hasher, HeaderBody, HeaderHash, KesPeriod, KesPeriodError, KesSignature, OperationalCert, PoolId,
-    ProtocolVersion, Slot, VerificationKey, VrfCert, size::POOL_COLD_KEY, to_cbor,
+    ProtocolVersion, Slot, VerificationKey, VrfCert, VrfVerificationKey, size::POOL_COLD_KEY, to_cbor,
 };
 use thiserror::Error;
 
@@ -68,7 +68,7 @@ impl HeaderDraft {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct IssuerFields {
     pub issuer_verification_key: VerificationKey,
-    pub vrf_verification_key: VerificationKey,
+    pub vrf_verification_key: VrfVerificationKey,
     pub operational_cert: OperationalCert,
 }
 
