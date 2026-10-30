@@ -21,8 +21,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Hash, Header, HeaderHash, HeaderParams, IsHeader, NetworkPoint, NonEmptyVec, Nonce,
-    ORIGIN_HASH, Point, PoolId, RawBlock, Slot, any_headers_chain,
+    BlockHeight, EraHistory, EraName, Hash, Header, HeaderContent, HeaderHash, HeaderParams, IsHeader, NetworkPoint,
+    NonEmptyVec, Nonce, ORIGIN_HASH, Point, PoolId, RawBlock, Slot, any_headers_chain,
     cardano::network_block::{EncodedTestBlock, make_encoded_chain},
     make_header, make_header_with_op_cert_seq,
     size::HEADER,
@@ -692,7 +692,13 @@ fn next_best_chain_header_rolls_forward_from_best_chain_pointer() {
     with_db(|store| {
         let chain = populate_db(store.clone());
         let result = store.next_best_chain_header(&chain[5].point()).unwrap();
-        assert_eq!(result, NextBestChainHeader::RollForward { point: chain[6].point(), header: chain[6].clone() });
+        assert_eq!(
+            result,
+            NextBestChainHeader::RollForward {
+                point: chain[6].point(),
+                header: HeaderContent::new(&chain[6], EraName::Conway)
+            }
+        );
     });
 }
 
@@ -701,7 +707,13 @@ fn next_best_chain_header_rolls_forward_from_origin() {
     with_db(|store| {
         let chain = populate_db(store.clone());
         let result = store.next_best_chain_header(&Point::Origin).unwrap();
-        assert_eq!(result, NextBestChainHeader::RollForward { point: chain[0].point(), header: chain[0].clone() });
+        assert_eq!(
+            result,
+            NextBestChainHeader::RollForward {
+                point: chain[0].point(),
+                header: HeaderContent::new(&chain[0], EraName::Conway)
+            }
+        );
     });
 }
 
@@ -726,6 +738,279 @@ fn next_best_chain_header_reports_at_tip() {
         let result = store.next_best_chain_header(&chain[9].point()).unwrap();
         assert_eq!(result, NextBestChainHeader::AtTip);
     });
+}
+
+#[test]
+fn chainsync_traverses_imported_blocks_and_the_live_chain() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = Arc::new(initialise_test_rw_store(tempdir.path()));
+    let mut archive = Vec::new();
+    for (tag, height, slot) in [(0, 0, 0), (1, 1, 0), (0, 1, 21600), (1, 2, 21600)]
+        .into_iter()
+        .chain((2..=6).map(|tag| (tag, u64::from(tag) + 1, 21600 + u64::from(tag))))
+    {
+        let parent = archive.last().map(|(point, _, _): &(NetworkPoint, _, _)| point.hash());
+        archive.push(archive_block(tag, height, slot, parent));
+    }
+    let snapshot = encoded(&make_header(8, 30000, Some(archive.last().unwrap().0.hash())));
+    let live = encoded(&make_header(9, 31000, Some(snapshot.header.hash())));
+    archive.push((snapshot.header.point().into(), snapshot.header.parent(), snapshot.raw.clone()));
+    store.set_anchor_point(&snapshot.header.point()).unwrap();
+    append_best_chain(store.clone(), [&snapshot.header, &live.header]);
+    store.store_block(&live.header.hash(), &live.raw).unwrap();
+    for block in &archive {
+        store.store_historical_blocks(std::slice::from_ref(block)).unwrap();
+    }
+
+    // Reimporting a boundary block must not hide its same-slot successor.
+    store.store_historical_blocks(&archive[..1]).unwrap();
+    let fork = encoded(&make_header(9, 31001, Some(snapshot.header.hash())));
+    store.store_header(&fork.header).unwrap();
+    store.store_block(&fork.header.hash(), &fork.raw).unwrap();
+    store.switch_to_fork(&snapshot.header.point(), &[fork.header.point()]).unwrap();
+    assert_eq!(store.next_best_chain_header(&live.header.point()).unwrap(), NextBestChainHeader::NeedRollback);
+    assert_eq!(store.next_best_chain(&snapshot.header.point()), Some(fork.header.point()));
+    store.switch_to_fork(&snapshot.header.point(), &[live.header.point()]).unwrap();
+    drop(store);
+    let store = initialise_test_ro_store(tempdir.path()).unwrap();
+    let anchor = store.get_anchor_point();
+    let tip = store.get_best_chain_tip();
+    let mut pointer = store.find_intersect_point(vec![NetworkPoint::Origin]).unwrap();
+    archive.push((live.header.point().into(), live.header.parent(), live.raw.clone()));
+    for ((expected, _, block), height) in archive.iter().zip([0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+        let NextBestChainHeader::RollForward { point, header } = store.next_best_chain_header(&pointer).unwrap() else {
+            panic!("expected a header after {pointer}");
+        };
+        assert_eq!(point.to_network_point(), *expected);
+        assert_eq!(point.block_height(), BlockHeight::from(height));
+        assert_eq!(header, HeaderContent::from_block(block).unwrap());
+        assert_eq!(amaru_kernel::from_cbor::<HeaderContent>(&to_cbor(&header)), Some(header));
+        assert_eq!(store.find_intersect_point(vec![*expected]), Some(point));
+        assert_eq!(store.find_intersect_point(vec![NetworkPoint::Specific(999999.into(), expected.hash())]), None);
+        pointer = point;
+    }
+    assert_eq!(store.next_best_chain_header(&pointer).unwrap(), NextBestChainHeader::AtTip);
+    assert_eq!(store.get_anchor_point(), anchor);
+    assert_eq!(store.get_best_chain_tip(), tip);
+    assert!(!store.has_header(&archive[0].0.hash()));
+}
+
+#[test]
+fn chainsync_does_not_skip_missing_history_or_accept_unindexed_blocks() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let store = Arc::new(initialise_test_rw_store(tempdir.path()));
+    let blocks = make_linear_blocks(4);
+    let archive: Vec<_> =
+        blocks.iter().map(|block| (block.header.point().into(), block.header.parent(), block.raw.clone())).collect();
+    store.store_historical_blocks(&archive).unwrap();
+    append_best_chain(store.clone(), [&blocks[3].header]);
+    store.remove_block(&blocks[1].header.hash()).unwrap();
+    assert_eq!(store.next_best_chain(&blocks[0].header.point()), None);
+    assert!(store.next_best_chain_header(&blocks[0].header.point()).is_err());
+    assert_eq!(store.find_intersect_point(vec![blocks[1].header.point().into()]), None);
+    let other = encoded(&make_header(2, 2, Some(blocks[0].header.hash())));
+    store.store_block(&other.header.hash(), &other.raw).unwrap();
+    assert_eq!(store.find_intersect_point(vec![other.header.point().into()]), None);
+}
+
+mod chainsync_reads {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Reads {
+        blocks: AtomicUsize,
+        metadata: AtomicUsize,
+        history: AtomicUsize,
+    }
+
+    impl Reads {
+        fn record(&self, key: &[u8]) {
+            for (prefix, count) in [
+                (BLOCK_PREFIX, &self.blocks),
+                (BLOCK_METADATA_PREFIX, &self.metadata),
+                (HISTORICAL_BLOCK_PREFIX, &self.history),
+            ] {
+                if key.starts_with(&prefix) {
+                    count.fetch_add(1, Relaxed);
+                }
+            }
+        }
+
+        fn reset(&self) {
+            self.blocks.store(0, Relaxed);
+            self.metadata.store(0, Relaxed);
+            self.history.store(0, Relaxed);
+        }
+    }
+
+    struct CountingDb<T> {
+        inner: T,
+        reads: Arc<Reads>,
+    }
+
+    impl<T: DbOps> DbOps for CountingDb<T> {
+        type Iter<'a>
+            = T::Iter<'a>
+        where
+            Self: 'a;
+
+        fn get_pinned(
+            &self,
+            key: &[u8],
+            opts: ReadOptions,
+        ) -> Result<Option<rocksdb::DBPinnableSlice<'_>>, StoreError> {
+            self.reads.record(key);
+            self.inner.get_pinned(key, opts)
+        }
+
+        fn multi_get(&self, keys: &[&[u8]], opts: ReadOptions) -> Vec<Result<Option<Vec<u8>>, StoreError>> {
+            keys.iter().for_each(|key| self.reads.record(key));
+            self.inner.multi_get(keys, opts)
+        }
+
+        fn iterator_opt<'a>(&'a self, mode: IteratorMode<'_>, opts: ReadOptions) -> Self::Iter<'a> {
+            if let IteratorMode::From(key, _) = &mode {
+                self.reads.record(key);
+            }
+            self.inner.iterator_opt(mode, opts)
+        }
+    }
+
+    impl ReadChainStore for RocksDBStore<CountingDb<DB>> {
+        fn snapshot(&self) -> Box<dyn BaseReadChainStore + '_> {
+            Box::new(RocksDBStore {
+                basedir: self.basedir.clone(),
+                db: CountingDb { inner: self.db.inner.snapshot(), reads: self.db.reads.clone() },
+            })
+        }
+    }
+
+    fn count_reads(store: RocksDBStore) -> (RocksDBStore<CountingDb<DB>>, Arc<Reads>) {
+        let reads = Arc::new(Reads::default());
+        (RocksDBStore { basedir: store.basedir, db: CountingDb { inner: store.db, reads: reads.clone() } }, reads)
+    }
+
+    #[test]
+    fn recent_chainsync_and_consensus_do_not_read_blocks_or_history() {
+        for import_history in [false, true] {
+            let tempdir = tempfile::tempdir().unwrap();
+            let store = initialise_test_rw_store(tempdir.path());
+            let blocks = make_linear_blocks(4);
+            for block in &blocks[2..] {
+                store.store_header(&block.header).unwrap();
+                store.store_block(&block.header.hash(), &block.raw).unwrap();
+                store.roll_forward_chain(&block.header.point()).unwrap();
+            }
+            store.set_anchor_point(&blocks[2].header.point()).unwrap();
+            if import_history {
+                let archive: Vec<_> = blocks[..=2]
+                    .iter()
+                    .map(|block| (block.header.point().into(), block.header.parent(), block.raw.clone()))
+                    .collect();
+                store.store_historical_blocks(&archive).unwrap();
+            }
+            let (store, reads) = count_reads(store);
+            let anchor = blocks[2].header.point();
+            let tip = blocks[3].header.point();
+            assert_eq!(
+                store.next_best_chain_header(&anchor).unwrap(),
+                NextBestChainHeader::RollForward {
+                    point: tip,
+                    header: HeaderContent::new(&blocks[3].header, EraName::Conway),
+                }
+            );
+            assert_eq!(store.find_intersect_point(vec![tip.into()]), Some(tip));
+            assert_eq!(store.next_best_chain(&anchor), Some(tip));
+            assert_eq!(store.find_anchor_at_height(tip.block_height()), Some(tip));
+            assert!(!store.is_on_best_chain(blocks[0].header.point().into()));
+            assert_eq!(store.load_point(&blocks[0].header.hash()), None);
+            assert_eq!(reads.blocks.load(Relaxed), 0);
+            assert_eq!(reads.metadata.load(Relaxed), 0);
+            assert_eq!(reads.history.load(Relaxed), 0);
+        }
+    }
+
+    #[test]
+    fn historical_requests_read_one_block_and_reject_unknown_points_without_block_reads() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store = initialise_test_rw_store(tempdir.path());
+        let blocks = make_linear_blocks(3);
+        let archive: Vec<_> = blocks
+            .iter()
+            .map(|block| (block.header.point().into(), block.header.parent(), block.raw.clone()))
+            .collect();
+        store.store_historical_blocks(&archive).unwrap();
+        let (store, reads) = count_reads(store);
+        let point = blocks[0].header.point();
+        assert_eq!(store.find_intersect_point(vec![point.into()]), Some(point));
+        assert_eq!(reads.blocks.load(Relaxed), 1);
+        reads.reset();
+        assert!(matches!(store.next_best_chain_header(&point).unwrap(), NextBestChainHeader::RollForward { .. }));
+        assert_eq!(reads.blocks.load(Relaxed), 1);
+        assert!(reads.metadata.load(Relaxed) <= 6);
+        assert!(reads.history.load(Relaxed) <= 4);
+        reads.reset();
+        let unknown = NetworkPoint::Specific(point.slot_or_default(), HeaderHash::from([0x99; 32]));
+        assert_eq!(store.find_intersect_point(vec![unknown; 1000]), None);
+        assert_eq!(reads.blocks.load(Relaxed), 0);
+        assert_eq!(reads.metadata.load(Relaxed), 1);
+        assert_eq!(reads.history.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn cyclic_history_is_rejected_after_three_metadata_reads() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let store = initialise_test_rw_store(tempdir.path());
+        let block = &make_linear_blocks(1)[0];
+        let point = block.header.point();
+        store.store_historical_blocks(&[(point.into(), Some(point.hash()), block.raw.clone())]).unwrap();
+        let (store, reads) = count_reads(store);
+        assert_eq!(store.find_intersect_point(vec![point.into(); 1000]), None);
+        assert_eq!(reads.blocks.load(Relaxed), 0);
+        assert_eq!(reads.metadata.load(Relaxed), 3);
+        reads.reset();
+        assert!(store.next_best_chain_header(&Point::Origin).is_err());
+        assert_eq!(reads.blocks.load(Relaxed), 0);
+        assert_eq!(reads.metadata.load(Relaxed), 3);
+    }
+}
+
+fn archive_block(
+    tag: u8,
+    height: u64,
+    slot: u64,
+    parent: Option<HeaderHash>,
+) -> (NetworkPoint, Option<HeaderHash>, RawBlock) {
+    use amaru_kernel::{Hasher, cbor};
+
+    let mut header = cbor::Encoder::new(Vec::new());
+    if tag <= 1 {
+        header.array(4).unwrap().u32(2).unwrap().encode(parent).unwrap().null().unwrap();
+        if tag == 0 {
+            header.array(2).unwrap().u64(slot / 21600).unwrap();
+        } else {
+            header.array(4).unwrap().encode((slot / 21600, slot % 21600)).unwrap().bytes(&[0; 32]).unwrap();
+        }
+        header.array(1).unwrap().u64(height).unwrap();
+        if tag == 1 {
+            header.null().unwrap();
+        }
+    } else {
+        header.array(2).unwrap().array(3).unwrap().u64(height).unwrap().u64(slot).unwrap().encode(parent).unwrap();
+        header.null().unwrap();
+    }
+    let header = header.into_writer();
+    let mut hasher = Hasher::<256>::new();
+    if tag <= 1 {
+        hasher.input(&[0x82, tag]);
+    }
+    hasher.input(&header);
+    let point = NetworkPoint::Specific(slot.into(), hasher.finalize());
+    let mut block = vec![0x82, tag, 0x81];
+    block.extend(header);
+    (point, parent, RawBlock::from(block.into_boxed_slice()))
 }
 
 #[test]

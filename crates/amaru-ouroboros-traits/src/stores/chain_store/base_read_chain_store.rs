@@ -14,13 +14,23 @@
 
 use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock};
 
-use crate::{Nonces, StoreError};
+use crate::{NextBestChainHeader, Nonces, StoreError};
 
 /// Low-level chain store reads. It is used by the `ReadChainStore` trait which most code should
 /// depend on.
 pub trait BaseReadChainStore: Send + Sync {
     /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<Header>;
+
+    /// Find an intersection in imported immutable history, without changing consensus membership.
+    fn find_historical_intersect(&self, _point: NetworkPoint) -> Option<Point> {
+        None
+    }
+
+    /// Serve the successor of an immutable-history pointer, or return `None` if it is not in history.
+    fn next_historical_header(&self, _pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        Ok(None)
+    }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)>;
 
@@ -90,6 +100,14 @@ pub trait BaseReadChainStore: Send + Sync {
 impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
+    }
+
+    fn find_historical_intersect(&self, point: NetworkPoint) -> Option<Point> {
+        self.as_ref().find_historical_intersect(point)
+    }
+
+    fn next_historical_header(&self, pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        self.as_ref().next_historical_header(pointer)
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
