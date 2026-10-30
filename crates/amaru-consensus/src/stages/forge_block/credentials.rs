@@ -21,7 +21,7 @@
 use std::sync::Mutex;
 
 use amaru_kernel::{
-    Ed25519Signature, KesPeriod, KesSignature, OperationalCert, VerificationKey,
+    Ed25519Signature, KesPeriod, KesSignature, OperationalCert, VerificationKey, VrfVerificationKey,
     cardano::fixed_bytes::FixedBytes,
     ed25519::{self, Signer},
 };
@@ -80,8 +80,8 @@ impl TestCredentials {
         Self::new(ed25519::SigningKey::from_bytes(&TEST_COLD_KEY), ocert_start_period, max_kes_evolutions)
     }
 
-    pub fn vrf_verification_key(&self) -> VerificationKey {
-        VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&self.vrf_seed)))
+    pub fn vrf_verification_key(&self) -> VrfVerificationKey {
+        VrfVerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&self.vrf_seed)))
     }
 
     pub fn operational_cert(&self) -> &OperationalCert {
@@ -218,7 +218,7 @@ mod tests {
             62,
         );
         assert_eq!(credentials.vrf_secret_bytes(), seed);
-        let expected = VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&seed)));
+        let expected = VrfVerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&seed)));
         assert_eq!(credentials.vrf_verification_key(), expected);
     }
 

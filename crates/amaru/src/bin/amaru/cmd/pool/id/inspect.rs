@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::PoolId;
+use amaru_kernel::{PoolId, protocol_version};
 use amaru_ouroboros::load_cold_verification_key;
 use anyhow::Context;
 
@@ -34,7 +34,7 @@ impl InspectArgs {
 
     #[expect(clippy::print_stdout)]
     pub fn run(self) -> anyhow::Result<()> {
-        let cold = load_cold_verification_key(&self.verification_key)
+        let cold = load_cold_verification_key(&self.verification_key, protocol_version::DEFAULT)
             .with_context(|| format!("failed to load cold verification key: {}", self.verification_key.display()))?;
 
         println!("{}", PoolId::from(cold));

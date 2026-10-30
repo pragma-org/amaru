@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cardano::{fixed_bytes::FixedBytes, hash::size::VRF_KEY};
+use crate::cardano::fixed_bytes::FixedBytes;
 
-// TODO: VRF_KEY associated to VerificationKey
-//
-// The 'VerificationKey', without prefix ALWAYS refer to row Ed25519 keys, not the VRF ones. The VRF
-// being also based on Ed25519, the keys happen to have the same length. But the type is confusing.
-pub type VerificationKey = FixedBytes<VRF_KEY>;
+const KEY_SIZE: usize = 32;
+
+/// A raw Ed25519 verification key.
+///
+/// VRF verification keys are the same length but are a different kind of key; they have
+/// their own type, [`crate::VrfVerificationKey`].
+pub type VerificationKey = FixedBytes<KEY_SIZE>;
