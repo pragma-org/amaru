@@ -16,7 +16,10 @@ use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{
     ConsensusParameters, KesPeriod, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PoolId, ProtocolVersion,
+    Transaction, cbor::WithOriginalBytes,
 };
+use amaru_mempool::InMemoryMempool;
+use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{ForgingCredentials, Nonces, in_memory_chain_store::InMemoryChainStore};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
@@ -49,6 +52,7 @@ pub struct TestPrep {
     pub rt: tokio::runtime::Runtime,
     pub store: Arc<InMemoryChainStore>,
     pub credentials: Option<Arc<TestCredentials>>,
+    pub mempool: ResourceMempool<Transaction>,
 }
 
 pub fn test_prep() -> TestPrep {
@@ -68,6 +72,7 @@ pub fn test_prep() -> TestPrep {
         rt: crate::stages::test_utils::test_runtime(),
         store: Arc::new(InMemoryChainStore::new()),
         credentials: Some(Arc::new(credentials)),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
     }
 }
 
@@ -133,6 +138,7 @@ fn setup_with(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            resources.put::<ResourceMempool<Transaction>>(prep.mempool.clone());
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),
             ));

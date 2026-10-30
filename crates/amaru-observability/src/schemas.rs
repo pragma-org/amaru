@@ -726,6 +726,13 @@ define_schemas! {
                     required slot: amaru_kernel::Slot
                     required reason: String
                 }
+                /// Selecting transactions for block forging failed; an empty block is forged instead.
+                public event TAKE_FOR_FORGE_FAILED {
+                    levels: error
+                    required slot: amaru_kernel::Slot
+                    required step: String
+                    required error: String
+                }
                 /// Forging the header or storing it failed. The node shuts down.
                 /// Step ∈ {sign_header, validate_header, store_header, store_block}.
                 public event FORGE_FAILED {

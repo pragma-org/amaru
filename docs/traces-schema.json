@@ -5026,6 +5026,38 @@
         "info"
       ]
     },
+    "amaru::consensus::forge::TAKE_FOR_FORGE_FAILED": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "take_for_forge_failed",
+      "kind": "event",
+      "target": "amaru::consensus::forge",
+      "description": "Selecting transactions for block forging failed; an empty block is forged instead.",
+      "public": true,
+      "levels": [
+        "error"
+      ]
+    },
     "amaru::consensus::kes::LEGACY_KEY_ENVELOPE": {
       "type": "object",
       "properties": {
