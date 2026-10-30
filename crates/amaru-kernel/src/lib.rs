@@ -215,6 +215,7 @@ pub use cardano::{
     voting_procedure::{PlutusVotes, VotingProcedure},
     voting_procedures::VotingProcedures,
     vrf_cert::VrfCert,
+    vrf_verification_key::VrfVerificationKey,
     withdrawals::Withdrawals,
     witness_set::WitnessSet,
 };

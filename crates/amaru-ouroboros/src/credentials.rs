@@ -22,7 +22,7 @@ use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
+    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert, VrfVerificationKey,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::BLOCK_BODY,
@@ -47,7 +47,7 @@ pub struct InProcessCredentials {
     inner: Mutex<KesState>,
     vrf: vrf::SecretKey,
     cold: VerificationKey,
-    vrf_verification_key: VerificationKey,
+    vrf_verification_key: VrfVerificationKey,
     operational_cert: OperationalCert,
     max_kes_evolutions: u64,
 }
@@ -101,7 +101,7 @@ impl InProcessCredentials {
         .map_err(|error| CredentialsError::Signature(error.to_string()))?;
         Ok(Self {
             inner: Mutex::new(KesState { kes, period: certificate.operational_cert_kes_period }),
-            vrf_verification_key: VerificationKey::from(*vrf::PublicKey::from(&vrf)),
+            vrf_verification_key: VrfVerificationKey::from(*vrf::PublicKey::from(&vrf)),
             vrf,
             cold,
             operational_cert: certificate,
@@ -206,7 +206,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
             slot: 0,
             prev_hash: Some(parent),
             issuer_verification_key: VerificationKey::zeroes(),
-            vrf_verification_key: VerificationKey::zeroes(),
+            vrf_verification_key: VrfVerificationKey::zeroes(),
             vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::zeroes() },
             block_body_size: 0,
             block_body_hash: Hash::new([0u8; BLOCK_BODY]),
@@ -714,7 +714,7 @@ mod tests {
     fn issuer_from(issued: &Issued) -> IssuerFields {
         IssuerFields {
             issuer_verification_key: issued.cold_vk,
-            vrf_verification_key: VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&[7u8; 32]))),
+            vrf_verification_key: VrfVerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&[7u8; 32]))),
             operational_cert: issued.certificate.clone(),
         }
     }

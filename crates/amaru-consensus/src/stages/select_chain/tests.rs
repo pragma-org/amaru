@@ -1117,7 +1117,7 @@ mod cmp_tip_unit_tests {
 
     use amaru_kernel::{
         Bytes, Hasher, Header, HeaderBody, HeaderHash, KesPeriod, OperationalCert, ProtocolVersion, VrfCert,
-        cardano::fixed_bytes::FixedBytes, size::BLOCK_BODY, to_cbor,
+        VrfVerificationKey, cardano::fixed_bytes::FixedBytes, size::BLOCK_BODY, to_cbor,
     };
 
     fn make_test_header(
@@ -1134,7 +1134,7 @@ mod cmp_tip_unit_tests {
                 slot,
                 prev_hash,
                 issuer_verification_key: FixedBytes::zeroes(),
-                vrf_verification_key: FixedBytes::zeroes(),
+                vrf_verification_key: VrfVerificationKey::zeroes(),
                 vrf_result: VrfCert { output: Bytes::from(vrf.to_vec()), proof: FixedBytes::zeroes() },
                 block_body_size: 0,
                 block_body_hash: block_hash,

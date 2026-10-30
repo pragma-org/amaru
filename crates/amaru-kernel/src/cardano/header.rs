@@ -22,7 +22,7 @@ use proptest::{
 };
 
 use crate::{
-    BlockHeight, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot,
+    BlockHeight, Hasher, HeaderBody, HeaderHash, IsHeader, PoolId, Slot, VrfVerificationKey,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::{HEADER, POOL_COLD_KEY},
@@ -287,7 +287,7 @@ mod tests {
                 slot,
                 prev_hash,
                 issuer_verification_key: FixedBytes::zeroes(),
-                vrf_verification_key: FixedBytes::zeroes(),
+                vrf_verification_key: VrfVerificationKey::zeroes(),
                 vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::zeroes() },
                 block_body_size,
                 block_body_hash,

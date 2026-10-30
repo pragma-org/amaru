@@ -373,7 +373,7 @@ mod tests {
     fn stand_in_header() -> Header {
         use crate::{
             Bytes, Ed25519Signature, HeaderBody, KesPeriod, KesSignature, OperationalCert, ProtocolVersion,
-            VerificationKey, VrfCert,
+            VerificationKey, VrfCert, VrfVerificationKey,
             cardano::{fixed_bytes::FixedBytes, vrf_cert::VRF_PROOF},
         };
         Header::new(
@@ -382,7 +382,7 @@ mod tests {
                 slot: 0,
                 prev_hash: None,
                 issuer_verification_key: VerificationKey::zeroes(),
-                vrf_verification_key: VerificationKey::zeroes(),
+                vrf_verification_key: VrfVerificationKey::zeroes(),
                 vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::<VRF_PROOF>::zeroes() },
                 block_body_size: 0,
                 block_body_hash: Hash::new([0u8; BLOCK_BODY]),

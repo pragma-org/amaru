@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, OperationalCert, ProtocolVersion, VerificationKey, VrfCert, cbor};
+use crate::{Hash, OperationalCert, ProtocolVersion, VerificationKey, VrfCert, VrfVerificationKey, cbor};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
@@ -30,7 +30,7 @@ pub struct HeaderBody {
     pub issuer_verification_key: VerificationKey,
 
     #[n(4)]
-    pub vrf_verification_key: VerificationKey,
+    pub vrf_verification_key: VrfVerificationKey,
 
     #[n(5)]
     pub vrf_result: VrfCert,
