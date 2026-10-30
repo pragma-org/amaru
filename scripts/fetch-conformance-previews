@@ -24,19 +24,23 @@ for scenario in cbor-conformance uplc-conformance uplc-turbo ledger-rules; do
   target="$SITE_DIR/preview/$scenario/latest.json"
   mkdir -p "$(dirname "$target")"
 
-  status="$(curl -sSL --retry 3 -o "$target" -w '%{http_code}' "$url" || true)"
-  case "$status" in
-    200)
+  # The timeouts bound how long a stalled transfer holds the deploy. A body cut short still reports HTTP 200, so the
+  # exit code of curl decides whether the file is complete.
+  curl_exit=0
+  status="$(curl -sSL --connect-timeout 10 --max-time 120 --retry 3 --retry-max-time 300 \
+    -o "$target" -w '%{http_code}' "$url")" || curl_exit=$?
+  case "$curl_exit:$status" in
+    0:200)
       echo "carried over preview/$scenario/latest.json"
       ;;
-    404)
+    0:404)
       rm -f "$target"
       echo "no preview/$scenario/latest.json on $SITE_URL"
       ;;
     *)
       # A deploy must not fail because a preview could not be read; the next manual run publishes it again.
       rm -f "$target"
-      echo "could not read $url (HTTP status '${status:-none}'); publishing without it" >&2
+      echo "could not read $url (HTTP status '${status:-none}', curl exit code $curl_exit); publishing without it" >&2
       ;;
   esac
   rmdir "$(dirname "$target")" 2>/dev/null || true
