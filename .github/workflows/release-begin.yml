@@ -135,7 +135,9 @@ jobs:
               if ! cargo generate-rpm --version >/dev/null 2>&1; then
                 cargo install cargo-generate-rpm
               fi
-              sudo snap install zig --classic --beta
+              # zig >= 0.17 ships a libc whose strdup/realpath allocate behind jemalloc's back,
+              # which corrupts the heap of musl builds; keep this pinned to a verified release.
+              python3 -m pip install --break-system-packages ziglang==0.15.2
               if ! command -v cargo-zigbuild >/dev/null 2>&1; then
                 cargo install cargo-zigbuild
               fi
@@ -155,7 +157,9 @@ jobs:
                 cargo install cargo-generate-rpm
               fi
 
-              sudo snap install zig --classic --beta
+              # zig >= 0.17 ships a libc whose strdup/realpath allocate behind jemalloc's back,
+              # which corrupts the heap of musl builds; keep this pinned to a verified release.
+              python3 -m pip install --break-system-packages ziglang==0.15.2
               if ! command -v cargo-zigbuild >/dev/null 2>&1; then
                 cargo install cargo-zigbuild
               fi
