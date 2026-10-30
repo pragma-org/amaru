@@ -37,6 +37,16 @@ Other guiding principles:
 
 ## Unreleased
 
+### Changed
+
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
+
+### Fixed
+
+- **amaru-ledger**: transactions whose witness set includes the datum for a collateral-return datum hash are accepted.
+- **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
+- **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
+
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
  ### Added
@@ -644,6 +654,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1004]: https://github.com/pragma-org/amaru/issues/1004
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010

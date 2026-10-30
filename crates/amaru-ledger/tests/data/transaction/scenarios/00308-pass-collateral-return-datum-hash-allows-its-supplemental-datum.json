@@ -1,0 +1,29 @@
+{
+  "title": "collateral return datum hash allows its supplemental datum",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, whose collateral return carries a datum hash and whose witness set carries the matching datum.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258204f8b2d6a1c9e3f7b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "8258209c3e7f1b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b4d6a1c9e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d90102818258204f8b2d6a1c9e3f7b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0049a778021a0002a3c80b582040bd9f5e07812e90159ba30145b697376f19a1ea9e3f5faf8f06fd8b8694e6c10dd90102818258209c3e7f1b5d0a8c2e6f4b1d9a3c7e5f0b8d2a6c4e1f9b3d7a5c0e8f2b4d6a1c9e000f0010a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e848002820058209e1199a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88ba400d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840edeb0d8d9557e4f36af625a6ec3c8385e2c3142f373d199da2296ff6f51951452b94b7565abd864446ffd83ebdb8436382d00de781977b3554ec675b6832b60c04d9010281182a05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
