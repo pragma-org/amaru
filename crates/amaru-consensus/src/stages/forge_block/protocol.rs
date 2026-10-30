@@ -33,7 +33,7 @@ use super::{
         format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, parent_to_extend,
         schedule_settled, wait_until_onset,
     },
-    effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
+    effects::{ForgedBody, LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
     schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{
@@ -347,6 +347,18 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
 
     let (forged, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
+    let forged = match forged {
+        Ok(forged) => forged,
+        Err(error) => {
+            error!(
+                consensus::forge::TAKE_FOR_FORGE_FAILED,
+                slot,
+                step = "take_transactions",
+                error = error.to_string()
+            );
+            ForgedBody::empty()
+        }
+    };
     let header_body = HeaderDraft {
         block_number,
         slot,
