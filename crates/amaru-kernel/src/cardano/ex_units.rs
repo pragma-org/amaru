@@ -28,6 +28,16 @@ pub struct ExUnits {
     pub steps: u64,
 }
 
+impl ExUnits {
+    pub const MAX: Self = Self { mem: u64::MAX, steps: u64::MAX };
+
+    pub fn checked_add(self, rhs: &Self) -> Option<Self> {
+        let mem = self.mem.checked_add(rhs.mem)?;
+        let steps = self.steps.checked_add(rhs.steps)?;
+        Some(Self { mem, steps })
+    }
+}
+
 /// Decoded as a fixed-size record, so indefinite-length encodings are rejected before protocol version V12.
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for ExUnits {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {

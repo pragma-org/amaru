@@ -20,6 +20,8 @@ pub mod auxiliary_data;
 pub mod ballot;
 pub mod ballot_id;
 pub mod block;
+pub mod block_body_builder;
+pub mod block_body_parts;
 pub mod block_height;
 pub mod bootstrap_witness;
 pub mod bytes;

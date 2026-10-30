@@ -22,8 +22,8 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, KesSignature, Nonce,
-    PoolId, RawBlock, Slot, Transaction, cardano::network_block::NetworkBlock, maths::FixedDecimal,
+    BlockBodyBuilder, BlockBodyParts, BlockBuilderConstraints, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce,
+    PoolId, Slot, Transaction, maths::FixedDecimal,
 };
 use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
@@ -34,15 +34,6 @@ use crate::effects::{ResourceConsensusParameters, ResourcePoolSummaries};
 
 /// `None` in the product binary. Tests (and, later, a configured pool) install `Some`.
 pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
-
-/// Transactions selected for a parent and slot, already a well-formed block body.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ForgedBody {
-    pub hash: Hash<32>,
-    pub size: u32,
-    /// Body items encoded once. [`Self::seal`] prefixes the signed header; it does not encode the body again.
-    parts: BodyParts,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SignHeaderError {
@@ -58,48 +49,13 @@ pub enum TakeForForgeError {
     Body(String),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum EmptyBlockError {
-    #[error("forged header does not commit to the empty block body")]
-    CommitmentMismatch,
-    #[error("empty block encoding failed: {0}")]
-    Encode(String),
-    #[error("era for the forged slot is unknown: {0}")]
-    Era(#[from] EraHistoryError),
-}
-
-impl ForgedBody {
-    /// No transactions. `hash` and `size` are what the header must commit to.
-    ///
-    /// `block` is empty until [`Self::seal`] wraps a signed header around that body.
-    pub fn empty() -> Self {
-        Self::from_transactions(std::iter::empty())
-            .unwrap_or_else(|error| unreachable!("an empty transaction list fits in a block: {error}"))
-    }
-
-    fn from_transactions(transactions: impl IntoIterator<Item = Transaction>) -> Result<Self, TakeForForgeError> {
-        let parts =
-            BodyParts::from_transactions(transactions).map_err(|error| TakeForForgeError::Body(error.to_string()))?;
-        let (hash, size) = parts.commitment();
-        Ok(Self { hash, size, parts })
-    }
-
-    /// Network-block bytes for `header` and this body.
-    ///
-    /// `header` must already carry [`Self::hash`] and [`Self::size`]. The body bytes are the ones
-    /// [`BodyParts`] encoded when this value was built.
-    pub fn seal(&self, header: &Header, era_history: &EraHistory) -> Result<RawBlock, EmptyBlockError> {
-        let committed = &header.body().block_body_hash;
-        if *committed != self.hash || header.body().block_body_size != self.size {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        let bytes = self.parts.encode_block(header);
-        let actual = Block::hash_encoded_body(&bytes).map_err(|error| EmptyBlockError::Encode(error.to_string()))?;
-        if actual != self.hash {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        Ok(NetworkBlock::from_encoded_block(era_history, Slot::from(header.body().slot), bytes)?.raw_block())
-    }
+fn body_from_transactions(
+    transactions: impl IntoIterator<Item = Transaction>,
+) -> Result<BlockBodyParts, TakeForForgeError> {
+    let constraints = BlockBuilderConstraints::unlimited();
+    BlockBodyBuilder::try_from_iter(transactions, &constraints)
+        .and_then(BlockBodyBuilder::finalize)
+        .map_err(|error| TakeForForgeError::Body(error.to_string()))
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -205,14 +161,14 @@ impl TakeForForgeEffect {
 }
 
 impl ExternalEffectAPI for TakeForForgeEffect {
-    type Response = Result<ForgedBody, TakeForForgeError>;
+    type Response = Result<BlockBodyParts, TakeForForgeError>;
 
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         #[expect(clippy::expect_used)]
         let mempool = resources
             .get::<ResourceMempool<Transaction>>()
             .expect("ResourceMempool must be registered before the forge stage is started");
-        let body = ForgedBody::from_transactions(mempool.take().into_iter().map(|tx| tx.into_inner()));
+        let body = body_from_transactions(mempool.take().into_iter().map(|tx| tx.into_inner()));
         self.wrap_sync(body)
     }
 }

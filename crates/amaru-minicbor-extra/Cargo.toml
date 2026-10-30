@@ -30,6 +30,7 @@ tracing = { workspace = true, optional = true }
 cbor4ii.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
+test-case.workspace = true
 
 [target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
 amaru-deps.workspace = true

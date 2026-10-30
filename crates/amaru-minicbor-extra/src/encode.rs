@@ -17,6 +17,12 @@ use std::convert::Infallible;
 use minicbor as cbor;
 use minicbor::Encoder;
 
+pub mod indefinite_array;
+pub mod indefinite_map;
+
+pub use indefinite_array::{IndefiniteArray, encode_indefinite_array};
+pub use indefinite_map::{IndefiniteMap, encode_indefinite_map};
+
 /// Encode a field with an optional value.
 pub fn encode_optional<C, T, W>(
     e: &mut cbor::Encoder<W>,
