@@ -113,7 +113,7 @@ pub fn block_addressed_by(block: RawBlock, hash: &HeaderHash) -> RawBlock {
         );
     }
     let expected_body = header.body().block_body_hash;
-    let actual_body = match block.body_hash() {
+    let actual_body = match block.decode().map(|blk| blk.body_hash()) {
         Ok(body_hash) => body_hash,
         Err(error) => panic!(
             "chain-store integrity failure: block stored at key {hash} has an undecodable body ({error}); the database is corrupt and Amaru cannot continue"

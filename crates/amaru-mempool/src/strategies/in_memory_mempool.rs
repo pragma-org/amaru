@@ -12,16 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    mem,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
-use amaru_ouroboros_traits::{
-    MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason, TxSubmissionMempool, mempool::Mempool,
-};
+use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
 /// It stores transactions in memory, indexed by their TransactionId and by a sequence number assigned
@@ -177,9 +171,7 @@ impl MempoolConfig {
     }
 }
 
-impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> TxSubmissionMempool<Tx>
-    for InMemoryMempool<Tx>
-{
+impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult {
         let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
@@ -226,38 +218,13 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Tx
             size_bytes: inner.current_bytes,
         }
     }
-}
 
-impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
     fn take(&self) -> Vec<Tx> {
         let mut inner = self.inner.write();
         let entries = mem::take(&mut inner.entries_by_id);
         let _ = mem::take(&mut inner.entries_by_seq);
         inner.current_bytes = 0;
         entries.into_values().map(|entry| entry.tx).collect()
-    }
-
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized,
-    {
-        let keys_to_remove = BTreeSet::from_iter(keys(tx));
-        let mut inner = self.inner.write();
-
-        let mut seq_nos_to_remove: Vec<MempoolSeqNo> = Vec::new();
-        let mut bytes_to_subtract: u64 = 0;
-        for entry in inner.entries_by_id.values() {
-            if keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)) {
-                seq_nos_to_remove.push(entry.seq_no);
-                bytes_to_subtract = bytes_to_subtract.saturating_add(entry.tx_size as u64);
-            }
-        }
-        inner.entries_by_id.retain(|_, entry| !keys(&entry.tx).into_iter().any(|k| keys_to_remove.contains(&k)));
-        for seq_no in seq_nos_to_remove {
-            inner.entries_by_seq.remove(&seq_no);
-        }
-        inner.current_bytes = inner.current_bytes.saturating_sub(bytes_to_subtract);
     }
 }
 

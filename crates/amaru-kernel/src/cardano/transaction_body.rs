@@ -304,27 +304,23 @@ mod tests {
     use test_case::test_case;
 
     use super::TransactionBody;
-    use crate::{RawBlock, Transaction, cbor, hash, to_cbor};
+    use crate::{Block, Transaction, cbor, hash, include_cbor, to_cbor};
 
     #[test]
     fn body_id_matches_on_chain_hash() {
-        let raw_block = RawBlock::from(include_bytes!(
+        let block: Block = include_cbor!(
             "../../tests/data/cbor.decode/block/b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698/sample.cbor"
-        ) as &[u8]);
-        let serialized_tx = raw_block.transactions().unwrap().next().unwrap();
-        let tx: Transaction = cbor::decode(&serialized_tx).unwrap();
-
+        );
+        let (_, tx) = block.into_iter().next().unwrap();
         assert_eq!(tx.body.id(), hash!("43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429"));
     }
 
     #[test]
     fn body_id_preserved_through_cbor_roundtrip() {
-        let raw_block = RawBlock::from(include_bytes!(
+        let block: Block = include_cbor!(
             "../../tests/data/cbor.decode/block/b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698/sample.cbor"
-        ) as &[u8]);
-        let serialized_tx = raw_block.transactions().unwrap().next().unwrap();
-        let tx: Transaction = cbor::decode(&serialized_tx).unwrap();
-
+        );
+        let (_, tx) = block.into_iter().next().unwrap();
         let round_tripped: Transaction = cbor::decode(&to_cbor(&tx)).unwrap();
         assert_eq!(round_tripped.body.id(), tx.body.id());
     }

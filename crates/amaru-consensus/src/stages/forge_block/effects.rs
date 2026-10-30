@@ -16,15 +16,16 @@
 //!
 //! Leader schedules are computed here from the credentials resource and
 //! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body
-//! effect returns an empty block until the mempool can supply one.
+//! effect resolves the registered mempool and currently falls back to an empty
+//! block until transaction selection is implemented.
 
 use std::sync::Arc;
 
 use amaru_kernel::{
-    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, KesSignature, Nonce,
-    PoolId, RawBlock, Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
+    BlockBodyBuilder, BlockBodyParts, BlockBuilderConstraints, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce,
+    PoolId, Slot, Transaction, maths::FixedDecimal,
 };
-use amaru_ouroboros::vrf;
+use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
@@ -34,15 +35,6 @@ use crate::effects::{ResourceConsensusParameters, ResourcePoolSummaries};
 /// `None` in the product binary. Tests (and, later, a configured pool) install `Some`.
 pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
 
-/// Transactions selected for a parent and slot, already a well-formed block body.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ForgedBody {
-    pub hash: Hash<32>,
-    pub size: u32,
-    /// Body items encoded once. [`Self::seal`] prefixes the signed header; it does not encode the body again.
-    parts: BodyParts,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SignHeaderError {
     #[error("forging credentials resource is missing")]
@@ -51,43 +43,19 @@ pub enum SignHeaderError {
     Credentials(#[from] ForgingCredentialsError),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum EmptyBlockError {
-    #[error("forged header does not commit to the empty block body")]
-    CommitmentMismatch,
-    #[error("empty block encoding failed: {0}")]
-    Encode(String),
-    #[error("era for the forged slot is unknown: {0}")]
-    Era(#[from] EraHistoryError),
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
+pub enum TakeForForgeError {
+    #[error("unable to construct block body: {0}")]
+    Body(String),
 }
 
-impl ForgedBody {
-    /// No transactions. `hash` and `size` are what the header must commit to.
-    ///
-    /// `block` is empty until [`Self::seal`] wraps a signed header around that body.
-    pub fn empty() -> Self {
-        let parts = BodyParts::from_transactions(std::iter::empty())
-            .unwrap_or_else(|error| unreachable!("an empty transaction list fits in a block: {error}"));
-        let (hash, size) = parts.commitment();
-        Self { hash, size, parts }
-    }
-
-    /// Network-block bytes for `header` and this body.
-    ///
-    /// `header` must already carry [`Self::hash`] and [`Self::size`]. The body bytes are the ones
-    /// [`BodyParts`] encoded when this value was built.
-    pub fn seal(&self, header: &Header, era_history: &EraHistory) -> Result<RawBlock, EmptyBlockError> {
-        let committed = &header.body().block_body_hash;
-        if *committed != self.hash || header.body().block_body_size != self.size {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        let bytes = self.parts.encode_block(header);
-        let actual = Block::hash_encoded_body(&bytes).map_err(|error| EmptyBlockError::Encode(error.to_string()))?;
-        if actual != self.hash {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        Ok(NetworkBlock::from_encoded_block(era_history, Slot::from(header.body().slot), bytes)?.raw_block())
-    }
+fn body_from_transactions(
+    transactions: impl IntoIterator<Item = Transaction>,
+) -> Result<BlockBodyParts, TakeForForgeError> {
+    let constraints = BlockBuilderConstraints::unlimited();
+    BlockBodyBuilder::try_from_iter(transactions, &constraints)
+        .and_then(BlockBodyBuilder::finalize)
+        .map_err(|error| TakeForForgeError::Body(error.to_string()))
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -177,8 +145,9 @@ impl ExternalEffectAPI for SignHeaderEffect {
 
 /// Ask the mempool for a body valid on `parent` as of `slot`.
 ///
-/// The mempool is not consulted yet. The default body is empty and [`ForgedBody::seal`]
-/// turns it into a block the ledger can apply.
+/// The parent and slot will be used by transaction selection once the mempool
+/// implements constrained taking. For now, this effect wires the forge stage
+/// to the registered mempool and uses its default selection behavior.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TakeForForgeEffect {
     pub parent: HeaderHash,
@@ -192,10 +161,15 @@ impl TakeForForgeEffect {
 }
 
 impl ExternalEffectAPI for TakeForForgeEffect {
-    type Response = ForgedBody;
+    type Response = Result<BlockBodyParts, TakeForForgeError>;
 
-    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync(ForgedBody::empty())
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        #[expect(clippy::expect_used)]
+        let mempool = resources
+            .get::<ResourceMempool<Transaction>>()
+            .expect("ResourceMempool must be registered before the forge stage is started");
+        let body = body_from_transactions(mempool.take().into_iter().map(|tx| tx.into_inner()));
+        self.wrap_sync(body)
     }
 }
 

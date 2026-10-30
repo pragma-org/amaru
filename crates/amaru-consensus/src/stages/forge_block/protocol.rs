@@ -17,7 +17,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use amaru_kernel::{Epoch, EraHistory, Header, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
+use amaru_kernel::{BlockBodyParts, Epoch, EraHistory, Header, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, Point, Slot};
 use amaru_observability::{debug, error, info, warn};
 use amaru_ouroboros::praos::nonce as praos_nonce;
 use amaru_ouroboros_traits::{FindCommonAncestorResult, ForgingCredentialsError, HeaderDraft, Nonces, kes_message};
@@ -346,14 +346,27 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let block_number = u64::from(parent_point.block_height()) + 1;
     let kes_period = state.consensus_parameters.slot_to_kes_period(slot);
 
-    let (forged, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
+    let (block_body_parts, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
+    let block_body_parts = match block_body_parts {
+        Ok(block_body_parts) => block_body_parts,
+        Err(error) => {
+            error!(
+                consensus::forge::TAKE_FOR_FORGE_FAILED,
+                slot,
+                step = "take_transactions",
+                error = error.to_string()
+            );
+            BlockBodyParts::empty()
+        }
+    };
+    let commitment = block_body_parts.commitment();
     let header_body = HeaderDraft {
         block_number,
         slot,
         prev_hash: Some(parent_hash),
         vrf_result: cert,
-        block_body_size: forged.size,
-        block_body_hash: forged.hash,
+        block_body_size: commitment.size,
+        block_body_hash: commitment.hash,
         protocol_version: state.protocol_version,
     }
     .body(&state.issuer);
@@ -385,10 +398,10 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
 
     let header_hash = header.hash();
     let header_point = header.point();
-    let block = match forged.seal(&header, state.consensus_parameters.era_history()) {
+    let block = match block_body_parts.try_into_block(&header, state.consensus_parameters.era_history()) {
         Ok(block) => block,
         Err(error) => {
-            error!(consensus::forge::FORGE_FAILED, slot, step = "store_block", error = error.to_string());
+            error!(consensus::forge::FORGE_FAILED, slot, step = "seal_block", error = error.to_string());
             eff.terminate().await;
         }
     };
