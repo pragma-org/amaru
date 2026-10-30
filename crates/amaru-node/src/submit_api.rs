@@ -129,7 +129,7 @@ mod tests {
         effects::{ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation},
         stages::mempool::MempoolStageState,
     };
-    use amaru_kernel::{RawBlock, Transaction, cbor::WithOriginalBytes, to_cbor};
+    use amaru_kernel::{Block, Transaction, cbor::WithOriginalBytes, include_cbor, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
     use amaru_ouroboros_traits::{Mempool, MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
@@ -171,12 +171,11 @@ mod tests {
     async fn test_submission_of_with_transaction_extracted_from_existing_block() -> anyhow::Result<()> {
         let (addr, _shutdown) = start_test_server().await?;
 
-        let body = serialized_transaction()?;
-        let expected_tx: Transaction = minicbor::decode(&body)?;
+        let expected_tx: Transaction = fixture_transaction();
         let expected_tx_id = expected_tx.tx_id();
         assert_eq!(expected_tx_id.to_string(), TX_ID);
 
-        let resp = submit_tx(addr, body).await?;
+        let resp = submit_tx(addr, to_cbor(&expected_tx)).await?;
         assert_eq!(resp.status(), 202);
         assert_eq!(resp.headers()[CONTENT_TYPE], "application/json");
 
@@ -311,15 +310,6 @@ mod tests {
         Ok(())
     }
 
-    /// This is a sanity check for the tests data
-    #[test]
-    fn decode_test_transaction() {
-        let body = serialized_transaction().expect("a serialized transaction");
-        let expected_tx: Transaction = minicbor::decode(&body).expect("a decoded transaction");
-        let expected_tx_id = expected_tx.tx_id();
-        assert_eq!(expected_tx_id.to_string(), TX_ID);
-    }
-
     // HELPERS
 
     /// Re-encode a transaction's outer array header with a redundant one-byte length: still valid
@@ -415,18 +405,14 @@ mod tests {
     // (slot 70175999, block height 2671560).
     const TX_ID: &str = "43f396b0d5c55e34b507cfe9964672586370cc09912a4790488fba4079f96429";
 
-    /// Return a serialized transaction extracted from an actual block
-    fn serialized_transaction() -> anyhow::Result<Vec<u8>> {
-        raw_block().transactions()?.next().ok_or_else(|| anyhow::anyhow!("no transactions found in block fixture"))
-    }
-
-    fn raw_block() -> RawBlock {
-        const RAW_BLOCK: &[u8] = include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../amaru-kernel/tests/data/cbor.decode/block/",
+    /// Return a transaction extracted from an actual block
+    fn fixture_transaction() -> Transaction {
+        let block: Block = include_cbor!(concat!(
+            "../../../amaru-kernel/tests/data/cbor.decode/block/",
             "b9bef52dd8dedf992837d20c18399a284d80fde0ae9435f2a33649aaee7c5698",
             "/sample.cbor"
         ));
-        RawBlock::from(RAW_BLOCK)
+
+        block.into_iter().map(|(_, tx)| tx).next().expect("serialised fixture block contains at least one transaction")
     }
 }

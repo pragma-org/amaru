@@ -104,7 +104,7 @@ mod encoded_test_block {
         let era = EraHistory::default();
         let block = EncodedTestBlock::from_seed(&make_header(1, 0, None), &era);
         assert_eq!(block.header, block.raw.decode_header().unwrap());
-        assert_eq!(block.header.body().block_body_hash, block.raw.body_hash().unwrap());
+        assert_eq!(block.header.body().block_body_hash, block.raw.decode().unwrap().body_hash());
 
         let again = EncodedTestBlock::from_seed(&block.header, &era);
         assert_eq!(again.header.hash(), block.header.hash());
