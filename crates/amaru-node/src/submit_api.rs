@@ -132,9 +132,7 @@ mod tests {
     use amaru_kernel::{RawBlock, Transaction, cbor::WithOriginalBytes, to_cbor};
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
     use amaru_ouroboros::{MempoolMsg, ResourceMempool};
-    use amaru_ouroboros_traits::{
-        MockBlockValidator, MockCanValidateTxs, TransactionValidationError, TxSubmissionMempool,
-    };
+    use amaru_ouroboros_traits::{Mempool, MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
     use amaru_protocols::store_effects::ResourceParameters;
     use amaru_pure_stage::{
         Sender, StageGraph,
@@ -191,7 +189,7 @@ mod tests {
     /// byte-identical to what was submitted rather than to our own re-encoding of it.
     #[tokio::test]
     async fn test_submission_preserves_original_transaction_bytes() -> anyhow::Result<()> {
-        let mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
         let (addr, _shutdown) = start_test_server_with_mempool(mempool.clone()).await?;
 
@@ -243,7 +241,7 @@ mod tests {
         let second = create_transaction(1);
 
         let max_bytes = to_cbor(&first).len() as u64;
-        let mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::new(
                 MempoolConfig::default().with_max_bytes(max_bytes),
             ));
@@ -260,7 +258,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_failure() -> anyhow::Result<()> {
-        let mempool: Arc<dyn amaru_ouroboros_traits::TxSubmissionMempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<dyn amaru_ouroboros_traits::Mempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::new(Default::default()));
         let (addr, _shutdown) =
             start_test_server_with_mempool_and_validator(mempool, Arc::new(reject_transactions)).await?;
@@ -275,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_unavailable() -> anyhow::Result<()> {
-        let mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
         let (sender, running) = make_mempool_sender_and_running(mempool, Arc::new(MockCanValidateTxs));
         running.abort();
@@ -333,19 +331,19 @@ mod tests {
     }
 
     async fn start_test_server() -> anyhow::Result<(SocketAddr, CancellationToken)> {
-        let mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
         start_test_server_with_mempool(mempool).await
     }
 
     async fn start_test_server_with_mempool(
-        mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
     ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
         start_test_server_with_mempool_and_validator(mempool, Arc::new(MockCanValidateTxs)).await
     }
 
     async fn start_test_server_with_mempool_and_validator(
-        mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
         validator: ResourceTxValidation,
     ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
         let sender = make_mempool_sender(mempool, validator);
@@ -356,14 +354,14 @@ mod tests {
     }
 
     fn make_mempool_sender(
-        mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
         validator: ResourceTxValidation,
     ) -> Sender<MempoolMsg> {
         make_mempool_sender_and_running(mempool, validator).0
     }
 
     fn make_mempool_sender_and_running(
-        mempool: Arc<dyn TxSubmissionMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
         validator: ResourceTxValidation,
     ) -> (Sender<MempoolMsg>, TokioRunning) {
         use amaru_consensus::stages::mempool;

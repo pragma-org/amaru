@@ -16,7 +16,10 @@ use std::time::Instant;
 
 use amaru_kernel::{Point, Transaction, cbor::WithOriginalBytes};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::{mempool_effects::MemoryPool, store_effects::Store};
+use amaru_protocols::{
+    mempool_effects::{AsyncMempool, MempoolEffects},
+    store_effects::Store,
+};
 use amaru_pure_stage::{Effects, StageRef};
 
 use crate::{
@@ -31,7 +34,7 @@ use crate::{
 /// It accepts `MempoolMsg` messages:
 /// - `Insert { tx, origin, caller }` / `InsertBatch { txs, origin, caller }`: validate each
 ///   tx via the `Ledger` effect (`validate_tx`);
-///     - On success the transaction(s) are accepted into the mempool (via `MemoryPool::insert`),
+///     - On success the transaction(s) are accepted into the mempool (via the mempool effect),
 ///     - On failure a rejection result (`TxInsertResult::rejected(..., Invalid(...))`) is returned.
 ///     - When a transaction is accepted into the mempool, the waiters are notified (via `notify_ready_waiters`)
 ///       in order to transmit available transactions upstream.
@@ -54,13 +57,13 @@ use crate::{
 ///   when `NewTip` frees some pool capacity.
 ///
 pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<MempoolMsg>) -> MempoolStageState {
-    let memory_pool = MemoryPool::new(eff.clone());
+    let mempool = MempoolEffects::new(eff.clone());
     let ledger = Ledger::new(eff.clone());
     let metrics_ops = Metrics::new(&eff);
     let mut state = state;
     match msg {
         MempoolMsg::WaitForAtLeast { seq_no, caller } => {
-            if memory_pool.last_seq_no().await >= seq_no {
+            if mempool.last_seq_no().await >= seq_no {
                 eff.send(&caller, ()).await;
             } else {
                 state.waiters.push(MempoolWaiter { seq_no, caller });
@@ -71,8 +74,8 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let tx_id = tx.tx_id();
             emit_tx_received(&tx_id, &origin);
 
-            let result = validate_and_insert(&ledger, &memory_pool, tx, &origin).await;
-            record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
+            let result = validate_and_insert(&ledger, &mempool, tx, &origin).await;
+            record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
             if let TxInsertResult::Accepted { seq_no, .. } = result {
                 notify_ready_waiters(&mut state, &eff, seq_no).await;
             }
@@ -83,8 +86,8 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             for tx in txs {
                 let tx_id = tx.tx_id();
                 emit_tx_received(&tx_id, &origin);
-                let result = validate_and_insert(&ledger, &memory_pool, tx, &origin).await;
-                record_insert(memory_pool.state().await, &metrics_ops, &origin, &result).await;
+                let result = validate_and_insert(&ledger, &mempool, tx, &origin).await;
+                record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
                 if let TxInsertResult::Accepted { seq_no, .. } = result {
                     notify_ready_waiters(&mut state, &eff, seq_no).await;
                 }
@@ -94,8 +97,8 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
         }
         MempoolMsg::NewTip(tip) => {
             let store = Store::new(eff.clone());
-            let outcome = apply_new_tip(&ledger, &memory_pool, tip).await;
-            record_revalidation(memory_pool.state().await, &metrics_ops, &store, tip, &outcome).await;
+            let outcome = apply_new_tip(&ledger, &mempool, tip).await;
+            record_revalidation(mempool.state().await, &metrics_ops, &store, tip, &outcome).await;
             if !outcome.evicted_tx_ids.is_empty() {
                 notify_capacity_waiters(&mut state, &eff).await;
             }
@@ -111,20 +114,20 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 /// and insert it into the mempool if it is valid.
 async fn validate_and_insert(
     ledger: &Ledger,
-    memory_pool: &MemoryPool,
+    mempool: &MempoolEffects,
     tx: WithOriginalBytes<Transaction>,
     origin: &TxOrigin,
 ) -> TxInsertResult {
     match ledger.validate_tx(&tx).await {
-        Ok(()) => memory_pool.insert(tx, origin.clone()).await,
+        Ok(()) => mempool.insert(tx, origin.clone()).await,
         Err(error) => TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error)),
     }
 }
 
 /// Revalidate all the mempool transactions when a new tip has been adopted.
-async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Point) -> RevalidationOutcome {
+async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects, tip: Point) -> RevalidationOutcome {
     let started = Instant::now();
-    let txs = memory_pool.mempool_txs().await;
+    let txs = mempool.mempool_txs().await;
     let total_before = txs.len() as u64;
 
     let mut invalid_tx_ids = vec![];
@@ -135,7 +138,7 @@ async fn apply_new_tip(ledger: &Ledger, memory_pool: &MemoryPool, tip: Point) ->
     }
 
     if !invalid_tx_ids.is_empty() {
-        memory_pool.remove_txs(&invalid_tx_ids).await;
+        mempool.remove_txs(&invalid_tx_ids).await;
     }
 
     RevalidationOutcome {

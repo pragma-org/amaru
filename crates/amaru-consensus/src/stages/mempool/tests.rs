@@ -21,7 +21,7 @@ use amaru_observability::tracing::Level;
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
 };
-use amaru_ouroboros_traits::{TxSubmissionMempool, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{Mempool, in_memory_chain_store::InMemoryChainStore};
 use amaru_pure_stage::StageRef;
 
 use crate::stages::{

@@ -18,31 +18,12 @@ use amaru_kernel::{TransactionId, cbor::WithOriginalBytes};
 
 use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 
-/// An simple mempool interface to:
+/// A mempool interface to:
 ///
 /// - Retrieve transactions to be included in a new block.
-/// - Acknowledge the transactions included in a block, so they can be removed from the pool.
 /// - Support the transaction submission protocol to share transactions with peers.
 ///
-pub trait Mempool<Tx: Send + Sync + 'static>: TxSubmissionMempool<Tx> + Send + Sync {
-    /// Take transactions out of the mempool, with the intent of forging a new block.
-    ///
-    /// TODO: Have this function take _constraints_, such as the block max size or max execution
-    /// units and select transactions accordingly.
-    fn take(&self) -> Vec<Tx>;
-
-    /// Take note of a transaction that has been included in a block.
-    /// The keys function is used to detect all the transactions that should be removed from the mempool.
-    /// (if a transaction in the mempool shares any of the transactions keys, it should be removed).
-    fn acknowledge<TxKey: Ord, I>(&self, tx: &Tx, keys: fn(&Tx) -> I)
-    where
-        I: IntoIterator<Item = TxKey>,
-        Self: Sized;
-}
-
-pub type ResourceMempool<Tx> = Arc<dyn TxSubmissionMempool<WithOriginalBytes<Tx>>>;
-
-pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
+pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Insert a transaction into the mempool, specifying its origin.
     /// A TxOrigin::Local origin indicates the transaction was created on the current node,
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
@@ -79,4 +60,14 @@ pub trait TxSubmissionMempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// to refresh observability gauges. Returned together so observers can
     /// avoid taking the underlying lock twice.
     fn state(&self) -> MempoolState;
+
+    /// Take transactions out of the mempool, with the intent of forging a new block.
+    ///
+    /// TODO: Have this function take _constraints_, such as the block max size or max execution
+    /// units and select transactions accordingly.
+    fn take(&self) -> Vec<Tx> {
+        Vec::new()
+    }
 }
+
+pub type ResourceMempool<Tx> = Arc<dyn Mempool<WithOriginalBytes<Tx>>>;

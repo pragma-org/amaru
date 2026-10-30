@@ -13,7 +13,6 @@
 // limitations under the License.
 
 mod mempool_traits;
-pub mod overriding_mempool;
 mod values;
 
 pub use mempool_traits::*;
