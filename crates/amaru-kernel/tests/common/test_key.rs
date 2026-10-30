@@ -16,7 +16,7 @@ use std::{fmt::Display, path::PathBuf};
 
 use anyhow::anyhow;
 
-use crate::{Category, read_expected_canonical_cbor, read_file, sample_name};
+use crate::{Category, INPUT_SUFFIX, read_expected_canonical_cbor, read_file, sample_name};
 
 /// A unique key for a test sample, consisting of the rule, category, and path to the sample file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -42,6 +42,12 @@ impl TestKey {
     pub fn key(&self) -> String {
         let name = sample_name(&self.path).unwrap_or_default();
         format!("{}/{}/{}", self.rule, self.category, name)
+    }
+
+    /// The path of the sample relative to the corpus root, with forward slashes and the `.input.cbor` suffix, as the
+    /// dataset names a sample in a conformance report.
+    pub fn corpus_path(&self) -> String {
+        format!("{}{INPUT_SUFFIX}", self.key())
     }
 
     pub fn read_bytes(&self) -> anyhow::Result<Vec<u8>> {

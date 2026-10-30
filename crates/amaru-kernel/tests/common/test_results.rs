@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use minicbor::decode;
 
@@ -47,6 +50,20 @@ const DECODED_BUT_SHOULD_BE_REJECTED: &str = "decoded successfully, should be re
 
 /// Recorded when amaru re-encodes a sample into bytes the reference does not agree with.
 const RE_ENCODING_DIFFERS: &str = "re-encoding differs from the cbor reference";
+
+/// The reason of a failure while decoding a sample, including a sample decoded when it should be rejected.
+///
+/// The `decode: ` prefix is the category the dataset report format gives such a failure.
+fn decode_failure(message: impl Display) -> String {
+    format!("decode: {message}")
+}
+
+/// The reason of a failure while re-encoding a sample, or comparing its re-encoding to the reference.
+///
+/// The `encode: ` prefix is the category the dataset report format gives such a failure.
+fn encode_failure(message: impl Display) -> String {
+    format!("encode: {message}")
+}
 
 /// The results of a test run, including the failures and the per-rule outcomes.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -139,16 +156,16 @@ impl TestResults {
                         } else {
                             self.failures.insert(
                                 test_key.clone(),
-                                format!(
+                                encode_failure(format!(
                                     "{RE_ENCODING_DIFFERS}\n\nexpected\n\n{}\n\ngot\n\n{}\n\n",
                                     hex::encode(reference),
                                     hex::encode(&re_encoded)
-                                ),
+                                )),
                             );
                         }
                     }
                     Err(e) => {
-                        self.failures.insert(test_key.clone(), e.to_string());
+                        self.failures.insert(test_key.clone(), decode_failure(e));
                     }
                 }
             }
@@ -158,7 +175,7 @@ impl TestResults {
                 if actual_cbor.is_err() {
                     outcome.generated_must_be_rejected_actual += 1;
                 } else {
-                    self.failures.insert(test_key.clone(), DECODED_BUT_SHOULD_BE_REJECTED.to_string());
+                    self.failures.insert(test_key.clone(), decode_failure(DECODED_BUT_SHOULD_BE_REJECTED));
                 }
             }
             Category::Zapped(_) => {
@@ -166,7 +183,7 @@ impl TestResults {
                 if actual_cbor.is_err() {
                     outcome.zap_must_be_rejected_actual += 1;
                 } else {
-                    self.failures.insert(test_key.clone(), DECODED_BUT_SHOULD_BE_REJECTED.to_string());
+                    self.failures.insert(test_key.clone(), decode_failure(DECODED_BUT_SHOULD_BE_REJECTED));
                 }
             }
         }

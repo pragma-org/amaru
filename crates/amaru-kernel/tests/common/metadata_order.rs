@@ -27,7 +27,7 @@ use amaru_kernel::cbor::{self, data::Type};
 const AUXILIARY_DATA_IN_TRANSACTION: u64 = 3;
 
 /// Position of the auxiliary data among the fields of a `block`.
-const AUXILIARY_DATA_IN_BLOCK: u64 = 3;
+pub const AUXILIARY_DATA_IN_BLOCK: u64 = 3;
 
 /// Key of the metadata labels inside Conway auxiliary data.
 const METADATA_IN_AUXILIARY_DATA: u64 = 0;

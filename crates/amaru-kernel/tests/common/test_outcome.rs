@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /// Outcome for testing either a single rule or a set of rules.
-#[derive(Default, Clone, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct TestOutcome {
     /// Total number of samples generated from the CDDL (they might not be all decodable).
     pub generated_total: usize,

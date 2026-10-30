@@ -508,7 +508,7 @@ jobs:
             printf '| --- | --- |\n'
             printf '| `%s:%s` | [%s](%s) |\n' "$DOCKER_IMAGE" "$RELEASE_TAG" "$docker_registry_url" "$docker_registry_url"
             printf '\n## CBOR decoding conformance\n\n'
-            printf 'Per-rule results of decoding the [cardano-cbor-dataset](https://github.com/r2rationality/cardano-cbor-dataset) corpus with this build: [%s](%s)\n' \
+            printf 'Per-sample results of decoding the [cardano-cbor-dataset](https://github.com/r2rationality/cardano-cbor-dataset) corpus with this build: [%s](%s)\n' \
               "${cbor_report}.json" "$(asset_url_for "${cbor_report}.json")"
             printf '\n## UPLC conformance\n\n'
             printf 'Results for the standard and implementation-specific UPLC scenarios: [%s](%s)\n' \

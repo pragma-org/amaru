@@ -19,13 +19,13 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any, prop_oneof};
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::plutus_data::any_bounded_bytes;
-use crate::{Bytes, Int, cbor, plutus_data::decode_bounded_bytes};
+use crate::{Int, cbor, plutus_data::BoundedBytes};
 
 #[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BigInt {
     Int(Int),
-    BigUInt(Bytes),
-    BigNInt(Bytes),
+    BigUInt(BoundedBytes),
+    BigNInt(BoundedBytes),
 }
 
 impl PartialOrd for BigInt {
@@ -90,9 +90,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BigInt {
             cbor::data::Type::Tag => {
                 let tag = d.tag()?;
                 if tag == cbor::IanaTag::PosBignum.tag() {
-                    Ok(Self::BigUInt(decode_bounded_bytes(d)?))
+                    Ok(Self::BigUInt(d.decode_with(ctx)?))
                 } else if tag == cbor::IanaTag::NegBignum.tag() {
-                    Ok(Self::BigNInt(decode_bounded_bytes(d)?))
+                    Ok(Self::BigNInt(d.decode_with(ctx)?))
                 } else {
                     Err(cbor::decode::Error::message("invalid cbor tag for big int"))
                 }
@@ -114,11 +114,11 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for BigInt {
             }
             BigInt::BigUInt(x) => {
                 e.tag(cbor::IanaTag::PosBignum)?;
-                cbor::encode_bytestring(e, x)?;
+                e.encode_with(x, ctx)?;
             }
             BigInt::BigNInt(x) => {
                 e.tag(cbor::IanaTag::NegBignum)?;
-                cbor::encode_bytestring(e, x)?;
+                e.encode_with(x, ctx)?;
             }
         };
 
