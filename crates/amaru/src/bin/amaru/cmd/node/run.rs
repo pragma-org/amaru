@@ -625,6 +625,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         args.operator_kes.as_deref(),
         args.operator_vrf.as_deref(),
         args.operator_cert.as_deref(),
+        amaru_kernel::protocol_version::DEFAULT,
     )?;
 
     let db_ledger = args.db_ledger.into_path_buf(network);
