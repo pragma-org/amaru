@@ -18,10 +18,10 @@
 use std::{cell::RefCell, sync::LazyLock};
 
 use amaru_kernel::{
-    Address, Block, BlockHeight, Credential, Epoch, EraHistory, GlobalParameters, Hash, Hasher, Lovelace,
-    MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName, NonEmptyVec, Point, PoolId, ProposalsRoots,
-    ProtocolParameters, ShelleyAddress, Transaction, TransactionBody, TransactionInput, Value, VerificationKey,
-    VerificationKeyWitness, WitnessSet, block,
+    Address, Block, BlockBodyBuilder, BlockBuilderConstraints, BlockHeight, Credential, Epoch, EraHistory,
+    GlobalParameters, Hash, Hasher, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName,
+    NonEmptyVec, Point, PoolId, ProposalsRoots, ProtocolParameters, ShelleyAddress, Transaction, TransactionBody,
+    TransactionInput, Value, VerificationKey, VerificationKeyWitness, WitnessSet,
     cbor::WithSize,
     ed25519::{Signer, SigningKey},
     make_header, to_cbor,
@@ -246,15 +246,25 @@ impl UtxoPool {
             transactions.push(transaction);
         }
 
-        let block_body =
-            block::BodyParts::from_transactions(transactions).expect("failed to create block body from transactions");
-        let (body_hash, body_size) = block_body.commitment();
+        let constraints = BlockBuilderConstraints::unlimited();
+        let block_body = BlockBodyBuilder::try_from_iter(transactions, &constraints)
+            .expect("failed to create block body from transactions")
+            .finalize()
+            .expect("failed to finalize block body");
+        let commitment = block_body.commitment();
 
         let mut header = make_header(height.into_u64(), height.into_u64(), None);
-        header.body_mut().block_body_hash = body_hash;
-        header.body_mut().block_body_size = body_size;
+        header.body_mut().block_body_hash = commitment.hash;
+        header.body_mut().block_body_size = commitment.size;
 
-        (block_body.into_block(header).expect("failed to create block"), replacements)
+        (
+            block_body
+                .try_into_block(&header, &ERA_HISTORY)
+                .expect("failed to create block")
+                .decode()
+                .expect("failed to parse created block"),
+            replacements,
+        )
     }
 }
 

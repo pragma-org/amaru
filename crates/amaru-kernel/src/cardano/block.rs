@@ -14,8 +14,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::block_body_parts::hash_body_cbor;
 use crate::{
-    AuxiliaryData, Hash, Hasher, Header, HeaderHash, Point, ProtocolVersion, Transaction, TransactionBody,
+    AuxiliaryData, Hash, Header, HeaderHash, Point, ProtocolVersion, Transaction, TransactionBody, TransactionIndex,
     TransactionRef, WitnessSet, cbor, cbor::WithSize, protocol_version::PROTOCOL_VERSION_12, size::BLOCK_BODY,
     traits::is_header::IsHeader,
 };
@@ -48,95 +49,9 @@ pub struct Block {
     pub invalid_transactions: BTreeSet<TransactionIndex>,
 }
 
-/// Position of a transaction within a block.
-/// There can only be a maximum of 65535 transactions in a block, so this is a `u16`.
-pub type TransactionIndex = u16;
-
-/// The block body as the four CBOR items the header commits to, encoded once.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BodyParts {
-    encoded: [Vec<u8>; 4],
-    hash: Hash<BLOCK_BODY>,
-    size: u32,
-}
-
-impl BodyParts {
-    /// Split `transactions` into bodies, witnesses, auxiliary data, and the invalid set, and encode those four items.
-    pub fn from_transactions(transactions: impl IntoIterator<Item = Transaction>) -> Result<Self, cbor::decode::Error> {
-        let mut bodies = Vec::new();
-        let mut witnesses = Vec::new();
-        let mut auxiliary = BTreeMap::new();
-        let mut invalid = BTreeSet::new();
-        for (index, transaction) in transactions.into_iter().enumerate() {
-            let index = TransactionIndex::try_from(index)
-                .map_err(|_| cbor::decode::Error::message("a block cannot contain more than 65535 transactions"))?;
-            bodies.push(transaction.body);
-            witnesses.push(transaction.witnesses);
-            if let Some(auxiliary_data) = transaction.auxiliary_data {
-                auxiliary.insert(index, auxiliary_data);
-            }
-            if !transaction.is_expected_valid {
-                invalid.insert(index);
-            }
-        }
-        let invalid = Some(invalid);
-        let encoded = [
-            amaru_minicbor_extra::to_cbor(&bodies),
-            amaru_minicbor_extra::to_cbor(&witnesses),
-            amaru_minicbor_extra::to_cbor(&auxiliary),
-            amaru_minicbor_extra::to_cbor(&invalid),
-        ];
-        let size = encoded.iter().map(|part| part.len() as u32).sum();
-        let hash = Block::hash_body_cbor([&encoded[0], &encoded[1], &encoded[2], &encoded[3]]);
-        Ok(Self { encoded, hash, size })
-    }
-
-    /// Body hash and serialised size of these already-encoded parts.
-    pub fn commitment(&self) -> (Hash<BLOCK_BODY>, u32) {
-        (self.hash, self.size)
-    }
-
-    /// CBOR block term `[header, bodies, witnesses, auxiliary data, invalid transactions]`.
-    ///
-    /// The body items are the bytes from [`Self::from_transactions`], not a second encoding.
-    pub fn encode_block(&self, header: &Header) -> Vec<u8> {
-        let header_bytes = amaru_minicbor_extra::to_cbor(header);
-        let mut out = Vec::with_capacity(1 + header_bytes.len() + self.size as usize);
-        out.push(0x85);
-        out.extend_from_slice(&header_bytes);
-        for part in &self.encoded {
-            out.extend_from_slice(part);
-        }
-        out
-    }
-
-    pub fn into_block(self, header: Header) -> Result<Block, cbor::decode::Error> {
-        cbor::decode(self.encode_block(&header).as_slice())
-    }
-}
-
 impl Block {
     /// Number of top-level CBOR fields in a serialized block.
     pub const CBOR_FIELD_COUNT: u64 = 5;
-
-    /// Body hash and serialised size of the block body for `transactions`.
-    ///
-    /// Independent of the header. A forged header commits to this pair before the block is assembled.
-    /// An empty slice is a block with no transactions.
-    pub fn body_commitment(transactions: &[Transaction]) -> Result<(Hash<BLOCK_BODY>, u32), cbor::decode::Error> {
-        Ok(BodyParts::from_transactions(transactions.iter().cloned())?.commitment())
-    }
-
-    /// A block whose transactions are `transactions` and whose header is `header`.
-    ///
-    /// The header's `block_body_hash` and `block_body_size` must be [`BodyParts::commitment`] for
-    /// these transactions. The body bytes are encoded once, inside [`BodyParts`].
-    pub fn from_transactions(
-        header: Header,
-        transactions: impl IntoIterator<Item = Transaction>,
-    ) -> Result<Self, cbor::decode::Error> {
-        BodyParts::from_transactions(transactions)?.into_block(header)
-    }
 
     /// Get the hash of the block's body
     pub fn body_hash(&self) -> Hash<BLOCK_BODY> {
@@ -147,43 +62,6 @@ impl Block {
     ///
     /// The array must contain the slices of the four CBOR items in the order they appear in the
     /// block body: `[bodies, witnesses, aux, invalid]`.
-    pub fn hash_body_cbor(components: [&[u8]; 4]) -> Hash<BLOCK_BODY> {
-        let mut concat = [0u8; 4 * BLOCK_BODY];
-        for (i, component) in components.iter().enumerate() {
-            let part = Hasher::<{ 8 * BLOCK_BODY }>::hash(component);
-            concat[i * BLOCK_BODY..(i + 1) * BLOCK_BODY].copy_from_slice(part.as_ref());
-        }
-        Hasher::<{ 8 * BLOCK_BODY }>::hash(&concat)
-    }
-
-    /// Hash the body of an already-encoded block term `[header, bodies, witnesses, aux, invalid]`.
-    pub fn hash_encoded_body(encoded_block: &[u8]) -> Result<Hash<BLOCK_BODY>, cbor::decode::Error> {
-        let mut decoder = cbor::Decoder::new(encoded_block);
-        let len = decoder.array()?;
-        if len != Some(Self::CBOR_FIELD_COUNT) {
-            return Err(cbor::decode::Error::message(format!(
-                "invalid Block array length. Expected {}, got {len:?}",
-                Self::CBOR_FIELD_COUNT
-            )));
-        }
-        decoder.skip()?;
-        let mut ranges = [(0usize, 0usize); 4];
-        for range in &mut ranges {
-            let start = decoder.position();
-            decoder.skip()?;
-            *range = (start, decoder.position());
-        }
-        if decoder.position() != encoded_block.len() {
-            return Err(cbor::decode::Error::message("trailing data after block body"));
-        }
-        Ok(Self::hash_body_cbor([
-            &encoded_block[ranges[0].0..ranges[0].1],
-            &encoded_block[ranges[1].0..ranges[1].1],
-            &encoded_block[ranges[2].0..ranges[2].1],
-            &encoded_block[ranges[3].0..ranges[3].1],
-        ]))
-    }
-
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size
@@ -297,7 +175,7 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Block {
                     + auxiliary_data_bytes.len()
                     + invalid_transactions_bytes.len()) as u64,
                 original_header_size: header_bytes.len() as u64,
-                hash: Self::hash_body_cbor([
+                hash: hash_body_cbor([
                     transaction_bodies_bytes,
                     transaction_witnesses_bytes,
                     auxiliary_data_bytes,
@@ -412,49 +290,5 @@ mod tests {
                 assert_eq!(block.header.slot().as_u64(), slot);
             }
         }
-    }
-
-    fn stand_in_header() -> Header {
-        use crate::{
-            Bytes, Ed25519Signature, HeaderBody, KesPeriod, KesSignature, OperationalCert, ProtocolVersion,
-            VerificationKey, VrfCert,
-            cardano::{fixed_bytes::FixedBytes, vrf_cert::VRF_PROOF},
-        };
-        Header::new(
-            HeaderBody {
-                block_number: 0,
-                slot: 0,
-                prev_hash: None,
-                issuer_verification_key: VerificationKey::zeroes(),
-                vrf_verification_key: VerificationKey::zeroes(),
-                vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::<VRF_PROOF>::zeroes() },
-                block_body_size: 0,
-                block_body_hash: Hash::new([0u8; BLOCK_BODY]),
-                operational_cert: OperationalCert {
-                    operational_cert_kes_verification_key: FixedBytes::zeroes(),
-                    operational_cert_sequence_number: 0,
-                    operational_cert_kes_period: KesPeriod::from(0),
-                    operational_cert_sigma: Ed25519Signature::zeroes(),
-                },
-                protocol_version: ProtocolVersion::new(1, 0),
-            },
-            KesSignature::zeroes(),
-        )
-    }
-
-    #[test]
-    fn body_commitment_of_no_transactions_matches_the_assembled_block() {
-        let parts = BodyParts::from_transactions(std::iter::empty()).expect("empty list");
-        let (hash, size) = parts.commitment();
-        assert_eq!(Block::body_commitment(&[]).expect("empty list"), (hash, size));
-        let mut header = stand_in_header();
-        header.body_mut().block_body_hash = hash;
-        header.body_mut().block_body_size = size;
-        let bytes = parts.encode_block(&header);
-        let block: Block = cbor::decode(bytes.as_slice()).expect("spliced block");
-        assert_eq!(amaru_minicbor_extra::to_cbor(&block), bytes);
-        assert_eq!(block.body_hash(), hash);
-        assert_eq!(block.body_len(), size as u64);
-        assert!(block.transaction_bodies.is_empty());
     }
 }

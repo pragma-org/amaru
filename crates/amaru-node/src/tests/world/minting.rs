@@ -29,11 +29,11 @@ use std::{
 
 use amaru_consensus::stages::forge_block::TestCredentials;
 use amaru_kernel::{
-    Anchor, Block, BodyParts, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch,
+    Anchor, BlockBodyBuilder, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch,
     EraBound, EraHistory, EraName, EraParams, EraSummary, GlobalParameters, Hash, Hasher, Header, IsHeader, KesPeriod,
     MaxString128, Network, NetworkName, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, Peer,
     Point, PoolParams, Pots, ProposalsRoots, ProtocolParameters, RewardAccount, Slot, TransactionPointer,
-    UnitRationalNumber, VrfCert, cardano::network_block::NetworkBlock, ed25519,
+    UnitRationalNumber, VrfCert, ed25519,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -207,7 +207,7 @@ fn header_for(
     protocol_version: amaru_kernel::ProtocolVersion,
     slots_per_kes_period: u64,
 ) -> Header {
-    let (block_body_hash, block_body_size) = Block::body_commitment(&[]).expect("empty body");
+    let commitment = BlockBodyBuilder::default().finalize().expect("empty body").commitment();
     let kes_period = KesPeriod::from(u64::from(slot) / slots_per_kes_period);
     let draft = HeaderDraft {
         block_number,
@@ -217,8 +217,8 @@ fn header_for(
             output: amaru_kernel::Bytes::default(),
             proof: amaru_kernel::cardano::fixed_bytes::FixedBytes::<80>::zeroes(),
         },
-        block_body_size,
-        block_body_hash,
+        block_body_size: commitment.size,
+        block_body_hash: commitment.hash,
         protocol_version,
     };
     let header_body = draft.body(&credentials.issuer_fields());
@@ -227,8 +227,11 @@ fn header_for(
 }
 
 fn store_block(chain: &RocksDBStore, header: &Header, era: &EraHistory) {
-    let bytes = BodyParts::from_transactions(std::iter::empty()).expect("parts").encode_block(header);
-    let raw = NetworkBlock::from_encoded_block(era, header.slot(), bytes).expect("era").raw_block();
+    let raw = BlockBodyBuilder::default()
+        .finalize()
+        .expect("empty body")
+        .try_into_block(header, era)
+        .expect("matching body commitment");
     chain.store_block(&header.hash(), &raw).expect("store block");
 }
 
