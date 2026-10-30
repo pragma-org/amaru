@@ -61,6 +61,7 @@ tokio-util.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-bootstrap.workspace = true
+amaru-clock.workspace = true
 amaru-consensus.workspace = true
 amaru-kernel = { workspace = true, features = ["tracing", "clap"] }
 amaru-ledger.workspace = true

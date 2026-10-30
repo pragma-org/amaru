@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru**: `amaru node run` warns at startup when the operating system does not report the wall clock as NTP-synchronized, or when its error bound exceeds 500 ms. Linux and macOS only. ([#1369](https://github.com/pragma-org/amaru/issues/1369))
+
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
  ### Added

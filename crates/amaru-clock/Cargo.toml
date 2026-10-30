@@ -1,0 +1,31 @@
+lints.workspace = true
+
+[package]
+name = "amaru-clock"
+version = "0.1.0"
+edition.workspace = true
+description = "Startup check that the operating system keeps the wall clock synchronized"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+amaru-observability.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(all(not(target_family="wasm"), not(target_arch="riscv32")))'.dependencies]
+amaru-deps.workspace = true
+
+[dev-dependencies]
+amaru-consensus = { workspace = true, features = ["test-utils"] }
+test-case.workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["amaru-deps"]
