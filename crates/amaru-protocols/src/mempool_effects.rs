@@ -16,22 +16,11 @@ use std::fmt::Debug;
 
 use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin, TxSubmissionMempool};
+use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData, Void};
 use serde::{Deserialize, Serialize};
 
 use crate::effect_timings;
-
-/// Implementation of Mempool effects using amaru_pure_stage::Effects.
-///
-/// It supports operations
-///
-/// - for the tx submission protocol
-///
-#[derive(Clone)]
-pub struct MemoryPool {
-    effects: Effects<Void>,
-}
 
 pub trait AsyncMempool: Send + Sync {
     fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult>;
@@ -50,79 +39,31 @@ pub trait AsyncMempool: Send + Sync {
     fn state(&self) -> BoxFuture<'_, MempoolState>;
 }
 
-impl MemoryPool {
-    pub fn new<T: SendData + Sync + 'static>(effects: Effects<T>) -> MemoryPool {
-        MemoryPool { effects: effects.erase() }
-    }
+/// Adapts stage effects to the asynchronous mempool interface without selecting a storage
+/// implementation. The concrete mempool is resolved through the stage resource registry when an
+/// effect is executed.
+#[derive(Clone)]
+pub struct MempoolEffects {
+    effects: Effects<Void>,
+}
 
-    pub fn external<E: ExternalEffectAPI + 'static>(&self, effect: E) -> BoxFuture<'static, E::Response> {
-        self.effects.external(effect)
-    }
-
-    pub fn insert(
-        &self,
-        tx: WithOriginalBytes<Transaction>,
-        tx_origin: TxOrigin,
-    ) -> BoxFuture<'static, TxInsertResult> {
-        self.external(Insert::new(tx, tx_origin))
-    }
-
-    pub fn get_tx(&self, tx_id: &TransactionId) -> BoxFuture<'static, Option<WithOriginalBytes<Transaction>>> {
-        self.external(GetTx::new(*tx_id))
-    }
-
-    pub fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'static, bool> {
-        self.external(ContainsTx::new(*tx_id))
-    }
-
-    pub fn tx_ids_since(
-        &self,
-        from_seq: MempoolSeqNo,
-        limit: u16,
-    ) -> BoxFuture<'static, Vec<(TransactionId, u32, MempoolSeqNo)>> {
-        self.external(TxIdsSince::new(from_seq, limit))
-    }
-
-    pub fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'static, Vec<WithOriginalBytes<Transaction>>> {
-        self.external(GetTxsForIds::new(ids))
-    }
-
-    pub fn mempool_txs(&self) -> BoxFuture<'static, Vec<WithOriginalBytes<Transaction>>> {
-        self.external(MempoolTxs)
-    }
-
-    pub fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'static, ()> {
-        self.external(RemoveTxs::new(ids))
-    }
-
-    /// This effect gets the last assigned sequence number in the mempool.
-    pub fn last_seq_no(&self) -> BoxFuture<'static, MempoolSeqNo> {
-        self.external(LastSeqNo)
-    }
-
-    /// This effect returns whether the mempool would be over its configured maximum byte size if accepting
-    /// a transaction of size `additional_bytes`.
-    pub fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'static, bool> {
-        self.external(IsNearCapacity { additional_bytes })
-    }
-
-    /// This effect retrieves a snapshot of the mempool's tx count and cumulative size.
-    pub fn state(&self) -> BoxFuture<'static, MempoolState> {
-        self.external(State)
+impl MempoolEffects {
+    pub fn new<T: SendData + Sync + 'static>(effects: Effects<T>) -> Self {
+        Self { effects: effects.erase() }
     }
 }
 
-impl AsyncMempool for MemoryPool {
+impl AsyncMempool for MempoolEffects {
     fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
-        MemoryPool::insert(self, tx, tx_origin)
+        self.effects.external(Insert::new(tx, tx_origin))
     }
 
     fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
-        MemoryPool::get_tx(self, &tx_id)
+        self.effects.external(GetTx::new(tx_id))
     }
 
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool> {
-        MemoryPool::contains(self, tx_id)
+        self.effects.external(ContainsTx::new(*tx_id))
     }
 
     fn tx_ids_since(
@@ -130,46 +71,46 @@ impl AsyncMempool for MemoryPool {
         from_seq: MempoolSeqNo,
         limit: u16,
     ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
-        MemoryPool::tx_ids_since(self, from_seq, limit)
+        self.effects.external(TxIdsSince::new(from_seq, limit))
     }
 
     fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        MemoryPool::get_txs_for_ids(self, ids)
+        self.effects.external(GetTxsForIds::new(ids))
     }
 
     fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        MemoryPool::mempool_txs(self)
+        self.effects.external(MempoolTxs)
     }
 
     fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
-        MemoryPool::remove_txs(self, ids)
+        self.effects.external(RemoveTxs::new(ids))
     }
 
     fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo> {
-        MemoryPool::last_seq_no(self)
+        self.effects.external(LastSeqNo)
     }
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
-        MemoryPool::is_near_capacity(self, additional_bytes)
+        self.effects.external(IsNearCapacity { additional_bytes })
     }
 
     fn state(&self) -> BoxFuture<'_, MempoolState> {
-        MemoryPool::state(self)
+        self.effects.external(State)
     }
 }
 
-impl<T: TxSubmissionMempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempool for T {
+impl<T: Mempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempool for T {
     fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult> {
-        Box::pin(async move { TxSubmissionMempool::insert(self, tx, tx_origin) })
+        Box::pin(async move { Mempool::insert(self, tx, tx_origin) })
     }
 
     fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
-        Box::pin(async move { TxSubmissionMempool::get_tx(self, &tx_id) })
+        Box::pin(async move { Mempool::get_tx(self, &tx_id) })
     }
 
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool> {
         let tx_id = *tx_id;
-        Box::pin(async move { TxSubmissionMempool::contains(self, &tx_id) })
+        Box::pin(async move { Mempool::contains(self, &tx_id) })
     }
 
     fn tx_ids_since(
@@ -177,33 +118,33 @@ impl<T: TxSubmissionMempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempo
         from_seq: MempoolSeqNo,
         limit: u16,
     ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
-        Box::pin(async move { TxSubmissionMempool::tx_ids_since(self, from_seq, limit) })
+        Box::pin(async move { Mempool::tx_ids_since(self, from_seq, limit) })
     }
 
     fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
         let tx_ids = ids.to_vec();
-        Box::pin(async move { TxSubmissionMempool::get_txs_for_ids(self, &tx_ids) })
+        Box::pin(async move { Mempool::get_txs_for_ids(self, &tx_ids) })
     }
 
     fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        Box::pin(async move { TxSubmissionMempool::mempool_txs(self) })
+        Box::pin(async move { Mempool::mempool_txs(self) })
     }
 
     fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
         let tx_ids = ids.to_vec();
-        Box::pin(async move { TxSubmissionMempool::remove_txs(self, &tx_ids) })
+        Box::pin(async move { Mempool::remove_txs(self, &tx_ids) })
     }
 
     fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo> {
-        Box::pin(async move { TxSubmissionMempool::last_seq_no(self) })
+        Box::pin(async move { Mempool::last_seq_no(self) })
     }
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
-        Box::pin(async move { TxSubmissionMempool::is_near_capacity(self, additional_bytes) })
+        Box::pin(async move { Mempool::is_near_capacity(self, additional_bytes) })
     }
 
     fn state(&self) -> BoxFuture<'_, MempoolState> {
-        Box::pin(async move { TxSubmissionMempool::state(self) })
+        Box::pin(async move { Mempool::state(self) })
     }
 }
 

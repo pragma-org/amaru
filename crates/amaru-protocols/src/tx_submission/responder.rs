@@ -30,7 +30,7 @@ use amaru_ouroboros::{
 use amaru_pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 
 use crate::{
-    mempool_effects::{AsyncMempool, MemoryPool},
+    mempool_effects::{AsyncMempool, MempoolEffects},
     mux::MuxMessage,
     peer_tracking_effects::PeerTrack,
     protocol::{
@@ -118,8 +118,8 @@ impl StageState<State, Responder> for TxSubmissionResponder {
                 // potentially produce a new request while we are still not finished with the previous one.
                 self.capacity_subscribed = false;
                 if *proto == State::Idle {
-                    let mempool: &dyn AsyncMempool = &MemoryPool::new(eff.clone());
-                    self.recheck_back_pressure(mempool, eff).await
+                    let mempool = MempoolEffects::new(eff.clone());
+                    self.recheck_back_pressure(&mempool, eff).await
                 } else {
                     None
                 }
@@ -139,7 +139,7 @@ impl StageState<State, Responder> for TxSubmissionResponder {
         let peer = self.peer;
 
         async move {
-            let mempool = MemoryPool::new(eff.clone());
+            let mempool = MempoolEffects::new(eff.clone());
 
             let action = match input {
                 ResponderResult::Init => {
@@ -623,7 +623,7 @@ impl TxSubmissionResponder {
             }
         }
 
-        let mempool = MemoryPool::new(eff.clone());
+        let mempool = MempoolEffects::new(eff.clone());
         let (ack, req, blocking) = self.request_tx_ids(&mempool).await;
         Ok(Some(ResponderAction::SendRequestTxIds { ack, req, blocking }))
     }
@@ -911,14 +911,16 @@ pub enum TxSubmissionMsg {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+    };
 
     use amaru_kernel::{EraHistory, EraName, NonEmptyBytes, Transaction};
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros::ResourceMempool;
     use amaru_ouroboros_traits::{
-        MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
-        mempool::overriding_mempool::OverridingMempool,
+        Mempool, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
     };
     use amaru_pure_stage::{
         StageGraph,
@@ -1776,38 +1778,97 @@ mod tests {
         responder.tx_states.insert(tx_id, TxStateEntry { status, refcount: one() });
     }
 
+    #[derive(Clone)]
+    struct MockMempool {
+        inner: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
+        insert_results: Arc<Mutex<BTreeMap<TransactionId, TxInsertResult>>>,
+        contains: Option<bool>,
+        near_capacity: Option<bool>,
+    }
+
+    impl MockMempool {
+        fn new() -> Self {
+            Self {
+                inner: Arc::new(InMemoryMempool::default()),
+                insert_results: Arc::default(),
+                contains: None,
+                near_capacity: None,
+            }
+        }
+
+        fn with_insert_results(mut self, results: Vec<TxInsertResult>) -> Self {
+            self.insert_results =
+                Arc::new(Mutex::new(results.into_iter().map(|result| (*result.tx_id(), result)).collect()));
+            self.contains = Some(false);
+            self
+        }
+
+        fn with_capacity(mut self, near_capacity: bool) -> Self {
+            self.near_capacity = Some(near_capacity);
+            self
+        }
+    }
+
+    impl Mempool<WithOriginalBytes<Transaction>> for MockMempool {
+        fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> TxInsertResult {
+            let tx_id = tx.tx_id();
+            self.insert_results
+                .lock()
+                .expect("mock insert results mutex poisoned")
+                .remove(&tx_id)
+                .unwrap_or_else(|| Mempool::insert(self.inner.as_ref(), tx, tx_origin))
+        }
+
+        fn get_tx(&self, tx_id: &TransactionId) -> Option<WithOriginalBytes<Transaction>> {
+            Mempool::get_tx(self.inner.as_ref(), tx_id)
+        }
+
+        fn contains(&self, tx_id: &TransactionId) -> bool {
+            self.contains.unwrap_or_else(|| Mempool::contains(self.inner.as_ref(), tx_id))
+        }
+
+        fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+            Mempool::tx_ids_since(self.inner.as_ref(), from_seq, limit)
+        }
+
+        fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<WithOriginalBytes<Transaction>> {
+            Mempool::get_txs_for_ids(self.inner.as_ref(), ids)
+        }
+
+        fn mempool_txs(&self) -> Vec<WithOriginalBytes<Transaction>> {
+            Mempool::mempool_txs(self.inner.as_ref())
+        }
+
+        fn remove_txs(&self, ids: &[TransactionId]) {
+            Mempool::remove_txs(self.inner.as_ref(), ids)
+        }
+
+        fn last_seq_no(&self) -> MempoolSeqNo {
+            Mempool::last_seq_no(self.inner.as_ref())
+        }
+
+        fn is_near_capacity(&self, additional_bytes: u64) -> bool {
+            self.near_capacity.unwrap_or_else(|| Mempool::is_near_capacity(self.inner.as_ref(), additional_bytes))
+        }
+
+        fn state(&self) -> amaru_ouroboros_traits::MempoolState {
+            Mempool::state(self.inner.as_ref())
+        }
+    }
+
     /// A mempool whose `insert` returns predetermined results keyed by `TransactionId`.
     /// Each result is consumed on first match.
     fn mock_insert_mempool(results: Vec<TxInsertResult>) -> Arc<dyn AsyncMempool> {
-        let mut by_id: BTreeMap<TransactionId, TxInsertResult> =
-            results.into_iter().map(|result| (*result.tx_id(), result)).collect();
-        Arc::new(
-            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_insert(move |_inner, tx: WithOriginalBytes<Transaction>, _origin| {
-                    let tx_id = tx.tx_id();
-                    by_id.remove(&tx_id).expect("missing insert result for mock mempool test")
-                })
-                // never report contained txs to force the responder to fetch them.
-                .with_contains(|_inner, _tx_id| false)
-                .build(),
-        )
+        Arc::new(MockMempool::new().with_insert_results(results))
     }
 
     /// A mempool that never reports being at capacity, so batching stops on the byte budget only.
     fn open_mempool() -> Arc<dyn AsyncMempool> {
-        Arc::new(
-            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_is_near_capacity(|_inner, _additional| false)
-                .build(),
-        )
+        Arc::new(MockMempool::new().with_capacity(false))
     }
 
     /// A mempool that always reports being at capacity, used to drive back-pressure tests.
     fn full_mempool() -> Arc<dyn AsyncMempool> {
-        Arc::new(
-            OverridingMempool::builder(Arc::new(InMemoryMempool::default()))
-                .with_is_near_capacity(|_inner, _additional| true)
-                .build(),
-        )
+        Arc::new(MockMempool::new().with_capacity(true))
     }
 }
