@@ -40,6 +40,7 @@ Other guiding principles:
 ### Added
 
 - **amaru**: `amaru node run` warns at startup when the operating system does not report the wall clock as NTP-synchronized, or when its error bound exceeds 500 ms. Linux and macOS only. ([#1369](https://github.com/pragma-org/amaru/issues/1369))
+- **amaru**: block forging now selects transactions from the mempool in insertion order. A transaction is skipped when it would exceed a block constraint (maximum body size, maximum execution units, or maximum reference script size). ([#1568](https://github.com/pragma-org/amaru/pull/1568))
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
