@@ -38,7 +38,7 @@ use amaru_protocols::{
     store_effects::{RollForwardChainEffect, SetBestChainTipEffect, SwitchToForkEffect},
 };
 use amaru_pure_stage::{
-    Effect, Instant, Name, SendData,
+    Effect, Instant, Name, SendData, StageRef,
     simulation::{Blocked, Run, SimulationRunning},
     trace_buffer::TraceEntry,
 };
@@ -151,6 +151,15 @@ impl WorldLoop {
     /// Borrow the node graphs owned by this world.
     pub fn graphs(&self) -> &[SimulationRunning] {
         &self.graphs
+    }
+
+    /// Enqueue a typed message into a graph and schedule that graph if needed.
+    ///
+    /// World tests use this instead of reaching into a graph's scheduler. Keeping the wake-up
+    /// step here preserves the same discrete-event ordering as network-delivered messages.
+    pub fn enqueue_msg<Msg: SendData>(&mut self, graph: usize, stage: impl AsRef<StageRef<Msg>>, msg: Msg) {
+        self.graphs[graph].enqueue_msg(stage, [msg]);
+        self.schedule_graph_if_needed(graph);
     }
 
     /// Log events emitted while graph `index` runs go to `dispatch`.

@@ -16,9 +16,9 @@ use std::sync::Arc;
 
 use amaru_consensus::stages::test_utils::start_in_era;
 use amaru_metrics::Meter;
-use amaru_ouroboros::ConnectionsResource;
+use amaru_ouroboros::{ConnectionsResource, MempoolMsg};
 use amaru_pure_stage::{
-    StageGraph,
+    StageGraph, StageRef,
     simulation::{SimulationBuilder, SimulationRunning},
 };
 use tokio::runtime::Handle;
@@ -46,6 +46,19 @@ pub fn build_world_node(
     connections: ConnectionsResource,
     tokio_handle: &Handle,
 ) -> anyhow::Result<SimulationRunning> {
+    Ok(build_world_node_with_mempool_stage(node_config, connections, tokio_handle)?.0)
+}
+
+/// Build a production-shaped node and expose the mempool input for deterministic tests.
+///
+/// The regular world-node constructor deliberately returns only the running graph. Tests that
+/// need to model submission or revalidation can use this variant without bypassing the
+/// production mempool stage.
+pub fn build_world_node_with_mempool_stage(
+    node_config: &NodeTestConfig,
+    connections: ConnectionsResource,
+    tokio_handle: &Handle,
+) -> anyhow::Result<(SimulationRunning, StageRef<MempoolMsg>)> {
     let offset = node_config.global_epoch_offset.unwrap_or(start_in_era().relative_time);
     let mut stage_graph = SimulationBuilder::default()
         .with_seed(node_config.seed)
@@ -58,7 +71,7 @@ pub fn build_world_node(
     let config = node_config.make_node_configuration()?;
     let global_parameters = config.global_parameters().clone();
 
-    build_node(&config, &global_parameters, Arc::new(Meter::default()), &mut stage_graph)?;
+    let node_stages = build_node(&config, &global_parameters, Arc::new(Meter::default()), &mut stage_graph)?;
     let dummy_ledger = node_config.dummy_ledger_dir();
     stage_graph.resources().put::<ConnectionsResource>(node_config.connections);
     if let Some(tmp) = dummy_ledger {
@@ -69,5 +82,5 @@ pub fn build_world_node(
     // Peer selection reads GenerateRandomSeed for churn and dials. The effect body uses
     // rand::rng() unless a simulation overrides it.
     override_generate_random_seed(&mut running, random_seed);
-    Ok(running)
+    Ok((running, node_stages.mempool_stage()))
 }
