@@ -97,7 +97,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
+    assert_eq!(mempool.read().iter().collect::<Vec<_>>(), vec![&tx_0, &tx_2]);
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
     logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
@@ -141,7 +141,7 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert!(mempool.mempool_txs().is_empty());
+    assert!(mempool.read().iter().next().is_none());
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "included_in_adopted_block"])
         .assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);

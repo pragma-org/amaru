@@ -40,7 +40,7 @@ use crate::{
 ///       in order to transmit available transactions upstream.
 ///
 ///   The `caller` gets a `TxInsertResult` reply (or a `Vec<TxInsertResult>` in case of a batch insertion).
-/// - `WaitForAtLeast { seq_no, caller }`: wait until `memory_pool.last_seq_no() >= seq_no`:
+/// - `WaitForAtLeast { seq_no, caller }`: wait until `memory_pool.last() >= seq_no`:
 ///     - If this is the case when the message is received, the caller gets a reply right away,
 ///     - Otherwise, it is queued as a `MempoolWaiter` to get a notification as soon as a transaction is
 ///       inserted into the mempool.
@@ -63,7 +63,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
     let mut state = state;
     match msg {
         MempoolMsg::WaitForAtLeast { seq_no, caller } => {
-            if mempool.last_seq_no().await >= seq_no {
+            if mempool.last().await >= seq_no {
                 eff.send(&caller, ()).await;
             } else {
                 state.waiters.push(MempoolWaiter { seq_no, caller });
@@ -127,7 +127,7 @@ async fn validate_and_insert(
 /// Revalidate all the mempool transactions when a new tip has been adopted.
 async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects, tip: Point) -> RevalidationOutcome {
     let started = Instant::now();
-    let txs = mempool.mempool_txs().await;
+    let txs = mempool.iter().await;
     let total_before = txs.len() as u64;
 
     let mut invalid_tx_ids = vec![];
@@ -138,7 +138,7 @@ async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects, tip: Point) ->
     }
 
     if !invalid_tx_ids.is_empty() {
-        mempool.remove_txs(&invalid_tx_ids).await;
+        mempool.remove(&invalid_tx_ids).await;
     }
 
     RevalidationOutcome {

@@ -15,22 +15,22 @@
 //! External effects the `forge_block` stage calls.
 //!
 //! Leader schedules are computed here from the credentials resource and
-//! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body
-//! effect resolves the registered mempool and currently falls back to an empty
-//! block until transaction selection is implemented.
+//! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body effect resolves
+//! the current ledger parameters and selects transactions from the registered mempool without
+//! cloning transactions that do not fit in the block.
 
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockBodyBuilder, BlockBodyParts, BlockBuilderConstraints, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce,
-    PoolId, Slot, Transaction, maths::FixedDecimal,
+    BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, PoolId, Slot, Transaction,
+    maths::FixedDecimal,
 };
 use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
-use crate::effects::{ResourceConsensusParameters, ResourcePoolSummaries};
+use crate::effects::{ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourcePoolSummaries};
 
 /// `None` in the product binary. Tests (and, later, a configured pool) install `Some`.
 pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
@@ -46,16 +46,9 @@ pub enum SignHeaderError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum TakeForForgeError {
     #[error("unable to construct block body: {0}")]
-    Body(String),
-}
-
-fn body_from_transactions(
-    transactions: impl IntoIterator<Item = Transaction>,
-) -> Result<BlockBodyParts, TakeForForgeError> {
-    let constraints = BlockBuilderConstraints::unlimited();
-    BlockBodyBuilder::try_from_iter(transactions, &constraints)
-        .and_then(BlockBodyBuilder::finalize)
-        .map_err(|error| TakeForForgeError::Body(error.to_string()))
+    Body(#[from] amaru_kernel::BlockBodyBuilderError),
+    #[error("ledger worker terminated while reading block-builder constraints")]
+    LedgerThreadTerminated,
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -163,13 +156,48 @@ impl TakeForForgeEffect {
 impl ExternalEffectAPI for TakeForForgeEffect {
     type Response = Result<BlockBodyParts, TakeForForgeError>;
 
+    #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        #[expect(clippy::expect_used)]
         let mempool = resources
             .get::<ResourceMempool<Transaction>>()
-            .expect("ResourceMempool must be registered before the forge stage is started");
-        let body = body_from_transactions(mempool.take().into_iter().map(|tx| tx.into_inner()));
-        self.wrap_sync(body)
+            .expect("ResourceMempool must be registered before the forge stage is started")
+            .clone();
+
+        let constraints = resources
+            .get::<ResourceBlockBuilderConstraints>()
+            .expect("ResourceBlockBuilderConstraints must be registered before the forge stage is started")
+            .clone();
+
+        self.wrap(|_| async move {
+            let constraints =
+                constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
+
+            let mempool_view = mempool.read();
+
+            let mut builder = BlockBodyBuilder::default();
+            let mut selected = Vec::new();
+
+            // FIXME: Assumptions of block forging iterating through mempool
+            //
+            // This simple construction works only because we assume transactions in the mempool to
+            // be independent; which is the case with the current strategy, but the underlying code
+            // here should not be able to make this assumption.
+            //
+            // In principle, we should be able to inform the iterator of us skipping a transaction;
+            // or reverse the problem and have the iterator return batches of dependent
+            // transactions. Skipping one transaction from the batch should skip all the subsequent
+            // one and move to the next batch.
+            for transaction in mempool_view.iter() {
+                if builder.try_push(transaction, &constraints)? {
+                    selected.push(transaction.tx_id());
+                }
+            }
+
+            let body = builder.finalize()?;
+            mempool.remove(&selected);
+
+            Ok(body)
+        })
     }
 }
 

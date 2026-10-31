@@ -60,9 +60,8 @@ pub fn check_state(initiator_resources: &Resources, responder_resources: &Resour
 
     // Verify that the 2 nodes have the same transactions
     let tx_ids = get_tx_ids();
-    assert_eq!(
-        responder_mempool.get_txs_for_ids(tx_ids.as_slice()),
-        initiator_mempool.get_txs_for_ids(tx_ids.as_slice())
-    );
+    let responder_read = responder_mempool.read();
+    let initiator_read = initiator_mempool.read();
+    assert_eq!(responder_read.get(tx_ids.as_slice()), initiator_read.get(tx_ids.as_slice()));
     Ok(())
 }

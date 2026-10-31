@@ -14,12 +14,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use amaru_kernel::Point;
+use amaru_kernel::{BlockBuilderConstraints, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point};
 use amaru_metrics::ledger::LedgerMetrics;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
-use crate::{CanValidateBlocks, ForkSwitchOutcome, InvalidBlock, can_validate_blocks::BlockValidationError};
+use crate::{
+    CanReadBlockBuilderConstraints, CanValidateBlocks, ForkSwitchOutcome, InvalidBlock, LedgerThreadTerminated,
+    can_validate_blocks::BlockValidationError,
+};
 
 /// Configurable mock ledger for testing rollback/roll-forward paths.
 pub struct MockBlockValidator {
@@ -60,6 +63,13 @@ impl MockBlockValidatorInner {
 impl Default for MockBlockValidator {
     fn default() -> Self {
         MockBlockValidator::new(Point::Origin)
+    }
+}
+
+#[async_trait]
+impl CanReadBlockBuilderConstraints for MockBlockValidator {
+    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraints, LedgerThreadTerminated> {
+        Ok(BlockBuilderConstraints::from(&*PREPROD_DEFAULT_PROTOCOL_PARAMETERS))
     }
 }
 

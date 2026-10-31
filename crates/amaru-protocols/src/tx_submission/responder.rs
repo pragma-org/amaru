@@ -920,7 +920,7 @@ mod tests {
     use amaru_mempool::strategies::InMemoryMempool;
     use amaru_ouroboros::ResourceMempool;
     use amaru_ouroboros_traits::{
-        Mempool, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
+        Mempool, MempoolRead, MempoolSeqNo, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
     };
     use amaru_pure_stage::{
         StageGraph,
@@ -1819,32 +1819,24 @@ mod tests {
                 .unwrap_or_else(|| Mempool::insert(self.inner.as_ref(), tx, tx_origin))
         }
 
-        fn get_tx(&self, tx_id: &TransactionId) -> Option<WithOriginalBytes<Transaction>> {
-            Mempool::get_tx(self.inner.as_ref(), tx_id)
+        fn read(&self) -> Box<dyn MempoolRead<WithOriginalBytes<Transaction>> + '_> {
+            Mempool::read(self.inner.as_ref())
         }
 
         fn contains(&self, tx_id: &TransactionId) -> bool {
             self.contains.unwrap_or_else(|| Mempool::contains(self.inner.as_ref(), tx_id))
         }
 
-        fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
-            Mempool::tx_ids_since(self.inner.as_ref(), from_seq, limit)
+        fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+            Mempool::slice(self.inner.as_ref(), from_seq, limit)
         }
 
-        fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<WithOriginalBytes<Transaction>> {
-            Mempool::get_txs_for_ids(self.inner.as_ref(), ids)
+        fn remove(&self, ids: &[TransactionId]) {
+            Mempool::remove(self.inner.as_ref(), ids)
         }
 
-        fn mempool_txs(&self) -> Vec<WithOriginalBytes<Transaction>> {
-            Mempool::mempool_txs(self.inner.as_ref())
-        }
-
-        fn remove_txs(&self, ids: &[TransactionId]) {
-            Mempool::remove_txs(self.inner.as_ref(), ids)
-        }
-
-        fn last_seq_no(&self) -> MempoolSeqNo {
-            Mempool::last_seq_no(self.inner.as_ref())
+        fn last(&self) -> MempoolSeqNo {
+            Mempool::last(self.inner.as_ref())
         }
 
         fn is_near_capacity(&self, additional_bytes: u64) -> bool {

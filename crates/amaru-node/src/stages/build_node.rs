@@ -17,8 +17,9 @@ use std::{collections::BTreeSet, net::SocketAddr, path::PathBuf, sync::Arc, time
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
     effects::{
-        ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourceMeter, ResourcePoolSummaries, ResourceTxValidation, find_best_candidate,
+        ConsensusMode, ResourceBlockBuilderConstraints, ResourceBlockValidation, ResourceConsensusParameters,
+        ResourceEraHistory, ResourceHasStakePools, ResourceMeter, ResourcePoolSummaries, ResourceTxValidation,
+        find_best_candidate,
     },
     performance::Performance,
     stages::track_peers::TrackPeersMsg,
@@ -552,6 +553,7 @@ fn register_resources(
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
     stage_graph.resources().put::<ResourceBlockValidation>(block_validator.clone());
+    stage_graph.resources().put::<ResourceBlockBuilderConstraints>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
     let ledger_thread = block_validator.thread_stop();

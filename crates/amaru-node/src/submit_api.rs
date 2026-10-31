@@ -204,7 +204,9 @@ mod tests {
         assert_eq!(resp.headers()[CONTENT_TYPE], "application/json");
         assert_eq!(resp.text().await?, format!("\"{expected_tx_id}\""));
 
-        let stored = mempool.get_tx(&expected_tx_id).expect("the submitted transaction in the mempool");
+        let read = mempool.read();
+        let stored_transactions = read.get(&[expected_tx_id]);
+        let stored = stored_transactions.first().expect("the submitted transaction in the mempool");
         assert_eq!(to_cbor(&stored), body);
         Ok(())
     }

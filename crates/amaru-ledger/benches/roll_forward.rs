@@ -247,7 +247,7 @@ impl UtxoPool {
         }
 
         let constraints = BlockBuilderConstraints::unlimited();
-        let block_body = BlockBodyBuilder::try_from_iter(transactions, &constraints)
+        let block_body = BlockBodyBuilder::try_from_iter(transactions.iter(), &constraints)
             .expect("failed to create block body from transactions")
             .finalize()
             .expect("failed to finalize block body");

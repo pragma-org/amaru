@@ -31,11 +31,11 @@ use crate::{
 ///
 /// The builder keeps the exact serialized sizes of transaction components as they are added, so
 /// it can reject a transaction before mutating the body and verify the final encoding on completion.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct BlockBodyBuilder {
-    transaction_bodies: Vec<TransactionBody>,
-    transaction_witnesses: Vec<WithSize<WitnessSet>>,
-    auxiliary_data: BTreeMap<TransactionIndex, AuxiliaryData>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockBodyBuilder<'a> {
+    transaction_bodies: Vec<&'a TransactionBody>,
+    transaction_witnesses: Vec<WithSize<&'a WitnessSet>>,
+    auxiliary_data: BTreeMap<TransactionIndex, &'a AuxiliaryData>,
     invalid_transactions: BTreeSet<TransactionIndex>,
     size: u32,
     ex_units: ExUnits,
@@ -105,7 +105,7 @@ pub enum BlockBodyBuilderError {
     SizeMismatch { counted: u32, encoded: u32 },
 }
 
-impl Default for BlockBodyBuilder {
+impl Default for BlockBodyBuilder<'_> {
     fn default() -> Self {
         Self {
             transaction_bodies: Vec::new(),
@@ -119,7 +119,7 @@ impl Default for BlockBodyBuilder {
     }
 }
 
-impl BlockBodyBuilder {
+impl<'a> BlockBodyBuilder<'a> {
     const FIXED_CBOR_OVERHEAD: u32 = 8;
 
     pub fn size(&self) -> u32 {
@@ -136,7 +136,7 @@ impl BlockBodyBuilder {
 
     /// Build a body while deriving each transaction's reference-script bound from its fee.
     pub fn try_from_iter(
-        transactions: impl IntoIterator<Item = Transaction>,
+        transactions: impl IntoIterator<Item = &'a Transaction>,
         constraints: &BlockBuilderConstraints,
     ) -> Result<Self, BlockBodyBuilderError> {
         let mut builder = Self::default();
@@ -153,14 +153,17 @@ impl BlockBodyBuilder {
     /// The builder is unchanged when this returns `Ok(false)`.
     pub fn try_push(
         &mut self,
-        transaction: Transaction,
+        transaction: &'a Transaction,
         constraints: &BlockBuilderConstraints,
     ) -> Result<bool, BlockBodyBuilderError> {
-        let ref_scripts_size = ref_scripts_size_upper_bound(&transaction, constraints);
+        let ref_scripts_size = ref_scripts_size_upper_bound(transaction, constraints);
         let index = TransactionIndex::try_from(self.transaction_bodies.len())
             .map_err(|_| BlockBodyBuilderError::TooManyTransactions)?;
 
-        let Transaction { body, witnesses, is_expected_valid, auxiliary_data } = transaction;
+        let body = &transaction.body;
+        let witnesses = transaction.witnesses.as_ref();
+        let is_expected_valid = transaction.is_expected_valid;
+        let auxiliary_data = transaction.auxiliary_data.as_ref();
 
         // Compute sizes and check whether the transaction pushes us off limit.
         let size = u64::from(self.size)
@@ -210,9 +213,9 @@ impl BlockBodyBuilder {
 
     pub fn finalize(self) -> Result<BlockBodyParts, BlockBodyBuilderError> {
         let encoded = [
-            to_cbor(&IndefiniteArray(self.transaction_bodies.iter())),
-            to_cbor(&IndefiniteArray(self.transaction_witnesses.iter())),
-            to_cbor(&IndefiniteMap(self.auxiliary_data.iter())),
+            to_cbor(&IndefiniteArray(self.transaction_bodies.iter().copied())),
+            to_cbor(&IndefiniteArray(self.transaction_witnesses.iter().copied())),
+            to_cbor(&IndefiniteMap(self.auxiliary_data.iter().map(|(index, data)| (index, *data)))),
             to_cbor(&IndefiniteArray(self.invalid_transactions.iter())),
         ];
 
@@ -307,8 +310,9 @@ mod tests {
         let mut constraints = BlockBuilderConstraints::unlimited();
         constraints.max_size = initial_size;
         let initial_ex_units = builder.ex_units();
+        let transaction = default_transaction();
 
-        assert!(!builder.try_push(default_transaction(), &constraints).unwrap());
+        assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
         assert_eq!(builder.size(), initial_size);
         assert_eq!(builder.ex_units(), initial_ex_units);
@@ -322,8 +326,9 @@ mod tests {
         constraints.max_ex_units = ExUnits { mem: 0, steps: 0 };
         let initial_size = builder.size();
         let initial_ex_units = builder.ex_units();
+        let transaction = transaction_with_ex_units();
 
-        assert!(!builder.try_push(transaction_with_ex_units(), &constraints).unwrap());
+        assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
         assert_eq!(builder.size(), initial_size);
         assert_eq!(builder.ex_units(), initial_ex_units);
@@ -347,7 +352,7 @@ mod tests {
         let mut builder = BlockBodyBuilder::default();
         let constraints = BlockBuilderConstraints::unlimited();
         let expected_ref_scripts_size = ref_scripts_size_upper_bound(&transaction, &constraints);
-        assert!(builder.try_push(transaction, &constraints).unwrap());
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
         assert_eq!(builder.size(), expected_size);
         assert_eq!(builder.ref_scripts_size(), expected_ref_scripts_size);
 
@@ -385,7 +390,7 @@ mod tests {
         assert!(estimated > 0);
 
         let mut builder = BlockBodyBuilder::default();
-        assert!(builder.try_push(transaction, &constraints).unwrap());
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
         assert_eq!(builder.ref_scripts_size(), estimated);
     }
 
@@ -397,7 +402,7 @@ mod tests {
         let mut constraints = BlockBuilderConstraints::unlimited();
         constraints.max_ex_units = expected;
 
-        assert!(builder.try_push(transaction, &constraints).unwrap());
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
         assert_eq!(builder.ex_units(), expected);
         assert_eq!(builder.ref_scripts_size(), 0);
         builder.finalize().expect("tracked size matches encoded body");
@@ -405,11 +410,12 @@ mod tests {
 
     #[test]
     fn try_push_accounts_for_multi_byte_transaction_indices() {
-        let transactions =
-            std::iter::repeat_with(|| Transaction { is_expected_valid: false, ..default_transaction() }).take(25);
+        let transactions = std::iter::repeat_with(|| Transaction { is_expected_valid: false, ..default_transaction() })
+            .take(25)
+            .collect::<Vec<_>>();
 
         let constraints = BlockBuilderConstraints::unlimited();
-        let builder = BlockBodyBuilder::try_from_iter(transactions, &constraints).unwrap();
+        let builder = BlockBodyBuilder::try_from_iter(transactions.iter(), &constraints).unwrap();
         let size = builder.size();
         let parts = builder.finalize().unwrap();
         assert_eq!(size, parts.commitment().size);
@@ -425,7 +431,7 @@ mod tests {
         let estimated = ref_scripts_size_upper_bound(&transaction, &constraints);
         constraints.max_ref_scripts_size = u32::try_from(estimated - 1).unwrap();
 
-        assert!(!builder.try_push(transaction, &constraints).unwrap());
+        assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
         assert_eq!(builder.size(), initial_size);
         assert_eq!(builder.ref_scripts_size(), 0);

@@ -29,28 +29,29 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult;
 
-    /// Retrieve a transaction by its id.
-    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx>;
+    /// Borrow the current contents of the mempool.
+    ///
+    /// The read view holds the implementation's read lock, when one is needed, until it is
+    /// dropped. Callers must finish using the view before mutating the mempool.
+    fn read(&self) -> Box<dyn MempoolRead<Tx> + '_>;
 
     /// Return true if the mempool contains a transaction with the given id.
     fn contains(&self, tx_id: &TransactionId) -> bool {
-        self.get_tx(tx_id).is_some()
+        !self.read().get(std::slice::from_ref(tx_id)).is_empty()
     }
 
-    /// Retrieve a list of transaction ids from a given sequence number (inclusive), up to a given limit.
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)>;
+    /// Return transaction ids from `from_seq` (inclusive), up to `limit` entries.
+    ///
+    /// Results are ordered by their insertion sequence number.
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)>;
 
-    /// Retrieve a list of transactions for the given ids.
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx>;
+    /// Remove the identified transactions from the active relay set.
+    fn remove(&self, ids: &[TransactionId]);
 
-    /// Retrieve all transactions currently active for relay.
-    fn mempool_txs(&self) -> Vec<Tx>;
-
-    /// Remove transactions from the active relay set.
-    fn remove_txs(&self, _ids: &[TransactionId]);
-
-    /// Get the last assigned sequence number in the mempool.
-    fn last_seq_no(&self) -> MempoolSeqNo;
+    /// Return the last sequence number assigned by the mempool.
+    ///
+    /// The value is monotonic and is not reused when transactions are removed.
+    fn last(&self) -> MempoolSeqNo;
 
     /// Returns `true` if accepting `additional_bytes` would push the
     /// mempool past its configured maximum byte size.
@@ -60,14 +61,17 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// to refresh observability gauges. Returned together so observers can
     /// avoid taking the underlying lock twice.
     fn state(&self) -> MempoolState;
+}
 
-    /// Take transactions out of the mempool, with the intent of forging a new block.
+/// Borrowed access to the transactions currently held by a mempool.
+pub trait MempoolRead<Tx: Send + Sync + 'static> {
+    /// Retrieve the transactions for the given ids without cloning them.
     ///
-    /// TODO: Have this function take _constraints_, such as the block max size or max execution
-    /// units and select transactions accordingly.
-    fn take(&self) -> Vec<Tx> {
-        Vec::new()
-    }
+    /// Results are ordered by insertion sequence, and unknown ids are omitted.
+    fn get(&self, ids: &[TransactionId]) -> Vec<&Tx>;
+
+    /// Iterate over all active transactions in insertion order without cloning them.
+    fn iter(&self) -> Box<dyn Iterator<Item = &Tx> + '_>;
 }
 
 pub type ResourceMempool<Tx> = Arc<dyn Mempool<WithOriginalBytes<Tx>>>;

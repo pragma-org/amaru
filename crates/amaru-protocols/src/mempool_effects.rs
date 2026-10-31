@@ -23,19 +23,32 @@ use serde::{Deserialize, Serialize};
 use crate::effect_timings;
 
 pub trait AsyncMempool: Send + Sync {
+    /// Insert a transaction, preserving the origin used for relay policy.
     fn insert(&self, tx: WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> BoxFuture<'_, TxInsertResult>;
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>>;
+
+    /// Retrieve transactions by id in insertion order, omitting unknown ids.
+    fn get(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
+
+    /// Return whether a transaction with the given id is currently active.
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool>;
-    fn tx_ids_since(
-        &self,
-        from_seq: MempoolSeqNo,
-        limit: u16,
-    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>>;
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()>;
-    fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo>;
+
+    /// Return transaction ids from `from_seq` (inclusive), in insertion order.
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>>;
+
+    /// Return a cloned snapshot in insertion order. The async boundary cannot expose borrowed
+    /// transactions from the underlying mempool read view.
+    fn iter(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>>;
+
+    /// Remove the identified transactions from the active relay set.
+    fn remove(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()>;
+
+    /// Return the last sequence number assigned by the mempool.
+    fn last(&self) -> BoxFuture<'_, MempoolSeqNo>;
+
+    /// Return whether accepting `additional_bytes` would exceed the configured capacity.
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool>;
+
+    /// Return a snapshot of the active transaction count and cumulative CBOR size.
     fn state(&self) -> BoxFuture<'_, MempoolState>;
 }
 
@@ -58,36 +71,28 @@ impl AsyncMempool for MempoolEffects {
         self.effects.external(Insert::new(tx, tx_origin))
     }
 
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
-        self.effects.external(GetTx::new(tx_id))
+    fn get(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
+        self.effects.external(Get::new(ids))
     }
 
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool> {
         self.effects.external(ContainsTx::new(*tx_id))
     }
 
-    fn tx_ids_since(
-        &self,
-        from_seq: MempoolSeqNo,
-        limit: u16,
-    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
-        self.effects.external(TxIdsSince::new(from_seq, limit))
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
+        self.effects.external(Slice::new(from_seq, limit))
     }
 
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        self.effects.external(GetTxsForIds::new(ids))
+    fn iter(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
+        self.effects.external(Iter)
     }
 
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        self.effects.external(MempoolTxs)
+    fn remove(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
+        self.effects.external(Remove::new(ids))
     }
 
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
-        self.effects.external(RemoveTxs::new(ids))
-    }
-
-    fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo> {
-        self.effects.external(LastSeqNo)
+    fn last(&self) -> BoxFuture<'_, MempoolSeqNo> {
+        self.effects.external(Last)
     }
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
@@ -104,8 +109,9 @@ impl<T: Mempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempool for T {
         Box::pin(async move { Mempool::insert(self, tx, tx_origin) })
     }
 
-    fn get_tx(&self, tx_id: TransactionId) -> BoxFuture<'_, Option<WithOriginalBytes<Transaction>>> {
-        Box::pin(async move { Mempool::get_tx(self, &tx_id) })
+    fn get(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
+        let transactions = Mempool::read(self).get(ids).into_iter().cloned().collect();
+        Box::pin(async move { transactions })
     }
 
     fn contains(&self, tx_id: &TransactionId) -> BoxFuture<'_, bool> {
@@ -113,30 +119,22 @@ impl<T: Mempool<WithOriginalBytes<Transaction>> + ?Sized> AsyncMempool for T {
         Box::pin(async move { Mempool::contains(self, &tx_id) })
     }
 
-    fn tx_ids_since(
-        &self,
-        from_seq: MempoolSeqNo,
-        limit: u16,
-    ) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
-        Box::pin(async move { Mempool::tx_ids_since(self, from_seq, limit) })
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> BoxFuture<'_, Vec<(TransactionId, u32, MempoolSeqNo)>> {
+        Box::pin(async move { Mempool::slice(self, from_seq, limit) })
     }
 
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
+    fn iter(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
+        let transactions = Mempool::read(self).iter().cloned().collect();
+        Box::pin(async move { transactions })
+    }
+
+    fn remove(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
         let tx_ids = ids.to_vec();
-        Box::pin(async move { Mempool::get_txs_for_ids(self, &tx_ids) })
+        Box::pin(async move { Mempool::remove(self, &tx_ids) })
     }
 
-    fn mempool_txs(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        Box::pin(async move { Mempool::mempool_txs(self) })
-    }
-
-    fn remove_txs(&self, ids: &[TransactionId]) -> BoxFuture<'_, ()> {
-        let tx_ids = ids.to_vec();
-        Box::pin(async move { Mempool::remove_txs(self, &tx_ids) })
-    }
-
-    fn last_seq_no(&self) -> BoxFuture<'_, MempoolSeqNo> {
-        Box::pin(async move { Mempool::last_seq_no(self) })
+    fn last(&self) -> BoxFuture<'_, MempoolSeqNo> {
+        Box::pin(async move { Mempool::last(self) })
     }
 
     fn is_near_capacity(&self, additional_bytes: u64) -> BoxFuture<'_, bool> {
@@ -176,26 +174,25 @@ impl ExternalEffectAPI for Insert {
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-struct GetTx {
-    tx_id: TransactionId,
+struct Get {
+    tx_ids: Vec<TransactionId>,
 }
 
-impl GetTx {
-    pub fn new(tx_id: TransactionId) -> Self {
-        Self { tx_id }
+impl Get {
+    pub fn new(tx_ids: &[TransactionId]) -> Self {
+        Self { tx_ids: tx_ids.to_vec() }
     }
 }
 
-impl ExternalEffectAPI for GetTx {
-    type Response = Option<WithOriginalBytes<Transaction>>;
-    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__GetTx;
+impl ExternalEffectAPI for Get {
+    type Response = Vec<WithOriginalBytes<Transaction>>;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Get;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.get_tx(&self.tx_id)
-        })
+        let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
+        let transactions = mempool.read().get(&self.tx_ids).into_iter().cloned().collect();
+        self.wrap_sync(transactions)
     }
 }
 
@@ -224,106 +221,81 @@ impl ExternalEffectAPI for ContainsTx {
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct TxIdsSince {
+struct Slice {
     mempool_seqno: MempoolSeqNo,
     limit: u16,
 }
 
-impl TxIdsSince {
+impl Slice {
     pub fn new(mempool_seqno: MempoolSeqNo, limit: u16) -> Self {
         Self { mempool_seqno, limit }
     }
 }
 
-impl ExternalEffectAPI for TxIdsSince {
+impl ExternalEffectAPI for Slice {
     type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
-    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__TxIdsSince;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Slice;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.tx_ids_since(self.mempool_seqno, self.limit)
+            mempool.slice(self.mempool_seqno, self.limit)
         })
     }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct GetTxsForIds {
+struct Iter;
+
+impl ExternalEffectAPI for Iter {
+    type Response = Vec<WithOriginalBytes<Transaction>>;
+    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Iter;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
+        let transactions = mempool.read().iter().cloned().collect();
+        self.wrap_sync(transactions)
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Remove {
     tx_ids: Vec<TransactionId>,
 }
 
-impl GetTxsForIds {
+impl Remove {
     pub fn new(ids: &[TransactionId]) -> Self {
         Self { tx_ids: ids.to_vec() }
     }
 }
 
-impl ExternalEffectAPI for GetTxsForIds {
-    type Response = Vec<WithOriginalBytes<Transaction>>;
-    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__GetTxsForIds;
-
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.get_txs_for_ids(&self.tx_ids)
-        })
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct MempoolTxs;
-
-impl ExternalEffectAPI for MempoolTxs {
-    type Response = Vec<WithOriginalBytes<Transaction>>;
-    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__MempoolTxs;
-
-    #[expect(clippy::expect_used)]
-    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync({
-            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.mempool_txs()
-        })
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct RemoveTxs {
-    tx_ids: Vec<TransactionId>,
-}
-
-impl RemoveTxs {
-    pub fn new(ids: &[TransactionId]) -> Self {
-        Self { tx_ids: ids.to_vec() }
-    }
-}
-
-impl ExternalEffectAPI for RemoveTxs {
+impl ExternalEffectAPI for Remove {
     type Response = ();
-    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__RemoveTxs;
+    // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Remove;
 
     #[expect(clippy::expect_used, clippy::unit_arg)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.remove_txs(&self.tx_ids)
+            mempool.remove(&self.tx_ids)
         })
     }
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct LastSeqNo;
+struct Last;
 
-impl ExternalEffectAPI for LastSeqNo {
+impl ExternalEffectAPI for Last {
     type Response = MempoolSeqNo;
-    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__LastSeqNo;
+    const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Last;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
-            mempool.last_seq_no()
+            mempool.last()
         })
     }
 }

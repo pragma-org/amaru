@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, mem, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
-use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{Mempool, MempoolRead, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use parking_lot::RwLockReadGuard;
+
+use super::MempoolConfig;
+
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
 /// It stores transactions in memory, indexed by their TransactionId and by a sequence number assigned
@@ -24,7 +28,7 @@ use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, TxInsertResult, TxOrigin, Tx
 #[derive(Clone)]
 pub struct InMemoryMempool<Tx> {
     config: MempoolConfig,
-    inner: Arc<parking_lot::RwLock<MempoolInner<Tx>>>,
+    inner: Arc<parking_lot::RwLock<InMemoryMempoolInner<Tx>>>,
 }
 
 impl<Tx: 'static> Default for InMemoryMempool<Tx> {
@@ -34,22 +38,23 @@ impl<Tx: 'static> Default for InMemoryMempool<Tx> {
 }
 
 impl<Tx> InMemoryMempool<Tx> {
+    /// Create an empty mempool with the supplied capacity configuration.
     pub fn new(config: MempoolConfig) -> Self {
-        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(MempoolInner::default())) }
+        InMemoryMempool { config, inner: Arc::new(parking_lot::RwLock::new(InMemoryMempoolInner::default())) }
     }
 }
 
 #[derive(Debug)]
-struct MempoolInner<Tx> {
+struct InMemoryMempoolInner<Tx> {
     next_seq: u64,
     current_bytes: u64,
-    entries_by_id: BTreeMap<TransactionId, MempoolEntry<Tx>>,
-    entries_by_seq: BTreeMap<MempoolSeqNo, TransactionId>,
+    entries_by_id: BTreeMap<TransactionId, MempoolSeqNo>,
+    entries_by_seq: BTreeMap<MempoolSeqNo, MempoolEntry<Tx>>,
 }
 
-impl<Tx> Default for MempoolInner<Tx> {
+impl<Tx> Default for InMemoryMempoolInner<Tx> {
     fn default() -> Self {
-        MempoolInner {
+        InMemoryMempoolInner {
             next_seq: 1,
             current_bytes: 0,
             entries_by_id: Default::default(),
@@ -58,7 +63,7 @@ impl<Tx> Default for MempoolInner<Tx> {
     }
 }
 
-impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
+impl<Tx: HasTransactionId + cbor::Encode<()>> InMemoryMempoolInner<Tx> {
     /// Inserts a new transaction into the mempool.
     /// The transaction id is a hash of the transaction body.
     fn insert(
@@ -83,59 +88,56 @@ impl<Tx: HasTransactionId + cbor::Encode<()> + Clone> MempoolInner<Tx> {
 
         let entry = MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin };
 
-        self.entries_by_id.insert(tx_id, entry);
-        self.entries_by_seq.insert(seq_no, tx_id);
+        self.entries_by_id.insert(tx_id, seq_no);
+        self.entries_by_seq.insert(seq_no, entry);
         self.current_bytes = self.current_bytes.saturating_add(tx_size as u64);
         Ok((tx_id, seq_no))
     }
 
-    /// Retrieves a transaction by its id.
-    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
-        self.entries_by_id.get(tx_id).map(|entry| entry.tx.clone())
-    }
-
-    /// Retrieves all the transaction ids since a given sequence number, up to a limit.
-    #[expect(clippy::panic)]
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
-        let mut result: Vec<(TransactionId, u32, MempoolSeqNo)> = self
-            .entries_by_seq
+    /// Return transaction ids from `from_seq` (inclusive), up to `limit` entries.
+    ///
+    /// The sequence-indexed map makes the result insertion-ordered. Removed transactions are
+    /// skipped, while sequence numbers remain monotonic and are never reused.
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+        self.entries_by_seq
             .range(from_seq..)
             .take(limit as usize)
-            .map(|(seq, tx_id)| {
-                let Some(entry) = self.entries_by_id.get(tx_id) else {
-                    panic!("Inconsistent mempool state: entry missing for tx_id {:?}", tx_id)
-                };
-                (*tx_id, entry.tx_size, *seq)
-            })
-            .collect();
-        result.sort_by_key(|(_, _, seq_no)| *seq_no);
-        result
-    }
-
-    /// Retrieves transactions for the given ids, sorted by their sequence number.
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx> {
-        // Make sure that the result are sorted by seq_no
-        let mut result: Vec<(&TransactionId, &MempoolEntry<Tx>)> =
-            self.entries_by_id.iter().filter(|(key, _)| ids.contains(*key)).collect();
-        result.sort_by_key(|(_, entry)| entry.seq_no);
-        result.into_iter().map(|(_, entry)| entry.tx.clone()).collect()
-    }
-
-    fn mempool_txs(&self) -> Vec<Tx> {
-        self.entries_by_seq
-            .values()
-            .filter_map(|tx_id| self.entries_by_id.get(tx_id))
-            .map(|entry| entry.tx.clone())
+            .map(|(seq, entry)| (entry.tx_id, entry.tx_size, *seq))
             .collect()
     }
 
-    fn remove_txs(&mut self, ids: &[TransactionId]) {
+    /// Remove transactions by id and release their accounted CBOR size.
+    fn remove(&mut self, ids: &[TransactionId]) {
         for tx_id in ids {
-            if let Some(entry) = self.entries_by_id.remove(tx_id) {
-                self.entries_by_seq.remove(&entry.seq_no);
+            if let Some(seq_no) = self.entries_by_id.remove(tx_id)
+                && let Some(entry) = self.entries_by_seq.remove(&seq_no)
+            {
                 self.current_bytes = self.current_bytes.saturating_sub(entry.tx_size as u64);
             }
         }
+    }
+}
+
+struct InMemoryMempoolRead<'a, Tx> {
+    inner: RwLockReadGuard<'a, InMemoryMempoolInner<Tx>>,
+}
+
+impl<Tx: Send + Sync + 'static> MempoolRead<Tx> for InMemoryMempoolRead<'_, Tx> {
+    fn get(&self, ids: &[TransactionId]) -> Vec<&Tx> {
+        let mut entries: Vec<&MempoolEntry<Tx>> = ids
+            .iter()
+            .filter_map(|tx_id| {
+                self.inner.entries_by_id.get(tx_id).and_then(|seq_no| self.inner.entries_by_seq.get(seq_no))
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.seq_no);
+        entries.into_iter().map(|entry| &entry.tx).collect()
+    }
+
+    /// Iterate over the sequence-indexed map, so results are insertion-ordered without a second
+    /// lookup or cloning the transactions.
+    fn iter(&self) -> Box<dyn Iterator<Item = &Tx> + '_> {
+        Box::new(self.inner.entries_by_seq.values().map(|entry| &entry.tx))
     }
 }
 
@@ -148,30 +150,7 @@ pub struct MempoolEntry<Tx> {
     origin: TxOrigin,
 }
 
-#[derive(Debug, Clone)]
-pub struct MempoolConfig {
-    /// Maximum size on the total CBOR size of transactions held simultaneously, in bytes.
-    pub max_bytes: u64,
-}
-
-/// Default mempool size: roughly twice the Conway max block body size (~90 KB).
-/// This matches the 2× block-size convention used by the Cardano Haskell node.
-const DEFAULT_MAX_BYTES: u64 = 180_224;
-
-impl Default for MempoolConfig {
-    fn default() -> Self {
-        Self { max_bytes: DEFAULT_MAX_BYTES }
-    }
-}
-
-impl MempoolConfig {
-    pub fn with_max_bytes(mut self, max: u64) -> Self {
-        self.max_bytes = max;
-        self
-    }
-}
-
-impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Mempool<Tx> for InMemoryMempool<Tx> {
+impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx> for InMemoryMempool<Tx> {
     fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult {
         let tx_id = tx.tx_id();
         let mut inner = self.inner.write();
@@ -182,27 +161,19 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
         }
     }
 
-    fn get_tx(&self, tx_id: &TransactionId) -> Option<Tx> {
-        self.inner.read().get_tx(tx_id)
+    fn read(&self) -> Box<dyn MempoolRead<Tx> + '_> {
+        Box::new(InMemoryMempoolRead { inner: self.inner.read() })
     }
 
-    fn tx_ids_since(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
-        self.inner.read().tx_ids_since(from_seq, limit)
+    fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
+        self.inner.read().slice(from_seq, limit)
     }
 
-    fn get_txs_for_ids(&self, ids: &[TransactionId]) -> Vec<Tx> {
-        self.inner.read().get_txs_for_ids(ids)
+    fn remove(&self, ids: &[TransactionId]) {
+        self.inner.write().remove(ids)
     }
 
-    fn mempool_txs(&self) -> Vec<Tx> {
-        self.inner.read().mempool_txs()
-    }
-
-    fn remove_txs(&self, ids: &[TransactionId]) {
-        self.inner.write().remove_txs(ids)
-    }
-
-    fn last_seq_no(&self) -> MempoolSeqNo {
+    fn last(&self) -> MempoolSeqNo {
         MempoolSeqNo(self.inner.read().next_seq - 1)
     }
 
@@ -218,14 +189,6 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()> + Clone> Me
             size_bytes: inner.current_bytes,
         }
     }
-
-    fn take(&self) -> Vec<Tx> {
-        let mut inner = self.inner.write();
-        let entries = mem::take(&mut inner.entries_by_id);
-        let _ = mem::take(&mut inner.entries_by_seq);
-        inner.current_bytes = 0;
-        entries.into_values().map(|entry| entry.tx).collect()
-    }
 }
 
 #[cfg(test)]
@@ -234,7 +197,6 @@ mod tests {
 
     use amaru_kernel::{Hasher, Peer, cbor, cbor as minicbor, size::TRANSACTION_BODY};
     use amaru_ouroboros_traits::TxRejectReason;
-    use assertables::assert_some_eq_x;
 
     use super::*;
 
@@ -248,11 +210,26 @@ mod tests {
             panic!("transaction should be accepted")
         };
 
-        assert_some_eq_x!(mempool.get_tx(&tx_id), tx.clone());
-        assert_eq!(mempool.get_txs_for_ids(slice::from_ref(&tx_id)), vec![tx.clone()]);
-        assert_eq!(mempool.tx_ids_since(seq_nb, 100), vec![(tx_id, 5, seq_nb)]);
-        assert_eq!(mempool.last_seq_no(), seq_nb);
+        let read = mempool.read();
+        assert_eq!(read.get(slice::from_ref(&tx_id)), vec![&tx]);
+        assert_eq!(mempool.slice(seq_nb, 100), vec![(tx_id, 5, seq_nb)]);
+        assert_eq!(mempool.last(), seq_nb);
         Ok(())
+    }
+
+    #[test]
+    fn iterates_transactions_in_insertion_order_without_cloning() {
+        let mempool = InMemoryMempool::new(MempoolConfig::default());
+        let first = Tx::from_str("first").unwrap();
+        let second = Tx::from_str("second").unwrap();
+        let first_id = first.tx_id();
+        let second_id = second.tx_id();
+
+        assert!(matches!(mempool.insert(first, TxOrigin::Local), TxInsertResult::Accepted { .. }));
+        assert!(matches!(mempool.insert(second, TxOrigin::Local), TxInsertResult::Accepted { .. }));
+
+        let ids = mempool.read().iter().map(|tx| tx.tx_id()).collect::<Vec<_>>();
+        assert_eq!(ids, vec![first_id, second_id]);
     }
 
     #[test]
@@ -285,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_txs_frees_bytes_capacity() {
+    fn remove_frees_bytes_capacity() {
         let first = Tx::from_str("a").unwrap();
         let max_bytes = to_cbor(&first).len() as u64;
         let mempool = InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes));
@@ -294,7 +271,7 @@ mod tests {
             panic!("first insert should succeed");
         };
 
-        mempool.remove_txs(&[tx_id]);
+        mempool.remove(&[tx_id]);
 
         let second = Tx::from_str("b").unwrap();
         assert!(matches!(mempool.insert(second, TxOrigin::Local), TxInsertResult::Accepted { .. }));

@@ -20,7 +20,9 @@ use amaru_kernel::{
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::ResourceMempool;
-use amaru_ouroboros_traits::{ForgingCredentials, Nonces, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{
+    ForgingCredentials, MockBlockValidator, Nonces, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
     DeserializerGuards, StageGraph, StageRef,
@@ -34,7 +36,7 @@ use super::{
     schedule::EpochSchedule, stage, test_vrf_key,
 };
 use crate::{
-    effects::ValidateHeaderEffect,
+    effects::{ResourceBlockBuilderConstraints, ValidateHeaderEffect},
     stages::{
         select_chain::SelectChainMsg,
         test_utils::{Logs, SimulationRunMode, run_simulation_with},
@@ -139,6 +141,7 @@ fn setup_with(
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
             resources.put::<ResourceMempool<Transaction>>(prep.mempool.clone());
+            resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::default()));
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),
             ));

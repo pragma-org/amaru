@@ -58,7 +58,7 @@ pub async fn accept_stage(state: AcceptState, _msg: PullAccept, eff: Effects<Pul
     // Terminate if the mempool already has all expected transactions
     let mempool = MempoolEffects::new(eff.clone());
     let expected_tx_ids = get_tx_ids();
-    let txs = mempool.get_txs_for_ids(expected_tx_ids.as_slice()).await;
+    let txs = mempool.get(expected_tx_ids.as_slice()).await;
     if txs.len() == expected_tx_ids.len() {
         tracing::info!("all txs retrieved, done");
         state.notify.notify_waiters();

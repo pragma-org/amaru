@@ -17,7 +17,7 @@
 #![allow(non_upper_case_globals)]
 
 use amaru_pure_stage::DurationDist;
-pub(crate) const mempool_effects__LastSeqNo: DurationDist = DurationDist::cdf(&[
+pub(crate) const mempool_effects__Last: DurationDist = DurationDist::cdf(&[
     (0.0, 375),
     (0.1, 375),
     (0.2, 500),
@@ -30,7 +30,7 @@ pub(crate) const mempool_effects__LastSeqNo: DurationDist = DurationDist::cdf(&[
     (0.99, 2080),
     (1.0, 2080),
 ]);
-pub(crate) const mempool_effects__MempoolTxs: DurationDist = DurationDist::cdf(&[
+pub(crate) const mempool_effects__Iter: DurationDist = DurationDist::cdf(&[
     (0.0, 249),
     (0.1, 334),
     (0.2, 416),
