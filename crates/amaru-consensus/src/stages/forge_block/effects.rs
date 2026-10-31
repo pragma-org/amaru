@@ -22,11 +22,11 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, PoolId, Slot, Transaction,
-    maths::FixedDecimal,
+    BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, Point, PoolId, Slot,
+    Transaction, maths::FixedDecimal,
 };
 use amaru_ouroboros::{ResourceMempool, vrf};
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
+use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
@@ -49,6 +49,8 @@ pub enum TakeForForgeError {
     Body(#[from] amaru_kernel::BlockBodyBuilderError),
     #[error("ledger worker terminated while reading block-builder constraints")]
     LedgerThreadTerminated,
+    #[error("ledger tip {ledger_tip} and mempool tip {mempool_tip} do not match forge parent {parent} at slot {slot}")]
+    TipsChanged { ledger_tip: Point, mempool_tip: Point, parent: HeaderHash, slot: Slot },
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -136,11 +138,10 @@ impl ExternalEffectAPI for SignHeaderEffect {
     }
 }
 
-/// Ask the mempool for a body valid on `parent` as of `slot`.
+/// Select a body only when the ledger and mempool views still match `parent` at `slot`.
 ///
-/// The parent and slot will be used by transaction selection once the mempool
-/// implements constrained taking. For now, this effect wires the forge stage
-/// to the registered mempool and uses its default selection behavior.
+/// The consistency check prevents transactions validated against a different ledger tip from
+/// being removed and included in a block on a stale fork.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TakeForForgeEffect {
     pub parent: HeaderHash,
@@ -168,9 +169,18 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             .expect("ResourceBlockBuilderConstraints must be registered before the forge stage is started")
             .clone();
 
-        self.wrap(|_| async move {
-            let constraints =
+        self.wrap(|this| async move {
+            let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
                 constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
+            let mempool_tip = mempool.tip();
+            if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot || mempool_tip != ledger_tip {
+                return Err(TakeForForgeError::TipsChanged {
+                    ledger_tip,
+                    mempool_tip,
+                    parent: this.parent,
+                    slot: this.slot,
+                });
+            }
 
             let mempool_view = mempool.read();
 
@@ -194,6 +204,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             }
 
             let body = builder.finalize()?;
+            drop(mempool_view);
             mempool.remove(&selected);
 
             Ok(body)

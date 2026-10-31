@@ -33,7 +33,7 @@ use super::{
         format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, parent_to_extend,
         schedule_settled, wait_until_onset,
     },
-    effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect},
+    effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect, TakeForForgeError},
     schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{
@@ -42,7 +42,7 @@ use crate::{
     stages::select_chain::SelectChainMsg,
 };
 
-make_states!(pub Live as LiveIn { Idle(IdleIn); Signing(!), Window(!) });
+make_states!(pub Live as LiveIn { Idle(IdleIn); Signing(!), Window(!), AfterTake(!) });
 
 /// Witness for the second half of forging. Not a mailbox message: `DueLead`
 /// finishes into [`Signing`] and receives this immediately, so the effect
@@ -55,6 +55,12 @@ struct Missed;
 
 /// Witness that the forge window has been checked. Not a mailbox message.
 struct Proceed;
+
+/// Witness selecting the signing branch after transaction selection.
+struct Forge;
+
+/// Witness selecting the missed-slot branch when the ledger tip changed.
+struct Skip;
 
 define_role_tag!(pub ToSelectChain);
 define_role!(pub SelectChainOut, ToSelectChain, SelectChainMsg);
@@ -106,12 +112,18 @@ on_receive!(Idle as IdleIn {
 });
 
 on_receive!(Window, Proceed =>
-    External<TakeForForgeEffect>,
+    External<TakeForForgeEffect>
+    => AfterTake
+    | Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
+);
+
+on_receive!(AfterTake, Forge =>
     External<SignHeaderEffect>,
     Repeat<Terminate> // KES signing failed
     => Signing
-    | Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle
 );
+
+on_receive!(AfterTake, Skip => Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle);
 
 on_receive!(Signing, Missed => Repeat<CancelSchedule>, Repeat<Schedule<DueLead>> => Idle);
 
@@ -349,6 +361,12 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
     let (block_body_parts, session) = session.external(TakeForForgeEffect::new(parent_hash, slot)).await;
     let block_body_parts = match block_body_parts {
         Ok(block_body_parts) => block_body_parts,
+        Err(TakeForForgeError::TipsChanged { .. }) => {
+            warn!(consensus::forge::MISSED_SLOT, slot, reason = MissedSlotReason::LedgerTipChanged.as_str());
+            let session = session.finish().receive(&Skip, eff.clone());
+            let mode = eff.external(QueryConsensusModeEffect).await;
+            return finish_with_next_lead!(session, state, now, mode);
+        }
         Err(error) => {
             error!(
                 consensus::forge::TAKE_FOR_FORGE_FAILED,
@@ -359,6 +377,7 @@ async fn handle_due_lead(state: &mut ForgeData, idle: Idle, lead: DueLead, eff: 
             BlockBodyParts::empty()
         }
     };
+    let session = session.finish().receive(&Forge, eff.clone());
     let commitment = block_body_parts.commitment();
     let header_body = HeaderDraft {
         block_number,

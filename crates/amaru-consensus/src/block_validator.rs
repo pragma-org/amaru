@@ -29,8 +29,9 @@ use amaru_ledger::{
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::warn;
 use amaru_ouroboros_traits::{
-    CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools,
-    LedgerThreadTerminated, PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, ChainStore,
+    ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated, PoolSummaries, TransactionValidationError,
+    can_validate_blocks::BlockValidationError,
 };
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -60,7 +61,7 @@ enum LedgerRequest {
     VolatileTip(oneshot::Sender<Option<Point>>),
     ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
-    BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraints>),
+    BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
 }
 
@@ -243,7 +244,7 @@ impl CanValidateTxs for BlockValidator {
 
 #[async_trait::async_trait]
 impl CanReadBlockBuilderConstraints for BlockValidator {
-    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraints, LedgerThreadTerminated> {
+    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraintsResponse, LedgerThreadTerminated> {
         self.request(LedgerRequest::BlockBuilderConstraints).await
     }
 }
@@ -350,7 +351,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
             }
             LedgerRequest::BlockBuilderConstraints(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingBlockBuilderConstraints;
-                let _ = reply.send(BlockBuilderConstraints::from(self.state.protocol_parameters()));
+                let _ = reply.send(BlockBuilderConstraintsResponse {
+                    tip: self.state.tip().into_owned(),
+                    constraints: BlockBuilderConstraints::from(self.state.protocol_parameters()),
+                });
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;

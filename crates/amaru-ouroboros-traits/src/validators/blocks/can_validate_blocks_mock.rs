@@ -20,8 +20,8 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 
 use crate::{
-    CanReadBlockBuilderConstraints, CanValidateBlocks, ForkSwitchOutcome, InvalidBlock, LedgerThreadTerminated,
-    can_validate_blocks::BlockValidationError,
+    BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateBlocks, ForkSwitchOutcome,
+    InvalidBlock, LedgerThreadTerminated, can_validate_blocks::BlockValidationError,
 };
 
 /// Configurable mock ledger for testing rollback/roll-forward paths.
@@ -68,8 +68,11 @@ impl Default for MockBlockValidator {
 
 #[async_trait]
 impl CanReadBlockBuilderConstraints for MockBlockValidator {
-    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraints, LedgerThreadTerminated> {
-        Ok(BlockBuilderConstraints::from(&*PREPROD_DEFAULT_PROTOCOL_PARAMETERS))
+    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraintsResponse, LedgerThreadTerminated> {
+        Ok(BlockBuilderConstraintsResponse {
+            tip: self.inner.lock().tip,
+            constraints: BlockBuilderConstraints::from(&*PREPROD_DEFAULT_PROTOCOL_PARAMETERS),
+        })
     }
 }
 

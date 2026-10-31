@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{TransactionId, cbor::WithOriginalBytes};
+use amaru_kernel::{Point, TransactionId, cbor::WithOriginalBytes};
 
 use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 
@@ -61,6 +61,12 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// to refresh observability gauges. Returned together so observers can
     /// avoid taking the underlying lock twice.
     fn state(&self) -> MempoolState;
+
+    /// Return the ledger tip against which the active transactions were last revalidated.
+    fn tip(&self) -> Point;
+
+    /// Record the ledger tip after the mempool has been revalidated against it.
+    fn set_tip(&self, tip: Point);
 }
 
 /// Borrowed access to the transactions currently held by a mempool.

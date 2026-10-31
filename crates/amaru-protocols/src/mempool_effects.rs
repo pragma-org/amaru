@@ -14,7 +14,7 @@
 
 use std::fmt::Debug;
 
-use amaru_kernel::{Transaction, TransactionId, cbor::WithOriginalBytes};
+use amaru_kernel::{Point, Transaction, TransactionId, cbor::WithOriginalBytes};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{Mempool, MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
 use amaru_pure_stage::{BoxFuture, DurationDist, Effects, ExternalEffectAPI, Resources, SendData, Void};
@@ -63,6 +63,11 @@ pub struct MempoolEffects {
 impl MempoolEffects {
     pub fn new<T: SendData + Sync + 'static>(effects: Effects<T>) -> Self {
         Self { effects: effects.erase() }
+    }
+
+    /// Record the tip against which the mempool has just completed revalidation.
+    pub fn set_tip(&self, tip: Point) -> BoxFuture<'_, ()> {
+        self.effects.external(SetTip::new(tip))
     }
 }
 
@@ -330,6 +335,29 @@ impl ExternalEffectAPI for State {
         self.wrap_sync({
             let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
             mempool.state()
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct SetTip {
+    tip: Point,
+}
+
+impl SetTip {
+    fn new(tip: Point) -> Self {
+        Self { tip }
+    }
+}
+
+impl ExternalEffectAPI for SetTip {
+    type Response = ();
+
+    #[expect(clippy::expect_used, clippy::unit_arg)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let mempool = resources.get::<ResourceMempool<Transaction>>().expect("ResourceMempool requires a mempool");
+            mempool.set_tip(self.tip)
         })
     }
 }

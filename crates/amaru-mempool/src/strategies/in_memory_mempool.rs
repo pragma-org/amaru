@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use amaru_kernel::{HasTransactionId, TransactionId, cbor, to_cbor};
+use amaru_kernel::{HasTransactionId, Point, TransactionId, cbor, to_cbor};
 use amaru_ouroboros_traits::{Mempool, MempoolRead, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use parking_lot::RwLockReadGuard;
 
@@ -48,6 +48,7 @@ impl<Tx> InMemoryMempool<Tx> {
 struct InMemoryMempoolInner<Tx> {
     next_seq: u64,
     current_bytes: u64,
+    tip: Point,
     entries_by_id: BTreeMap<TransactionId, MempoolSeqNo>,
     entries_by_seq: BTreeMap<MempoolSeqNo, MempoolEntry<Tx>>,
 }
@@ -57,6 +58,7 @@ impl<Tx> Default for InMemoryMempoolInner<Tx> {
         InMemoryMempoolInner {
             next_seq: 1,
             current_bytes: 0,
+            tip: Point::Origin,
             entries_by_id: Default::default(),
             entries_by_seq: Default::default(),
         }
@@ -188,6 +190,14 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx
             tx_count: inner.entries_by_id.len() as u64,
             size_bytes: inner.current_bytes,
         }
+    }
+
+    fn tip(&self) -> Point {
+        self.inner.read().tip
+    }
+
+    fn set_tip(&self, tip: Point) {
+        self.inner.write().tip = tip;
     }
 }
 

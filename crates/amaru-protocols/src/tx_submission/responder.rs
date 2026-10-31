@@ -1846,6 +1846,14 @@ mod tests {
         fn state(&self) -> amaru_ouroboros_traits::MempoolState {
             Mempool::state(self.inner.as_ref())
         }
+
+        fn tip(&self) -> amaru_kernel::Point {
+            Mempool::tip(self.inner.as_ref())
+        }
+
+        fn set_tip(&self, tip: amaru_kernel::Point) {
+            Mempool::set_tip(self.inner.as_ref(), tip)
+        }
     }
 
     /// A mempool whose `insert` returns predetermined results keyed by `TransactionId`.

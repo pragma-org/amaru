@@ -126,6 +126,7 @@ fn setup_with(
 ) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
     let guards = register_guards();
     let state = prep.state.clone();
+    let ledger_tip = state.data.adopted_tip;
     let msgs: Vec<_> = msgs.into_iter().collect();
     let wired_slot: Mutex<Option<StageStateRef<ForgeBlockMsg, ForgeBlock>>> = Mutex::new(None);
     let (running, guards, logs) = run_simulation_with(
@@ -140,8 +141,9 @@ fn setup_with(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            prep.mempool.set_tip(ledger_tip);
             resources.put::<ResourceMempool<Transaction>>(prep.mempool.clone());
-            resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::default()));
+            resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::new(ledger_tip)));
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),
             ));

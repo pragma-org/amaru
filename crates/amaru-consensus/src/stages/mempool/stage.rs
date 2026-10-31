@@ -98,6 +98,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
         MempoolMsg::NewTip(tip) => {
             let store = Store::new(eff.clone());
             let outcome = apply_new_tip(&ledger, &mempool, tip).await;
+            mempool.set_tip(tip).await;
             record_revalidation(mempool.state().await, &metrics_ops, &store, tip, &outcome).await;
             if !outcome.evicted_tx_ids.is_empty() {
                 notify_capacity_waiters(&mut state, &eff).await;

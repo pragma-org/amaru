@@ -131,8 +131,9 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
     let chain_store = Arc::new(InMemoryChainStore::default());
     chain_store.store_block(&header.hash(), &raw).unwrap();
 
+    let tip = amaru_kernel::Point::Specific(1.into(), header.hash(), 1.into());
     let prep = TestPrep {
-        msg: MempoolMsg::NewTip(amaru_kernel::Point::Specific(1.into(), header.hash(), 1.into())),
+        msg: MempoolMsg::NewTip(tip),
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
         validator: Arc::new(|_: &Transaction| Err(anyhow::anyhow!("invalid after tip").into())),
@@ -141,6 +142,7 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
+    assert_eq!(mempool.tip(), tip);
     assert!(mempool.read().iter().next().is_none());
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "included_in_adopted_block"])
         .assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"])

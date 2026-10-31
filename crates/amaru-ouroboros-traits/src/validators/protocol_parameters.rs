@@ -12,13 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::BlockBuilderConstraints;
+use amaru_kernel::{BlockBuilderConstraints, Point};
 use async_trait::async_trait;
 
 use crate::LedgerThreadTerminated;
 
+/// Constraints read from the ledger together with the tip they describe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockBuilderConstraintsResponse {
+    pub tip: Point,
+    pub constraints: BlockBuilderConstraints,
+}
+
 /// Reads the block-building limits currently active in the ledger's volatile view.
 #[async_trait]
 pub trait CanReadBlockBuilderConstraints: Send + Sync {
-    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraints, LedgerThreadTerminated>;
+    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraintsResponse, LedgerThreadTerminated>;
 }

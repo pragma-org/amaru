@@ -40,6 +40,7 @@ use amaru_ouroboros::{
     BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
     StoreError as ChainStoreError,
 };
+use amaru_ouroboros_traits::Mempool;
 use amaru_protocols::{
     manager::ManagerMessage,
     store_effects::{ResourceHeaderStore, ResourceParameters},
@@ -475,6 +476,7 @@ pub fn build_node(
         block_validator.clone(),
         consensus_parameters,
         config.era_history().clone(),
+        ledger_tip,
         meter,
         config.mempool.clone(),
         config,
@@ -545,6 +547,7 @@ fn register_resources(
     block_validator: Arc<BlockValidator>,
     consensus_parameters: Arc<ConsensusParameters>,
     era_history: EraHistory,
+    ledger_tip: Point,
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
@@ -563,7 +566,9 @@ fn register_resources(
     let connections =
         Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::new(mempool_config)));
+    let mempool = Arc::new(InMemoryMempool::new(mempool_config));
+    mempool.set_tip(ledger_tip);
+    stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
