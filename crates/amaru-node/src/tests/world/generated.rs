@@ -36,6 +36,7 @@ use amaru_metrics::LedgerMetrics;
 use amaru_ouroboros::{
     BaseReadChainStore, ConnectionsResource, Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
+use amaru_ouroboros_traits::BlockValidationError;
 use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
 use amaru_pure_stage::{
     simulation::{SimulationRunning, running::OverrideResult},
@@ -112,6 +113,17 @@ fn stub_generated_validation(sim: &mut SimulationRunning) {
     });
     sim.override_external_effect::<ValidateBlockEffect>(usize::MAX, |_| {
         OverrideResult::handled(Ok(Ok(LedgerMetrics::default())))
+    });
+}
+
+fn stub_invalid_block_validation(sim: &mut SimulationRunning) {
+    sim.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+        OverrideResult::handled(Ok(Nonces::for_tests()))
+    });
+    sim.override_external_effect::<ValidateBlockEffect>(usize::MAX, |_| {
+        OverrideResult::handled(Err(BlockValidationError::new(anyhow::anyhow!(
+            "remote block rejected by world scenario"
+        ))))
     });
 }
 
@@ -416,6 +428,37 @@ fn test_world_blockfetch_lock_step() {
 #[test]
 fn test_world_blockfetch_pipelined() {
     run_blockfetch_generated_chain(NonZeroU8::new(2).unwrap(), 9720);
+}
+
+/// An upstream peer can deliver a syntactically valid header whose body is rejected by the
+/// ledger. The node must keep the ancestor as its best tip, reject the candidate, and remain
+/// available for later peers instead of poisoning chain selection or deadlocking block fetch.
+#[test]
+fn test_world_rejects_invalid_remote_block_without_advancing_tip() {
+    let run = SyncRun::new("reject_invalid_remote_block");
+    let injector_addr = loopback(9760);
+    let (store, headers) = injector_linear_store(BLOCKFETCH_FRAGMENT, run.seed);
+    let ancestor = headers.first().expect("fragment ancestor").clone();
+    let (injector, shared) = run.spawn_injector(store, injector_addr);
+    let node_config = with_ancestor(
+        generated_node(run.seed, 0, node_listen(9760, 0)).with_upstream_peer(peer_at(injector_addr)),
+        &ancestor,
+    );
+    let mut node = spawn_node(node_config, run.connections(), &run.handle, false);
+    stub_invalid_block_validation(&mut node);
+    let mut world = run.injector_world(injector, shared, vec![node], &headers);
+    world.run_until_horizon(BLOCKFETCH_HORIZON_NANOS);
+
+    {
+        let node_store = world.graphs()[1].resources().get::<ResourceHeaderStore>().expect("node chain store");
+        assert_eq!(
+            node_store.get_best_chain_tip(),
+            ancestor.point(),
+            "an invalid remote block must not advance the best tip; seed={:#x}",
+            run.seed
+        );
+    }
+    world.stop();
 }
 
 /// Injector plus one follower on [`BLOCKFETCH_FRAGMENT`], before the world runs.

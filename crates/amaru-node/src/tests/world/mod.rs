@@ -17,10 +17,14 @@
 //! This module implements EDR-011 discrete-event simulation for network effects.
 //! [`WorldConnectionProvider`] owns the one physical `(time, sequence)` heap of
 //! network events and graph wakes. [`WorldLoop`] is the only popper.
+//! The scenario catalogue in [`SCENARIOS.md`](SCENARIOS.md) documents each world
+//! scenario's setup, ordering, oracle, invariant, and intended regression.
 //!
 //! Chain-data tests are split by kind (EDR-011 "World tests"): `generated` for synthetic
 //! trees, `real_data` for live-network fragments, and `minting` for chains the nodes forge.
 
+#[cfg(test)]
+mod forge;
 #[cfg(test)]
 mod fragment;
 #[cfg(test)]
@@ -41,7 +45,7 @@ mod world_connection_provider;
 mod world_loop;
 
 pub use injector::{InjectorShared, build_injector, build_injector_peer};
-pub use nodes::{build_world_node, build_world_node_with_mempool_stage};
+pub use nodes::{build_world_node, build_world_node_with_forge_stages, build_world_node_with_mempool_stage};
 pub use world_connection_provider::{
     GraphWakeReason, HONEST_PAYLOAD_DELAY_MAX_NANOS, HONEST_PAYLOAD_DELAY_SLOTS, HeapLogEntry, HeapLogKind,
     LONG_TAIL_PAYLOAD_EVERY, LONG_TAIL_PAYLOAD_MIN_NANOS, NetworkEvent, WIRE_DELAY_MAX_NANOS, WIRE_DELAY_MIN_NANOS,

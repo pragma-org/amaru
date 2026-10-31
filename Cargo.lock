@@ -501,6 +501,7 @@ dependencies = [
  "amaru-uplc",
  "anyhow",
  "assert_cmd",
+ "async-trait",
  "axum",
  "diff_json",
  "futures-util",

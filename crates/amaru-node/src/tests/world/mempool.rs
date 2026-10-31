@@ -17,6 +17,9 @@
 //! These tests deliberately use a deterministic validator so that the world harness can focus
 //! on the stage protocol: invalid transactions must never enter, duplicates must not consume
 //! capacity, and revalidation must remove transactions that no longer fit the adopted tip.
+//!
+//! These are focused mempool-stage scenarios, not end-to-end submission or forging tests. The
+//! broader forge and ledger race scenarios are catalogued in [`SCENARIOS.md`](SCENARIOS.md).
 
 use std::sync::Arc;
 

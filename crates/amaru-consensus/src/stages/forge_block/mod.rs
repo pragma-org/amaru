@@ -40,6 +40,8 @@ pub use effects::{
     TakeForForgeError,
 };
 pub use protocol::{AdoptedTip, DueLead, ForgeBlockMsg, LeaderSchedule, Live, SelectChainOut, stage};
+#[cfg(any(test, feature = "test-utils"))]
+pub use schedule::EpochSchedule;
 use schedule::Schedule;
 
 use crate::stages::select_chain::SelectChainMsg;

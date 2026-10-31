@@ -80,6 +80,7 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
+async-trait.workspace = true
 anyhow.workspace = true
 assert_cmd.workspace = true
 diff_json.workspace = true

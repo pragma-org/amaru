@@ -172,7 +172,9 @@ impl ExternalEffectAPI for TakeForForgeEffect {
         self.wrap(|this| async move {
             let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
                 constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
+
             let mempool_tip = mempool.tip();
+
             if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot || mempool_tip != ledger_tip {
                 return Err(TakeForForgeError::TipsChanged {
                     ledger_tip,
