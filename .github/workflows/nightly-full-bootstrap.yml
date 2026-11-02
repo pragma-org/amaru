@@ -10,13 +10,13 @@ permissions:
 
 concurrency:
   group: nightly-full-bootstrap
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   bootstrap-to-tip:
     name: Bootstrap ${{ matrix.network }} and synchronize to tip
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -34,25 +34,31 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Reclaim disk space
+        run: bash ./scripts/cleanup-runner.sh
+
       - uses: ./.github/actions/cache
       - uses: ./.github/actions/stage-peer-snapshots
 
       - name: Build Amaru
-        shell: bash
+        shell: timeout --verbose --kill-after=30s 45m bash --noprofile --norc -eo pipefail {0}
         run: |
           cargo build --release --locked --bin amaru
           test -x "$AMARU_BIN"
 
       - name: Bootstrap from scratch and synchronize to the initial tip
         id: bootstrap
-        shell: bash
+        # Exit with a failure before the job deadline, leaving time to report and upload logs.
+        shell: timeout --verbose --kill-after=30s 300m bash --noprofile --norc -eo pipefail {0}
         run: |
           set -Eeuo pipefail
+          trap 'echo "::error::Bootstrap and synchronization exceeded the time limit" >&2; exit 124' TERM
 
           state_dir="$RUNNER_TEMP/amaru-nightly-full-bootstrap-$AMARU_NETWORK"
           export AMARU_DB_LEDGER="$state_dir/ledger.db"
           export AMARU_DB_CHAIN="$state_dir/chain.db"
           mkdir -p "$state_dir"
+          df -h "$state_dir" "$GITHUB_WORKSPACE"
 
           koios_host="$AMARU_NETWORK"
           if [[ "$AMARU_NETWORK" == "mainnet" ]]; then
@@ -78,12 +84,24 @@ jobs:
           ' EXIT
 
           fail() {
+            local message="$1" cause
+            cause="$(jq -Rc '
+              fromjson? | objects | select(.level == "ERROR")
+              | .fields.cause // .fields.description // .fields.message // empty
+            ' "$current_log" | tail -1 | jq -r '.')"
+            if [[ -n "$cause" ]]; then
+              message="$message: $cause"
+            fi
             echo "::group::Last 200 lines of $current_log" >&2
             tail -200 "$current_log" >&2 || true
             echo "::endgroup::" >&2
-            echo "::error::$1" >&2
+            printf '%s' "$message" | jq -Rrs '
+              gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
+              | "::error::\(.)"
+            ' >&2
+            df -h "$state_dir" "$GITHUB_WORKSPACE" >&2 || true
             printf '## Full bootstrap failed (%s)\n\n~~~text\n%s\n~~~\n' \
-              "$AMARU_NETWORK" "$1" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+              "$AMARU_NETWORK" "$message" | tee -a "$GITHUB_STEP_SUMMARY" >&2
             exit 1
           }
 
@@ -130,8 +148,6 @@ jobs:
       - name: Report Amaru errors and warnings
         if: always()
         shell: bash
-        env:
-          BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}
         run: |
           printf '## Amaru errors and warnings\n\nFull logs are uploaded as artifacts.\n\n' \
             >> "$GITHUB_STEP_SUMMARY"
@@ -140,6 +156,29 @@ jobs:
               printf '%s: no log was produced.\n\n' "$log" >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
+
+            stop_commands_token="$(uuidgen)"
+            trap 'printf "::%s::\n" "$stop_commands_token"' EXIT
+            printf '::stop-commands::%s\n' "$stop_commands_token"
+            jq -Rr --arg log "$log" '
+              fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
+              | "\($log):\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"
+            ' "$log"
+            printf '::%s::\n' "$stop_commands_token"
+            trap - EXIT
+
+            # Share each severity's ten-annotation budget equally between the two logs.
+            for level in WARN ERROR; do
+              jq -Rc --arg level "$level" '
+                fromjson? | objects | select(.level == $level)
+                | {level, message: "\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"}
+              ' "$log" | tail -5 | jq -r --arg log "$log" '
+                (if .level == "ERROR" then "error" else "warning" end) as $command
+                | "\($log):\(.message[:2000])"
+                | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
+                | "::\($command)::\(.)"
+              '
+            done
 
             entries="$(jq -Rc '
               fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
@@ -150,15 +189,6 @@ jobs:
               printf '%s\n' "$entries" | jq -r '.message[:2000] | @html'
               printf '</pre>\n\n'
             } >> "$GITHUB_STEP_SUMMARY"
-
-            if [[ "$BOOTSTRAP_OUTCOME" == "failure" ]]; then
-              printf '%s\n' "$entries" | tail -5 | jq -r --arg log "$log" '
-                (if .level == "ERROR" then "error" else "warning" end) as $command
-                | "\($log):\(.message[:2000])"
-                | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
-                | "::\($command)::\(.)"
-              '
-            fi
           done
 
       - name: Upload diagnostic logs
