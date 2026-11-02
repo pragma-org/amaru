@@ -101,6 +101,9 @@ jobs:
 
           current_log=amaru.log
           : > amaru.log
+          highest_adopted_slot=""
+          last_progress_at=$SECONDS
+          progress_timeout_seconds=600
           "$AMARU_BIN" node run > amaru.log 2>&1 &
           amaru_pid=$!
 
@@ -115,6 +118,12 @@ jobs:
             adopted_slot="$(adopted_slot_from_log amaru.log)"
             echo "Amaru slot: ${adopted_slot:-initializing}; target: $target_slot"
 
+            if [[ "$adopted_slot" =~ ^[0-9]+$ ]] &&
+              { [[ -z "$highest_adopted_slot" ]] || (( adopted_slot > highest_adopted_slot )); }; then
+              highest_adopted_slot="$adopted_slot"
+              last_progress_at=$SECONDS
+            fi
+
             if [[ "$adopted_slot" =~ ^[0-9]+$ ]] && (( adopted_slot >= target_slot )); then
               echo "Amaru reached target slot $target_slot at slot $adopted_slot"
               kill -INT "$amaru_pid"
@@ -122,6 +131,10 @@ jobs:
               amaru_pid=""
               trap - EXIT
               exit 0
+            fi
+
+            if (( SECONDS - last_progress_at >= progress_timeout_seconds )); then
+              fail "Amaru made no synchronization progress for ${progress_timeout_seconds}s (highest slot: ${highest_adopted_slot:-unknown}; latest slot: ${adopted_slot:-unknown}; target: $target_slot)"
             fi
 
             sleep 5
