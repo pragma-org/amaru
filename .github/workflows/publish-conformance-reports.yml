@@ -12,8 +12,21 @@ permissions:
   contents: read
 
 jobs:
+  # The github-pages environment only accepts deploys from main, so a run on another ref stops before the suites run.
+  main-only:
+    name: Check that the run is on main
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Stop a run outside main
+        if: ${{ github.ref != 'refs/heads/main' }}
+        shell: bash
+        run: |
+          echo "::error::GitHub Pages only accepts deploys from main; start this workflow on main" >&2
+          exit 1
+
   conformance-reports:
     name: Generate node diversity reports
+    needs: main-only
     uses: ./.github/workflows/template-conformance-reports.yml
     secrets: inherit
 
@@ -21,8 +34,8 @@ jobs:
     name: Publish the reports to GitHub Pages
 
     # A failed suite still uploads its report, so publish whatever the suites produced.
-    if: ${{ !cancelled() }}
-    needs: conformance-reports
+    if: ${{ !cancelled() && needs.main-only.result == 'success' }}
+    needs: [main-only, conformance-reports]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -76,8 +89,8 @@ jobs:
           mkdir -p dist
           tar -xf site-archive/artifact.tar -C dist
 
-          # An earlier run of this workflow can have published previews after that nightly build.
-          rm -rf dist/preview
+          # An earlier run of this workflow can have published previews after that nightly build. The archived ones
+          # stay when the live site cannot be read.
           ./scripts/fetch-conformance-previews "$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .html_url)" dist
 
       - name: Add the reports under preview/

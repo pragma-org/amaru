@@ -1,4 +1,4 @@
-name: Conformance Reports
+name: Conformance Reports (no publish)
 
 on:
   workflow_dispatch:
