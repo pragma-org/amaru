@@ -3,7 +3,8 @@
 #
 # `.github/workflows/publish-conformance-reports.yml` publishes reports under `preview/<scenario>/latest.json`.
 # A Pages deploy replaces the whole site, so every deploy that does not regenerate those reports carries them over
-# from the live site. A report that the live site does not have is skipped.
+# from the live site. A report that the live site does not have is removed from the site directory. A report that
+# cannot be read is left as the site directory has it.
 #
 # Usage: ./scripts/fetch-conformance-previews <site-url> <site-directory>
 #
@@ -19,18 +20,22 @@ fi
 SITE_URL="${1%/}"
 SITE_DIR="$2"
 
+download="$(mktemp)"
+trap 'rm -f "$download"' EXIT
+
 for scenario in cbor-conformance uplc-conformance uplc-turbo ledger-rules; do
   url="$SITE_URL/preview/$scenario/latest.json"
   target="$SITE_DIR/preview/$scenario/latest.json"
-  mkdir -p "$(dirname "$target")"
 
   # The timeouts bound how long a stalled transfer holds the deploy. A body cut short still reports HTTP 200, so the
   # exit code of curl decides whether the file is complete.
   curl_exit=0
   status="$(curl -sSL --connect-timeout 10 --max-time 120 --retry 3 --retry-max-time 300 \
-    -o "$target" -w '%{http_code}' "$url")" || curl_exit=$?
+    -o "$download" -w '%{http_code}' "$url")" || curl_exit=$?
   case "$curl_exit:$status" in
     0:200)
+      mkdir -p "$(dirname "$target")"
+      mv "$download" "$target"
       echo "carried over preview/$scenario/latest.json"
       ;;
     0:404)
@@ -39,8 +44,12 @@ for scenario in cbor-conformance uplc-conformance uplc-turbo ledger-rules; do
       ;;
     *)
       # A deploy must not fail because a preview could not be read; the next manual run publishes it again.
-      rm -f "$target"
-      echo "could not read $url (HTTP status '${status:-none}', curl exit code $curl_exit); publishing without it" >&2
+      if [[ -f "$target" ]]; then
+        outcome="keeping the archived copy"
+      else
+        outcome="publishing without it"
+      fi
+      echo "could not read $url (HTTP status '${status:-none}', curl exit code $curl_exit); $outcome" >&2
       ;;
   esac
   rmdir "$(dirname "$target")" 2>/dev/null || true

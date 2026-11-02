@@ -629,11 +629,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Names why a report is missing when one is, so the page's log says which job to look at.
-          NODE_REPORTS_RESULT: ${{ needs.conformance-reports.result }}
         run: |
           set -euo pipefail
-          mkdir -p dist/downloads dist/cbor-conformance/main
+          mkdir -p dist/downloads
 
           version=""
           for dir in ./artifacts/*; do
@@ -682,31 +680,6 @@ jobs:
             fi
           done
 
-          # The conformance report needs to be published to a single fixed URL: 'main/latest.json'
-          # We nevertheless preserve the original report name in case we want to get historical reports in the future.
-          reports=()
-          while IFS= read -r report; do
-            reports+=("$report")
-          done < <(find dist/cbor-conformance/main -maxdepth 1 -type f -name '*.json' | sort)
-
-          case "${#reports[@]}" in
-            0)
-              # The page also carries the nightly downloads, so a missing report must not black it out.
-              # Whatever kept the suite from producing one already shows as a failure of its own job.
-              echo "no conformance report for main (suite result: $NODE_REPORTS_RESULT);" \
-                   "publishing the page without it" >&2
-              rmdir dist/cbor-conformance/main
-              ;;
-            1)
-              cp "${reports[0]}" dist/cbor-conformance/main/latest.json
-              ;;
-            *)
-              echo "several conformance reports were published; pick which one 'main/latest.json' names:" >&2
-              printf '  %s\n' "${reports[@]}" >&2
-              exit 1
-              ;;
-          esac
-
           latest_release_tag=""
           latest_release_url=""
           latest_release_checksums_url=""
@@ -715,23 +688,6 @@ jobs:
             latest_release_tag="$(jq -r '.tag_name // ""' <<< "$latest_release_json")"
             latest_release_url="$(jq -r '.html_url // ""' <<< "$latest_release_json")"
             latest_release_checksums_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${latest_release_tag}/amaru-${latest_release_tag#v}-checksums.manifest"
-          fi
-
-          # Every deploy replaces the whole site, so the released report is refetched from the release
-          # it belongs to rather than carried over from the previous deploy. That keeps the published
-          # file a copy of the release asset instead of a copy of a copy, and repairs itself if a
-          # deploy ever drops it.
-          if [[ -n "$latest_release_tag" ]]; then
-            mkdir -p dist/cbor-conformance/releases
-            released_report="amaru-${latest_release_tag#v}-cbor-conformance.json"
-            if gh release download "$latest_release_tag" \
-                 --pattern "$released_report" \
-                 --output dist/cbor-conformance/releases/latest.json; then
-              echo "published the conformance report of $latest_release_tag"
-            else
-              echo "release $latest_release_tag has no $released_report asset; publishing without it" >&2
-              rm -rf dist/cbor-conformance/releases
-            fi
           fi
 
           ./scripts/fetch-conformance-previews "$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .html_url)" dist
