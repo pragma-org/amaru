@@ -1,0 +1,134 @@
+name: Publish Conformance Reports
+
+# Regenerate the conformance reports on the selected commit and publish them on the nightly GitHub Pages site under
+# `preview/<scenario>/latest.json`.
+#
+# A Pages deploy replaces the whole site, so the site deployed by the last nightly build is downloaded and the reports
+# are added to it. Nightly builds carry `preview/` over until the next run of this workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance-reports:
+    name: Generate node diversity reports
+    uses: ./.github/workflows/template-conformance-reports.yml
+    secrets: inherit
+
+  publish:
+    name: Publish the reports to GitHub Pages
+
+    # A failed suite still uploads its report, so publish whatever the suites produced.
+    if: ${{ !cancelled() }}
+    needs: conformance-reports
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pages: write
+      id-token: write
+
+    # The nightly build also deploys the site. Each job reads the live site and deploys a new one in a single job, so
+    # sharing this group keeps one deploy from overwriting the other with stale content.
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the site of the last nightly build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # The newest scheduled build that deployed the site and whose site artifact has not expired yet.
+          run_id=""
+          while IFS= read -r candidate; do
+            published="$(gh run view "$candidate" --repo "$GITHUB_REPOSITORY" --json jobs \
+              --jq '.jobs[] | select(.name == "Publish to GitHub Pages" and .conclusion == "success") | .name')"
+            available="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${candidate}/artifacts" \
+              --jq '.artifacts[] | select(.name == "github-pages" and (.expired | not)) | .name')"
+            if [[ -n "$published" && -n "$available" ]]; then
+              run_id="$candidate"
+              break
+            fi
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-begin.yml --event schedule \
+                     --limit 20 --json databaseId --jq '.[].databaseId')
+
+          if [[ -z "$run_id" ]]; then
+            echo "no recent nightly build has a site artifact left to republish; wait for the next nightly build" >&2
+            exit 1
+          fi
+
+          echo "republishing the site deployed by run $run_id"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name github-pages --dir site-archive
+          mkdir -p dist
+          tar -xf site-archive/artifact.tar -C dist
+
+          # An earlier run of this workflow can have published previews after that nightly build.
+          rm -rf dist/preview
+          ./scripts/fetch-conformance-previews "$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .html_url)" dist
+
+      - name: Add the reports under preview/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Names why a report is missing when one is, so the log says which job to look at.
+          NODE_REPORTS_RESULT: ${{ needs.conformance-reports.result }}
+        run: |
+          set -euo pipefail
+
+          added=0
+          for scenario in cbor-conformance uplc-conformance uplc-turbo ledger-rules; do
+            # Downloaded by name, one artifact at a time: actions/download-artifact extracts a pattern that matches a
+            # single artifact without its directory, which would lose the scenario the report belongs to.
+            reports=()
+            if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+                 --name "amaru-${scenario}" --dir "reports/amaru-${scenario}"; then
+              while IFS= read -r report; do
+                reports+=("$report")
+              done < <(find "reports/amaru-${scenario}" -maxdepth 1 -type f -name '*.json' | sort)
+            fi
+
+            case "${#reports[@]}" in
+              0)
+                echo "no ${scenario} report (suite result: $NODE_REPORTS_RESULT); keeping the published preview, if any" >&2
+                ;;
+              1)
+                mkdir -p "dist/preview/${scenario}"
+                cp "${reports[0]}" "dist/preview/${scenario}/latest.json"
+                echo "published preview/${scenario}/latest.json"
+                added=$((added + 1))
+                ;;
+              *)
+                echo "several ${scenario} reports were produced; pick which one 'latest.json' names:" >&2
+                printf '  %s\n' "${reports[@]}" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          if [[ "$added" -eq 0 ]]; then
+            echo "no report was produced; nothing to publish" >&2
+            exit 1
+          fi
+
+      - name: Upload the site for GitHub Pages
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # https://github.com/actions/upload-pages-artifact/releases/tag/v5.0.0
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # https://github.com/actions/deploy-pages/releases/tag/v5.0.1

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Copy the conformance reports published under `preview/` on the live GitHub Pages site into a site being assembled.
+#
+# `.github/workflows/publish-conformance-reports.yml` publishes reports under `preview/<scenario>/latest.json`.
+# A Pages deploy replaces the whole site, so every deploy that does not regenerate those reports carries them over
+# from the live site. A report that the live site does not have is skipped.
+#
+# Usage: ./scripts/fetch-conformance-previews <site-url> <site-directory>
+#
+# Requirements: curl.
+
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <site-url> <site-directory>" >&2
+  exit 1
+fi
+
+SITE_URL="${1%/}"
+SITE_DIR="$2"
+
+for scenario in cbor-conformance uplc-conformance uplc-turbo ledger-rules; do
+  url="$SITE_URL/preview/$scenario/latest.json"
+  target="$SITE_DIR/preview/$scenario/latest.json"
+  mkdir -p "$(dirname "$target")"
+
+  # The timeouts bound how long a stalled transfer holds the deploy. A body cut short still reports HTTP 200, so the
+  # exit code of curl decides whether the file is complete.
+  curl_exit=0
+  status="$(curl -sSL --connect-timeout 10 --max-time 120 --retry 3 --retry-max-time 300 \
+    -o "$target" -w '%{http_code}' "$url")" || curl_exit=$?
+  case "$curl_exit:$status" in
+    0:200)
+      echo "carried over preview/$scenario/latest.json"
+      ;;
+    0:404)
+      rm -f "$target"
+      echo "no preview/$scenario/latest.json on $SITE_URL"
+      ;;
+    *)
+      # A deploy must not fail because a preview could not be read; the next manual run publishes it again.
+      rm -f "$target"
+      echo "could not read $url (HTTP status '${status:-none}', curl exit code $curl_exit); publishing without it" >&2
+      ;;
+  esac
+  rmdir "$(dirname "$target")" 2>/dev/null || true
+done
+
+rmdir "$SITE_DIR/preview" 2>/dev/null || true
