@@ -15,16 +15,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use amaru_minicbor_extra::{CborSizeOf, IndefiniteArray, IndefiniteMap};
-use num::{BigUint, Zero};
 
 use super::block_body_parts::{BlockBodyCommitment, BlockBodyParts, TransactionIndex, hash_body_cbor};
 use crate::{
-    AuxiliaryData, ExUnitPrices, ExUnits, ProtocolParameters, RationalNumber, SafeRatio, Transaction, TransactionBody,
-    WitnessSet,
-    cbor::WithSize,
-    rational_number::{floor_to_lovelace, into_safe_ratio, safe_ratio},
-    to_cbor,
-    traits::HasExUnits,
+    AuxiliaryData, ExUnitPrices, ExUnits, ProtocolParameters, RationalNumber, Transaction, TransactionBody, WitnessSet,
+    cbor::WithSize, plutus_execution_fee, reference_scripts_fee, size_fee, to_cbor, traits::HasExUnits,
 };
 
 /// A mutable block body under construction.
@@ -253,44 +248,29 @@ impl<'a> BlockBodyBuilder<'a> {
 /// resolve and measure scripts, we infer their size from the transaction fee.
 fn ref_scripts_size_upper_bound(transaction: &Transaction, constraints: &BlockBuilderConstraints) -> u64 {
     let tx_size = transaction.tx_ref().len();
-    let linear_fee = constraints.min_fee_a.saturating_mul(tx_size).saturating_add(constraints.min_fee_b);
+    let linear_fee = size_fee(tx_size, constraints.min_fee_a, constraints.min_fee_b);
     let execution_fee = plutus_execution_fee(transaction.witnesses.total_ex_units(), &constraints.prices);
     let fee_headroom = transaction.body.fee.saturating_sub(linear_fee.saturating_add(execution_fee));
 
     let mut lower = 0;
     let mut upper = u64::from(constraints.max_ref_script_size_per_tx) + 1;
+
     while lower + 1 < upper {
         let candidate = lower + (upper - lower) / 2;
-        if reference_script_fee(candidate, constraints) <= fee_headroom {
+        if reference_scripts_fee(
+            candidate,
+            u64::from(constraints.ref_script_cost_stride),
+            &constraints.min_fee_ref_script_lovelace_per_byte,
+            &constraints.ref_script_cost_multiplier,
+        ) <= fee_headroom
+        {
             lower = candidate;
         } else {
             upper = candidate;
         }
     }
+
     lower
-}
-
-fn plutus_execution_fee(units: ExUnits, prices: &crate::ExUnitPrices) -> u64 {
-    let mem = safe_ratio(units.mem, 1) * into_safe_ratio(&prices.mem_price);
-    let steps = safe_ratio(units.steps, 1) * into_safe_ratio(&prices.step_price);
-    floor_to_lovelace((mem + steps).ceil())
-}
-
-fn reference_script_fee(size: u64, constraints: &BlockBuilderConstraints) -> u64 {
-    let multiplier = into_safe_ratio(&constraints.ref_script_cost_multiplier);
-    assert!(constraints.ref_script_cost_stride > 0 && multiplier > SafeRatio::zero());
-    let stride = BigUint::from(u64::from(constraints.ref_script_cost_stride));
-    let mut rate = into_safe_ratio(&constraints.min_fee_ref_script_lovelace_per_byte);
-    let mut fee = SafeRatio::zero();
-    let mut remaining = BigUint::from(size);
-
-    while remaining >= stride {
-        fee += &rate * &stride;
-        rate *= &multiplier;
-        remaining -= &stride;
-    }
-
-    floor_to_lovelace(fee + rate * remaining)
 }
 
 #[cfg(test)]

@@ -120,6 +120,7 @@ pub use cardano::{
     era_summary::EraSummary,
     ex_units::{self, ExUnits},
     ex_units_prices::{self, ExUnitPrices},
+    fee::{self, minimum_fee, plutus_execution_fee, reference_scripts_fee, size_fee},
     global_parameters::{
         GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
     },

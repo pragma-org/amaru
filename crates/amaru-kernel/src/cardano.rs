@@ -53,6 +53,7 @@ pub mod era_params;
 pub mod era_summary;
 pub mod ex_units;
 pub mod ex_units_prices;
+pub mod fee;
 pub mod fixed_bytes;
 pub mod global_parameters;
 pub mod governance_action;
