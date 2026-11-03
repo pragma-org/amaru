@@ -41,8 +41,11 @@ static E: LazyLock<IBig> = LazyLock::new(|| {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpOrdering {
+    /// The comparison value is at or above the exponential upper bound.
     GT,
+    /// The comparison value is strictly below the exponential lower bound.
     LT,
+    /// The supplied iteration budget was exhausted without a decision.
     UNKNOWN,
 }
 
@@ -191,18 +194,12 @@ fn div_qr(q: &mut IBig, r: &mut IBig, x: &IBig, y: &IBig) {
 }
 
 fn div(rop: &mut IBig, x: &IBig, y: &IBig) {
-    let mut temp_q = IBig::ZERO;
-    let mut temp_r = IBig::ZERO;
-    let mut temp: IBig;
-    div_qr(&mut temp_q, &mut temp_r, x, y);
-
-    temp = &temp_q * &*PRECISION;
-    temp_r = &temp_r * &*PRECISION;
-    let temp_r2 = temp_r.clone();
-    div_qr(&mut temp_q, &mut temp_r, &temp_r2, y);
-
-    temp += &temp_q;
-    *rop = temp;
+    let numerator = x * &*PRECISION;
+    let (mut quotient, remainder) = numerator.div_rem(y);
+    if remainder != IBig::ZERO && x.sign() != y.sign() {
+        quotient -= IBig::ONE;
+    }
+    *rop = quotient;
 }
 
 fn div_round_ceil(x: &IBig, y: &IBig) -> IBig {
@@ -255,7 +252,7 @@ fn ref_ln(rop: &mut IBig, x: &IBig) -> bool {
 
     *rop = IBig::from(n);
     *rop = &*rop * &*PRECISION;
-    ref_exp(&mut factor, rop);
+    ipow(&mut factor, &E, n);
 
     div(&mut x_, x, &factor);
 
@@ -306,7 +303,7 @@ fn mp_exp_taylor(rop: &mut IBig, max_n: i32, x: &IBig, epsilon: &IBig) -> i32 {
     let mut last_x = ONE.clone();
     rop.clone_from(&ONE);
     let mut n = 0;
-    while n < max_n {
+    while n < max_n - 1 {
         let mut next_x = x * &last_x;
         scale(&mut next_x);
         let next_x2 = next_x.clone();
@@ -390,7 +387,7 @@ fn mp_ln_n(rop: &mut IBig, max_n: i32, x: &IBig, epsilon: &IBig) {
 
     let mut curr_a = 1;
 
-    while n <= max_n + 2 {
+    while n <= max_n + 1 {
         let curr_a_2 = curr_a * curr_a;
         a = x * IBig::from(curr_a_2);
         if n > 1 && n % 2 == 1 {
@@ -434,16 +431,10 @@ fn mp_ln_n(rop: &mut IBig, max_n: i32, x: &IBig, epsilon: &IBig) {
     *rop = convergent;
 }
 
-/// `bound_x` is the bound for exp in the interval x is chosen from
-/// `compare` the value to compare to
+/// Compare `compare` to exp(`x`), using `bound_x` to bound the Lagrange remainder.
 ///
-/// if the result is GT, then the computed value is guaranteed to be greater, if
-/// the result is LT, the computed value is guaranteed to be less than
-/// `compare`. In the case of `UNKNOWN` no conclusion was possible for the
-/// selected precision.
-///
-/// Lagrange remainder require knowledge of the maximum value to compute the
-/// maximal error of the remainder.
+/// GT means `compare` is at or above the upper bound; LT means it is strictly
+/// below the lower bound. UNKNOWN means the supplied iteration budget was exhausted.
 fn ref_exp_cmp(max_n: u64, x: &IBig, bound_x: i64, compare: &IBig) -> ExpCmpOrdering {
     let mut n = 0u64;
     let mut divisor: IBig;
@@ -461,9 +452,6 @@ fn ref_exp_cmp(max_n: u64, x: &IBig, bound_x: i64, compare: &IBig) -> ExpCmpOrde
     let rop = &mut approx.value;
     while n < max_n {
         next_x = error.clone();
-        if (&next_x).abs() < (&*EPS).abs() {
-            break;
-        }
         divisor += &*ONE;
 
         // update error estimation, this is initially bound_x * x and in general
@@ -473,12 +461,12 @@ fn ref_exp_cmp(max_n: u64, x: &IBig, bound_x: i64, compare: &IBig) -> ExpCmpOrde
         scale(&mut error);
         let e2 = error.clone();
         div(&mut error, &e2, &divisor);
-        error_term = &error * IBig::from(bound_x);
+        error_term = (&error * IBig::from(bound_x)).abs();
         *rop = &*rop + &next_x;
 
         /* compare is guaranteed to be above overall result */
         upper = &*rop + &error_term;
-        if compare > &upper {
+        if compare >= &upper {
             estimate = ExpOrdering::GT;
             n += 1;
             break;
@@ -495,4 +483,146 @@ fn ref_exp_cmp(max_n: u64, x: &IBig, bound_x: i64, compare: &IBig) -> ExpCmpOrde
     }
 
     ExpCmpOrdering { iterations: n, estimation: estimate, approx }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(value: &str) -> FixedDecimal {
+        FixedDecimal { value: IBig::from_str(value).unwrap() }
+    }
+
+    #[test]
+    fn node_primitives_match() {
+        // Apache-2.0 Pallas fixtures, independently checked with non-integral-1.0.0.0 / base Data.Fixed E34:
+        // https://github.com/txpipe/pallas/blob/99678214c9505262865f390cb8479302b13a0960/pallas-math/tests/data/node-primitives.tsv
+        let rows = include_str!("../tests/data/maths/node-primitives.tsv");
+        assert_eq!(rows.lines().count(), 32);
+        for (index, row) in rows.lines().enumerate() {
+            let columns: Vec<_> = row.split('\t').collect();
+            let [operation, a, b, expected] = columns.as_slice() else {
+                panic!("malformed primitive row {}: {row}", index + 1);
+            };
+            let actual = match *operation {
+                "multiply" => &raw(a) * &raw(b),
+                "divide" => &raw(a) / &raw(b),
+                "ratio" => {
+                    &FixedDecimal::new(IBig::from_str(a).unwrap()) / &FixedDecimal::new(IBig::from_str(b).unwrap())
+                }
+                _ => panic!("unknown operation in row {}: {row}", index + 1),
+            };
+            assert_eq!(actual, raw(expected), "primitive row {}: {row}", index + 1);
+        }
+    }
+
+    #[test]
+    fn node_comparisons_match() {
+        // Apache-2.0 Pallas fixtures, independently checked with non-integral-1.0.0.0 / base Data.Fixed E34:
+        // https://github.com/txpipe/pallas/blob/99678214c9505262865f390cb8479302b13a0960/pallas-math/tests/data/node-comparisons.tsv
+        let rows = include_str!("../tests/data/maths/node-comparisons.tsv");
+        assert_eq!(rows.lines().count(), 9);
+        for (index, row) in rows.lines().enumerate() {
+            let columns: Vec<_> = row.split('\t').collect();
+            let [compare, x, ordering, iterations] = columns.as_slice() else {
+                panic!("malformed comparison row {}: {row}", index + 1);
+            };
+            let expected = match *ordering {
+                "ABOVE" => ExpOrdering::GT,
+                "BELOW" => ExpOrdering::LT,
+                "MAX_REACHED" => ExpOrdering::UNKNOWN,
+                _ => panic!("unknown ordering in row {}: {row}", index + 1),
+            };
+            let actual = raw(x).exp_cmp(1000, 3, &raw(compare));
+            assert_eq!(
+                (actual.estimation, actual.iterations),
+                (expected, iterations.parse::<u64>().unwrap()),
+                "comparison row {} (negative remainders require an absolute bound): {row}",
+                index + 1
+            );
+        }
+    }
+
+    #[test]
+    fn exp_cmp_resolves_below_epsilon() {
+        let x = FixedDecimal { value: IBig::from(10).pow(22) };
+        let q = FixedDecimal { value: &*PRECISION + IBig::from(10).pow(22) + IBig::from(10).pow(9) };
+        let actual = x.exp_cmp(1000, 3, &q);
+        assert_eq!((actual.estimation, actual.iterations), (ExpOrdering::LT, 2));
+    }
+
+    #[test]
+    fn exp_cmp_upper_equality_is_above() {
+        let q = &FixedDecimal::from(7) / &FixedDecimal::from(2);
+        let actual = FixedDecimal::one().exp_cmp(1, 3, &q);
+        assert_eq!((actual.estimation, actual.iterations), (ExpOrdering::GT, 1));
+    }
+
+    #[test]
+    fn exp_cmp_lower_equality_is_not_below() {
+        let q = FixedDecimal::one() / &FixedDecimal::from(2);
+        for (budget, expected) in [(1, ExpOrdering::UNKNOWN), (2, ExpOrdering::LT)] {
+            let actual = FixedDecimal::one().exp_cmp(budget, 3, &q);
+            assert_eq!((actual.estimation, actual.iterations), (expected, budget));
+        }
+    }
+
+    #[test]
+    fn exp_cmp_exhausts_budget() {
+        let actual = FixedDecimal::ZERO.exp_cmp(0, 3, FixedDecimal::one());
+        assert_eq!((actual.estimation, actual.iterations), (ExpOrdering::UNKNOWN, 0));
+        assert_eq!(&actual.approx, FixedDecimal::one());
+        let actual = FixedDecimal::ZERO.exp_cmp(1, 3, FixedDecimal::one());
+        assert_eq!((actual.estimation, actual.iterations), (ExpOrdering::GT, 1));
+        for budget in [1, 2, 1000] {
+            let actual = FixedDecimal::from(1_000_000).exp_cmp(budget, 3, FixedDecimal::one());
+            assert_eq!((actual.estimation, actual.iterations), (ExpOrdering::UNKNOWN, budget));
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn division_by_zero_panics() {
+        let _ = FixedDecimal::one() / &FixedDecimal::ZERO;
+    }
+
+    #[test]
+    fn exp_series_respects_term_limit() {
+        for (limit, expected, updates) in [(1, 1, 0), (2, 2, 1)] {
+            let mut actual = IBig::ZERO;
+            assert_eq!(mp_exp_taylor(&mut actual, limit, &ONE, &IBig::ZERO), updates);
+            assert_eq!(actual, FixedDecimal::from(expected).value);
+        }
+    }
+
+    #[test]
+    fn ln_series_respects_convergent_limit() {
+        for (limit, expected) in [(0, "10000000000000000000000000000000000"), (1, "6666666666666666666666666666666666")]
+        {
+            let mut actual = IBig::ZERO;
+            mp_ln_n(&mut actual, limit, &ONE, &IBig::ZERO);
+            assert_eq!(actual, raw(expected).value, "convergent limit {limit}");
+        }
+    }
+
+    #[test]
+    fn ordinary_exp_matches_node() {
+        // Pallas 99678214 node-extra-arithmetic.tsv, independently checked with Haskell exp'.
+        for (x, expected) in [
+            ("0", "1.0000000000000000000000000000000000"),
+            ("1", "2.7182818284590452353602874043083282"),
+            ("-1", "0.3678794411714423215955237792349248"),
+        ] {
+            let mut actual = FixedDecimal::ZERO;
+            ref_exp(&mut actual.value, &FixedDecimal::from_str(x).unwrap().value);
+            assert_eq!(actual.to_string(), expected, "exp({x})");
+        }
+    }
+
+    #[test]
+    fn active_slot_log_matches_node() {
+        // Pallas 99678214 node-vectors.tsv, independently checked with non-integral-1.0.0.0 ln'.
+        let coeff = FixedDecimal::one() / &FixedDecimal::from(20);
+        assert_eq!((FixedDecimal::one() - &coeff).ln(), raw("-512932943875505334261962382072846"));
+    }
 }

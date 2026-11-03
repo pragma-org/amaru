@@ -419,6 +419,71 @@ mod tests {
     use super::*;
 
     #[test]
+    fn leader_thresholds_match_node() {
+        let scale = FixedDecimal::from_str("10000000000000000000000000000000000").unwrap();
+        let from_raw = |s: &str| &FixedDecimal::from_str(s).unwrap() / &scale;
+        let coeff = FixedDecimal::one() / &FixedDecimal::from(20u64);
+        // Generated with the pinned Haskell sources named in the header; cross-checked with Pallas 99678214.
+        let mut rows = include_str!("../../tests/data/leader-thresholds.tsv").lines();
+        assert!(rows.next().unwrap().starts_with("# Cardano "));
+        let mut count = 0;
+        for row in rows {
+            count += 1;
+            let columns: Vec<_> = row.split('\t').collect();
+            let [
+                numerator,
+                denominator,
+                natural,
+                eligible,
+                sigma_raw,
+                log_raw,
+                reciprocal_raw,
+                exponent_raw,
+                ordering,
+                iterations,
+            ] = columns.as_slice()
+            else {
+                panic!("malformed leadership row {count}: {row}");
+            };
+            let expected_eligible = eligible.parse::<bool>().unwrap();
+            let expected_ordering = match *ordering {
+                "ABOVE" => ExpOrdering::GT,
+                "BELOW" => ExpOrdering::LT,
+                "MAX_REACHED" => ExpOrdering::UNKNOWN,
+                _ => panic!("unknown ordering in leadership row {count}: {row}"),
+            };
+            let sigma = &FixedDecimal::from(numerator.parse::<u64>().unwrap())
+                / &FixedDecimal::from(denominator.parse::<u64>().unwrap());
+            let certified = FixedDecimal::from_str(natural).unwrap();
+            let c = (FixedDecimal::one() - &coeff).ln();
+            let q = CERTIFIED_NATURAL_MAX.deref() / &(CERTIFIED_NATURAL_MAX.deref() - &certified);
+            let x = -&(&sigma * &c);
+            for (name, actual, expected) in [
+                ("sigma", &sigma, sigma_raw),
+                ("log", &c, log_raw),
+                ("reciprocal", &q, reciprocal_raw),
+                ("exponent", &x, exponent_raw),
+            ] {
+                assert_eq!(actual, &from_raw(expected), "{name}, leadership row {count}: {row}");
+            }
+            let comparison = x.exp_cmp(1000, 3, &q);
+            assert_eq!(
+                (comparison.estimation, comparison.iterations),
+                (expected_ordering, iterations.parse::<u64>().unwrap()),
+                "comparison, leadership row {count}: {row}"
+            );
+            let expected =
+                if expected_eligible { Ok(()) } else { Err(AssertLeaderStakeError::InsufficientLeaderStake) };
+            assert_eq!(
+                AssertLeaderStakeError::new(&coeff, &sigma, &certified),
+                expected,
+                "eligibility, leadership row {count}: {row}"
+            );
+        }
+        assert_eq!(count, 16);
+    }
+
+    #[test]
     fn test_assert_header_error_serialization_roundtrip() {
         let errors = vec![AssertHeaderError::InvalidEd25519PublicKey];
 

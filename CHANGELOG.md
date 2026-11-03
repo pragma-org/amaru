@@ -50,6 +50,7 @@ Other guiding principles:
 
 - **amaru-metrics**: the `amaru_consensus_*_duration_microseconds` histograms have buckets from 0.5 ms to 30 s. They used the OpenTelemetry default boundaries (0 to 10,000), meant for milliseconds, so nearly every header and block timing fell in the overflow bucket and percentiles could not be computed.
 - **amaru-ledger**: a transaction or block carrying a witness whose verification key is not a valid Ed25519 point no longer crashes the node.
+- **amaru-ouroboros**: align leader eligibility with the Cardano node at fixed-point rounding and threshold boundaries, for both block production and header validation. ([#1577](https://github.com/pragma-org/amaru/issues/1577))
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
