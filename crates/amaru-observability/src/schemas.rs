@@ -751,6 +751,19 @@ define_schemas! {
                     required freeze_depth: u64
                     required settled: bool
                 }
+                /// Transaction selection for building blocks
+                public span BUILD_BLOCK {
+                    required slot: amaru_kernel::Slot
+                }
+                /// The non-empty block body selected for the current forge attempt.
+                public event BLOCK_BODY {
+                    levels: debug, info
+                    required slot: amaru_kernel::Slot
+                    required tx_count: u64
+                    required size_bytes: u32
+                    required ex_units: %amaru_kernel::ExUnits
+                    required ref_scripts_size: u64
+                }
                 /// A block was forged and stored, and its tip sent to chain selection.
                 public event FORGED {
                     levels: info

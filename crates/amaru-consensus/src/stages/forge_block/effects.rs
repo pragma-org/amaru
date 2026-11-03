@@ -25,6 +25,7 @@ use amaru_kernel::{
     BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, Point, PoolId, Slot,
     Transaction, maths::FixedDecimal,
 };
+use amaru_observability::{info, info_span};
 use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
@@ -181,35 +182,47 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
             };
 
-            let mut builder = BlockBodyBuilder::default();
-            let mut selected = Vec::new();
+            info_span!(consensus::forge::BUILD_BLOCK, slot = this.slot).in_scope(|| {
+                let mut builder = BlockBodyBuilder::default();
+                let mut selected = Vec::new();
 
-            // FIXME: Assumptions of block forging iterating through mempool
-            //
-            // This simple construction works only because we assume transactions in the mempool to
-            // be independent; which is the case with the current strategy, but the underlying code
-            // here should not be able to make this assumption.
-            //
-            // In principle, we should be able to inform the iterator of us skipping a transaction;
-            // or reverse the problem and have the iterator return batches of dependent
-            // transactions. Skipping one transaction from the batch should skip all the subsequent
-            // one and move to the next batch.
-            for transaction in mempool_view.iter() {
-                // The ledger tip can be older than the slot being forged. Revalidation at the
-                // previous tip is therefore not sufficient to prove that the transaction is
-                // still valid for this block.
-                if transaction.body.validity_interval().includes(this.slot)
-                    && builder.try_push(transaction, &constraints)?
-                {
-                    selected.push(transaction.tx_id());
+                // FIXME: Assumptions of block forging iterating through mempool
+                //
+                // This simple construction works only because we assume transactions in the mempool to
+                // be independent; which is the case with the current strategy, but the underlying code
+                // here should not be able to make this assumption.
+                //
+                // In principle, we should be able to inform the iterator of us skipping a transaction;
+                // or reverse the problem and have the iterator return batches of dependent
+                // transactions. Skipping one transaction from the batch should skip all the subsequent
+                // one and move to the next batch.
+                for transaction in mempool_view.iter() {
+                    // The ledger tip can be older than the slot being forged. Revalidation at the
+                    // previous tip is therefore not sufficient to prove that the transaction is
+                    // still valid for this block.
+                    if transaction.body.validity_interval().includes(this.slot)
+                        && builder.try_push(transaction, &constraints)?
+                    {
+                        selected.push(transaction.tx_id());
+                    }
                 }
-            }
 
-            let body = builder.finalize()?;
-            drop(mempool_view);
-            mempool.remove(&selected);
+                info!(
+                    consensus::forge::BLOCK_BODY,
+                    slot = this.slot,
+                    tx_count = selected.len() as u64,
+                    size_bytes = builder.size(),
+                    ex_units = builder.ex_units(),
+                    ref_scripts_size = builder.ref_scripts_size(),
+                );
 
-            Ok(body)
+                let body = builder.finalize()?;
+
+                drop(mempool_view);
+                mempool.remove(&selected);
+
+                Ok(body)
+            })
         })
     }
 }

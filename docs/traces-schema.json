@@ -4862,6 +4862,68 @@
         "warn"
       ]
     },
+    "amaru::consensus::forge::BLOCK_BODY": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tx_count": {
+          "type": "integer"
+        },
+        "size_bytes": {
+          "type": "integer"
+        },
+        "ex_units": {
+          "type": "string"
+        },
+        "ref_scripts_size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot",
+        "tx_count",
+        "size_bytes",
+        "ex_units",
+        "ref_scripts_size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "block_body",
+      "kind": "event",
+      "target": "amaru::consensus::forge",
+      "description": "The non-empty block body selected for the current forge attempt.",
+      "public": true,
+      "levels": [
+        "debug",
+        "info"
+      ]
+    },
+    "amaru::consensus::forge::BUILD_BLOCK": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "build_block",
+      "kind": "span",
+      "target": "amaru::consensus::forge",
+      "description": "Transaction selection for building blocks",
+      "public": true
+    },
     "amaru::consensus::forge::FORGED": {
       "type": "object",
       "properties": {
@@ -4926,7 +4988,7 @@
       "name": "forge_failed",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block, seal_block}.",
       "public": true,
       "levels": [
         "error"
