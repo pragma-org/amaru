@@ -28,7 +28,7 @@ services:
       - AMARU_DB_CHAIN
       - AMARU_DB_LEDGER
       - AMARU_NETWORK
-      - AMARU_PEER=amaru:3000
+      - AMARU_PEER=amaru:3001
       - CONFIG_FOLDER
     volumes:
       - amaru_2_data:/srv/amaru

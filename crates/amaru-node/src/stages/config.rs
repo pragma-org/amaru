@@ -38,7 +38,9 @@ use amaru_pure_stage::Instant;
 use amaru_stores::rocksdb::RocksDbConfig;
 use anyhow::Context;
 
-use crate::{DEFAULT_PEER_REMOVAL_COOLDOWN, DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM};
+use crate::{
+    DEFAULT_PEER_REMOVAL_COOLDOWN, DEFAULT_PEERS_LISTEN_ON, DEFAULT_PEERS_MAX_DOWNSTREAM, DEFAULT_PEERS_MAX_UPSTREAM,
+};
 
 /// Configuration for the Amaru node, including storage options, network settings, and other parameters.
 ///
@@ -163,7 +165,7 @@ impl Default for Config {
             target_downstream_peers: DEFAULT_PEERS_MAX_DOWNSTREAM,
             peer_mix: PeerMix::default(),
             network_magic: NetworkMagic::PREPROD,
-            listen_address: "0.0.0.0:3000".to_string(),
+            listen_address: DEFAULT_PEERS_LISTEN_ON.to_string(),
             bind_outbound_to_listen_port: true,
             migrate_chain_db: false,
             submit_api_address: None,
