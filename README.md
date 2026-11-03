@@ -18,6 +18,7 @@
 [![][ci-build-and-test-badge]][ci-build-and-test]
 [![][ci-coding-practices-badge]][ci-coding-practices]
 [![][ci-transaction-submission-badge]][ci-transaction-submission]
+[![Nightly Full Bootstrap][nightly-full-bootstrap-badge]][nightly-full-bootstrap]
 [![][nightly-tool-integrations-badge]][nightly-tool-integrations]
 [![][release-begin-badge]][release-begin]
 
@@ -146,6 +147,9 @@ See [monitoring/README.md](./monitoring/README.md).
 
 [ci-coding-practices-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/ci-coding-practices.yml?style=flat-square&logo=thestorygraph&logoColor=%23ffffff&label=
 [ci-coding-practices]: https://github.com/pragma-org/amaru/actions/workflows/ci-coding-practices.yml
+
+[nightly-full-bootstrap-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/nightly-full-bootstrap.yml?branch=main&style=flat-square&label=Nightly%20Full%20Bootstrap
+[nightly-full-bootstrap]: https://github.com/pragma-org/amaru/actions/workflows/nightly-full-bootstrap.yml
 
 [nightly-tool-integrations-badge]: https://img.shields.io/github/actions/workflow/status/pragma-org/amaru/nightly-tool-integrations.yml?style=flat-square&logo=applearcade&logoColor=%23ffffff&label=
 [nightly-tool-integrations]: https://github.com/pragma-org/amaru/actions/workflows/nightly-tool-integrations.yml
