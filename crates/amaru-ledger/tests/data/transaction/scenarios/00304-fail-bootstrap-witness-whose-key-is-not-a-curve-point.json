@@ -1,0 +1,33 @@
+{
+  "title": "bootstrap witness whose key is not a curve point",
+  "description": "Spends a Byron input with a bootstrap witness whose 32-byte key is a canonical y-coordinate that does not decompress to an Ed25519 point.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00",
+        "output": "a200584f82d818584583581cece4dc9f3486c8b090e994e9f09ec1890373f1ae921f1bf20dc4f2baa201581e581c66e1b3a99eb32c018ee2ffb3de7a95f38cbb131e29701348138511e0024101001a06509f3c011a004c4b40"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a00493e00021a00030d400f00a102d901028184582002000000000000000000000000000000000000000000000000000000000000005840e232bc6acf5af5cee10af8224d5b0b18990239589b00885309efabe5af47ff659fe5bae54991f7ba6fea0c32a445bbf52aaf47b6387e849e51ee150468855d085820b3db22d54df4d54b96cb2cf7c731d643559cd7ddf351943de2e417aef2069d815825a201581e581c66e1b3a99eb32c018ee2ffb3de7a95f38cbb131e29701348138511e0024101f5f6",
+  "expected": {
+    "predicate": "InvalidWitnessesUTXOW"
+  }
+}
