@@ -1823,6 +1823,13 @@ mod tests {
             Mempool::read(self.inner.as_ref())
         }
 
+        fn read_at(
+            &self,
+            tip: amaru_kernel::Point,
+        ) -> Option<Box<dyn MempoolRead<WithOriginalBytes<Transaction>> + '_>> {
+            Mempool::read_at(self.inner.as_ref(), tip)
+        }
+
         fn contains(&self, tx_id: &TransactionId) -> bool {
             self.contains.unwrap_or_else(|| Mempool::contains(self.inner.as_ref(), tx_id))
         }
@@ -1845,10 +1852,6 @@ mod tests {
 
         fn state(&self) -> amaru_ouroboros_traits::MempoolState {
             Mempool::state(self.inner.as_ref())
-        }
-
-        fn tip(&self) -> amaru_kernel::Point {
-            Mempool::tip(self.inner.as_ref())
         }
 
         fn set_tip(&self, tip: amaru_kernel::Point) {

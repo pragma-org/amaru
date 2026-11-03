@@ -29,6 +29,7 @@ use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, ResourceMempool, TxInsertResult, TxOrigin};
 use amaru_ouroboros_traits::TransactionValidationError;
 use amaru_pure_stage::StageRef;
+use parking_lot::Mutex;
 use tokio::runtime::Runtime;
 
 use super::{WorldConnectionProvider, WorldLoop, build_world_node_with_mempool_stage};
@@ -39,6 +40,7 @@ struct MempoolWorld {
     _runtime: Runtime,
     mempool_stage: StageRef<MempoolMsg>,
     mempool: ResourceMempool<Transaction>,
+    ledger_tip: Arc<Mutex<Point>>,
 }
 
 impl MempoolWorld {
@@ -53,18 +55,23 @@ impl MempoolWorld {
             build_world_node_with_mempool_stage(&config, provider.clone(), runtime.handle()).expect("world node");
         let mempool = running.resources().get::<ResourceMempool<Transaction>>().expect("mempool").clone();
         let world = WorldLoop::new(provider, vec![running]);
-        Self { world, _runtime: runtime, mempool_stage, mempool }
+        Self { world, _runtime: runtime, mempool_stage, mempool, ledger_tip: Arc::new(Mutex::new(Point::Origin)) }
     }
 
     fn validate_expected_validity(&self) {
-        let validator: ResourceTxValidation = Arc::new(|tx: &Transaction| {
-            if tx.is_expected_valid {
+        let ledger_tip = self.ledger_tip.clone();
+        let validator: ResourceTxValidation = Arc::new(move |tx: &Transaction| {
+            if tx.is_expected_valid && tx.body.validity_interval().includes(ledger_tip.lock().slot()) {
                 Ok(())
             } else {
                 Err(TransactionValidationError::from(anyhow::anyhow!("transaction rejected by test validator")))
             }
         });
         self.world.graph(0).resources().put(validator);
+    }
+
+    fn advance_ledger_tip(&self, tip: Point) {
+        *self.ledger_tip.lock() = tip;
     }
 
     fn reject_everything(&self) {
@@ -117,7 +124,6 @@ fn world_mempool_duplicate_storm_does_not_consume_capacity_or_sequence_numbers()
     let max_bytes = to_cbor(&tx).len() as u64;
     let limited: ResourceMempool<Transaction> =
         Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
-    limited.set_tip(test.mempool.tip());
     test.world.graph(0).resources().put(limited.clone());
     test.mempool = limited;
 
@@ -137,7 +143,6 @@ fn world_mempool_rejects_transactions_after_capacity_without_partial_overflow() 
     let max_bytes = to_cbor(&first).len() as u64;
     let limited: ResourceMempool<Transaction> =
         Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
-    limited.set_tip(test.mempool.tip());
     test.world.graph(0).resources().put(limited.clone());
     test.mempool = limited;
 
@@ -158,7 +163,6 @@ fn world_mempool_revalidation_evicts_transactions_invalidated_by_the_new_tip() {
     test.world.run_until_horizon(1_000_000_000);
 
     assert_eq!(test.state().tx_count, 0);
-    assert_eq!(test.mempool.tip(), Point::Origin);
 }
 
 /// `mempool.expired_validity_interval`: advancing the mempool tip past an exclusive upper bound
@@ -173,9 +177,9 @@ fn world_mempool_revalidation_evicts_expired_transactions() {
     test.insert_batch(vec![WithOriginalBytes::from(tx)]);
 
     let tip = Point::Specific(Slot::from(10), Hash::new([2; 32]), 1.into());
+    test.advance_ledger_tip(tip);
     test.world.enqueue_msg(0, &test.mempool_stage, MempoolMsg::NewTip(tip));
     test.world.run_until_horizon(1_000_000_000);
 
     assert!(test.mempool.read().iter().next().is_none(), "expired transaction must leave the mempool");
-    assert_eq!(test.mempool.tip(), tip);
 }

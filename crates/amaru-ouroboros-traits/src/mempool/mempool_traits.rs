@@ -32,8 +32,16 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// Borrow the current contents of the mempool.
     ///
     /// The read view holds the implementation's read lock, when one is needed, until it is
-    /// dropped. Callers must finish using the view before mutating the mempool.
+    /// dropped. Callers must finish using the view before mutating the mempool. Use [`Self::read_at`]
+    /// when the view must match a previously observed ledger tip.
     fn read(&self) -> Box<dyn MempoolRead<Tx> + '_>;
+
+    /// Borrow the mempool only if it is still at `tip`.
+    ///
+    /// The tip check and acquisition of the read view are one operation. A successful result
+    /// therefore keeps the view aligned with the tip supplied by the caller for its entire
+    /// lifetime; a failed result means the caller must retry against a newer tip.
+    fn read_at(&self, tip: Point) -> Option<Box<dyn MempoolRead<Tx> + '_>>;
 
     /// Return true if the mempool contains a transaction with the given id.
     fn contains(&self, tx_id: &TransactionId) -> bool {
@@ -61,9 +69,6 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
     /// to refresh observability gauges. Returned together so observers can
     /// avoid taking the underlying lock twice.
     fn state(&self) -> MempoolState;
-
-    /// Return the ledger tip against which the active transactions were last revalidated.
-    fn tip(&self) -> Point;
 
     /// Record the ledger tip after the mempool has been revalidated against it.
     fn set_tip(&self, tip: Point);

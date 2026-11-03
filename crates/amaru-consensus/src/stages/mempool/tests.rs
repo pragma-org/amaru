@@ -142,7 +142,7 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert_eq!(mempool.tip(), tip);
+    assert!(mempool.read_at(tip).is_some());
     assert!(mempool.read().iter().next().is_none());
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "included_in_adopted_block"])
         .assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"])

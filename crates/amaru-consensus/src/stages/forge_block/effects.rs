@@ -49,8 +49,8 @@ pub enum TakeForForgeError {
     Body(#[from] amaru_kernel::BlockBodyBuilderError),
     #[error("ledger worker terminated while reading block-builder constraints")]
     LedgerThreadTerminated,
-    #[error("ledger tip {ledger_tip} and mempool tip {mempool_tip} do not match forge parent {parent} at slot {slot}")]
-    TipsChanged { ledger_tip: Point, mempool_tip: Point, parent: HeaderHash, slot: Slot },
+    #[error("ledger or mempool tip does not match forge parent {parent} at slot {slot} (ledger tip: {ledger_tip})")]
+    TipsChanged { ledger_tip: Point, parent: HeaderHash, slot: Slot },
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -173,18 +173,13 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
                 constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
 
-            let mempool_tip = mempool.tip();
-
-            if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot || mempool_tip != ledger_tip {
-                return Err(TakeForForgeError::TipsChanged {
-                    ledger_tip,
-                    mempool_tip,
-                    parent: this.parent,
-                    slot: this.slot,
-                });
+            if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot {
+                return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
             }
 
-            let mempool_view = mempool.read();
+            let Some(mempool_view) = mempool.read_at(ledger_tip) else {
+                return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
+            };
 
             let mut builder = BlockBodyBuilder::default();
             let mut selected = Vec::new();

@@ -167,6 +167,11 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx
         Box::new(InMemoryMempoolRead { inner: self.inner.read() })
     }
 
+    fn read_at(&self, tip: Point) -> Option<Box<dyn MempoolRead<Tx> + '_>> {
+        let inner = self.inner.read();
+        (inner.tip == tip).then(|| Box::new(InMemoryMempoolRead { inner }) as Box<dyn MempoolRead<Tx>>)
+    }
+
     fn slice(&self, from_seq: MempoolSeqNo, limit: u16) -> Vec<(TransactionId, u32, MempoolSeqNo)> {
         self.inner.read().slice(from_seq, limit)
     }
@@ -192,10 +197,6 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx
         }
     }
 
-    fn tip(&self) -> Point {
-        self.inner.read().tip
-    }
-
     fn set_tip(&self, tip: Point) {
         self.inner.write().tip = tip;
     }
@@ -205,7 +206,7 @@ impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx
 mod tests {
     use std::{ops::Deref, slice, str::FromStr};
 
-    use amaru_kernel::{Hasher, Peer, cbor, cbor as minicbor, size::TRANSACTION_BODY};
+    use amaru_kernel::{Hash, Hasher, Peer, Point, cbor, cbor as minicbor, size::TRANSACTION_BODY};
     use amaru_ouroboros_traits::TxRejectReason;
 
     use super::*;
@@ -240,6 +241,18 @@ mod tests {
 
         let ids = mempool.read().iter().map(|tx| tx.tx_id()).collect::<Vec<_>>();
         assert_eq!(ids, vec![first_id, second_id]);
+    }
+
+    #[test]
+    fn read_at_rejects_a_stale_tip_without_exposing_a_view() {
+        let mempool = InMemoryMempool::new(MempoolConfig::default());
+        let tip = Point::Specific(1.into(), Hash::new([1u8; 32]), 1.into());
+        let tx = Tx::from_str("tx").unwrap();
+        mempool.insert(tx.clone(), TxOrigin::Local);
+        mempool.set_tip(tip);
+
+        assert!(mempool.read_at(Point::Origin).is_none());
+        assert_eq!(mempool.read_at(tip).unwrap().iter().collect::<Vec<_>>(), vec![&tx]);
     }
 
     #[test]
