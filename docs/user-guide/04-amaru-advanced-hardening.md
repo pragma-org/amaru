@@ -92,7 +92,7 @@ table inet filter {
         # Allow all to SSH
         tcp dport 2222 accept
 
-        # note: by default Amaru listen on :3000
+        # note: by default Amaru listens on :3001
         tcp dport 3001 accept
 
         # Allow Docker containers to reach the host 

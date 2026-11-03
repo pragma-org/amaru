@@ -86,7 +86,7 @@ pub fn default_chain_dir(network: NetworkName) -> String {
 }
 
 /// Default address for inbound peer connections.
-pub const DEFAULT_PEERS_LISTEN_ON: &str = "0.0.0.0:3000";
+pub const DEFAULT_PEERS_LISTEN_ON: &str = "0.0.0.0:3001";
 
 /// Default peer when no network-specific default applies (custom testnets).
 pub const DEFAULT_LOCAL_PEER_ADDRESS: &str = "127.0.0.1:3001";
