@@ -1,0 +1,137 @@
+name: report-nightly-failures
+description: Track completed workflow failures in GitHub issues, closing them on recovery
+
+# Call from a serialized workflow_run listener after checking out the default branch.
+# Requires actions: read and issues: write; the runner must provide gh and jq.
+inputs:
+  token:
+    description: >-
+      Must be the workflow GITHUB_TOKEN with permission to read runs and write issues.
+      Issue lookup requires the github-actions[bot] identity; a PAT or GitHub App token
+      uses a different identity and causes duplicate issues.
+    required: true
+  mention:
+    description: Team or user mention to notify when opening an issue
+    default: ''
+  assignees:
+    description: Comma-separated GitHub usernames to assign new issues to
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Update failure issues
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPORT_MENTION: ${{ inputs.mention }}
+        REPORT_ASSIGNEES: ${{ inputs.assignees }}
+      run: |
+        # Create or update issues for failed jobs, and close them when those jobs recover.
+
+        set -euo pipefail
+        report_dir="$(mktemp -d)"
+        trap 'rm -rf "$report_dir"' EXIT
+        root="repos/$GITHUB_REPOSITORY"
+
+        run_id="$(jq -r '.workflow_run.id' "$GITHUB_EVENT_PATH")"
+        gh api "$root/actions/runs/$run_id" > "$report_dir/run.json"
+        workflow_id="$(jq -r '.workflow_id' "$report_dir/run.json")"
+        attempt="$(jq -r '.run_attempt' "$report_dir/run.json")"
+        branch="$(jq -r '.head_branch' "$report_dir/run.json")"
+
+        # An older run or rerun must not overwrite the result of a newer nightly.
+        gh api "$root/actions/workflows/$workflow_id/runs" --method GET --paginate --slurp \
+          -f branch="$branch" -f status=completed -f per_page=100 > "$report_dir/runs.json"
+        if ! jq -e --slurpfile event "$GITHUB_EVENT_PATH" --slurpfile runs "$report_dir/runs.json" '
+          . as $run | .status == "completed" and .run_attempt == $event[0].workflow_run.run_attempt
+          and all($runs[0][].workflow_runs[]; .run_number <= $run.run_number)
+        ' "$report_dir/run.json" >/dev/null; then
+          echo "Ignoring an outdated run result."
+          exit 0
+        fi
+
+        # Include earlier attempts: rerunning failed jobs omits previously successful jobs.
+        gh api "$root/actions/runs/$run_id/jobs?filter=all&per_page=100" --paginate --slurp \
+          | jq '[.[].jobs[]] | group_by(.name) | map(max_by([.run_attempt, .id]))' > "$report_dir/jobs.json"
+        gh api "$root/issues?state=all&creator=github-actions%5Bbot%5D&sort=created&direction=desc&per_page=100" \
+          --paginate --slurp | jq '[.[][] | select(.pull_request == null)]' > "$report_dir/issues.json"
+
+        # A failure before any jobs exist gets its own issue, closed only when the whole run succeeds.
+        jq -c --slurpfile run "$report_dir/run.json" '
+          map(. + {key: ("job:" + (.name | @uri))}) + [{
+            name: "Workflow startup", key: "workflow",
+            conclusion: (if length == 0 or $run[0].conclusion == "success" then $run[0].conclusion else "unknown" end)
+          }] | .[]
+        ' "$report_dir/jobs.json" > "$report_dir/targets.jsonl"
+
+        while IFS= read -r job; do
+          conclusion="$(jq -r '.conclusion // "unknown"' <<< "$job")"
+          case "$conclusion" in
+            success|failure|timed_out|cancelled|startup_failure|action_required|stale) ;;
+            *) continue ;;
+          esac
+          key="$(jq -r '.key' <<< "$job")"
+          issue_marker="<!-- nightly-failure:$workflow_id:$key -->"
+          report_marker="<!-- nightly-failure:$workflow_id:$key:$run_id:$attempt -->"
+          issue="$(jq -c --arg marker "$issue_marker" '
+            [.[] | select((.body // "") | contains($marker))]
+            | (map(select(.state == "open")) + .)[0]
+          ' "$report_dir/issues.json")"
+          number="$(jq -r '.number // empty' <<< "$issue")"
+          state="$(jq -r '.state // "absent"' <<< "$issue")"
+          if [[ "$conclusion" == success && "$state" != open ]]; then
+            continue
+          fi
+
+          already_reported=false
+          if [[ -n "$number" ]]; then
+            gh api "$root/issues/$number/comments?per_page=100" --paginate --slurp > "$report_dir/comments.json"
+            if jq -e --arg marker "$report_marker" --argjson issue "$issue" '
+              (($issue.body // "") | contains($marker)) or
+              any(.[][]; .user.login == "github-actions[bot]" and (.body | contains($marker)))
+            ' "$report_dir/comments.json" >/dev/null; then
+              already_reported=true
+            fi
+          fi
+          # Notification retries must also respect manual closure of an issue.
+          if [[ "$state" != open && "$already_reported" == true ]]; then
+            continue
+          fi
+
+          jq -nr --slurpfile run "$report_dir/run.json" --argjson job "$job" \
+            --arg marker "$report_marker" --arg repo "$GITHUB_REPOSITORY" '
+            $run[0] as $run | [
+              $marker,
+              "**\($run.name): \($job.name)** — **\(if $job.conclusion == "success" then "recovered" else $job.conclusion end)**.",
+              "",
+              "- Run: [#\($run.run_number), attempt \($run.run_attempt)](\($run.html_url))",
+              "- Commit: [\($run.head_sha[:12])](https://github.com/\($repo)/commit/\($run.head_sha))",
+              (if $job.html_url then "- [Job logs](\($job.html_url))" else empty end),
+              "- [Diagnostic artifacts, if uploaded](\($run.html_url)#artifacts)",
+              ($job.steps[]? | select(.conclusion | IN("failure", "timed_out", "cancelled", "startup_failure", "action_required", "stale"))
+                | "- Failed step: \(.name) (\(.conclusion))")
+            ] | join("\n")
+          ' > "$report_dir/body.md"
+
+          if [[ "$state" == open ]]; then
+            if [[ "$already_reported" == false ]]; then
+              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$report_dir/body.md"
+            fi
+            if [[ "$conclusion" == success ]]; then
+              gh issue close "$number" --repo "$GITHUB_REPOSITORY" --reason completed
+            fi
+          else
+            {
+              printf '%s\n\n%s\n\n' "$issue_marker" "$REPORT_MENTION"
+              cat "$report_dir/body.md"
+              printf '\nThis issue tracks repeated failures and closes automatically after a successful result.\n'
+            } > "$report_dir/issue.md"
+            title="$(jq -r --argjson job "$job" '"\(.name) failing: \($job.name)" | .[:256]' "$report_dir/run.json")"
+            args=(--repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$report_dir/issue.md")
+            if [[ -n "$REPORT_ASSIGNEES" ]]; then
+              args+=(--assignee "$REPORT_ASSIGNEES")
+            fi
+            gh issue create "${args[@]}"
+          fi
+        done < "$report_dir/targets.jsonl"

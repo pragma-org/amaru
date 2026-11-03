@@ -1,0 +1,38 @@
+name: Report Nightly Failures
+
+on:
+  workflow_run:
+    workflows:
+      - Nightly Full Bootstrap
+      - Nightly Rust Cache
+      - Nightly Tool Integrations
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: report-nightly-failures-${{ github.event.workflow_run.workflow_id }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    # Prevent forks from opening failure issues that mention the Amaru team.
+    if: github.repository == 'pragma-org/amaru'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Use the reporter from the default branch, never code from the triggering run.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/report-nightly-failures
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional overrides: a team mention and a comma-separated list of usernames.
+          mention: ${{ vars.NIGHTLY_FAILURE_MENTION || '@pragma-org/amaru-committers' }}
+          assignees: ${{ vars.NIGHTLY_FAILURE_ASSIGNEES }}
