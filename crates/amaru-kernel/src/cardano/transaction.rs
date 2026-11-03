@@ -102,6 +102,6 @@ mod tests {
         let transaction: Transaction =
             include_cbor!("transaction.len/99949da314af224cff611d22feece9e6f150ad232f6b421e9294c74aae0d5d81.cbor");
         assert_eq!(transaction.len(), 293);
-        assert_eq!(to_cbor(&transaction).len(), 297);
+        assert_eq!(to_cbor(&transaction).len(), 294);
     }
 }

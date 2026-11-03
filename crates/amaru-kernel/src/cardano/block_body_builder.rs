@@ -18,8 +18,9 @@ use amaru_minicbor_extra::{CborSizeOf, IndefiniteArray, IndefiniteMap};
 
 use super::block_body_parts::{BlockBodyCommitment, BlockBodyParts, TransactionIndex, hash_body_cbor};
 use crate::{
-    AuxiliaryData, ExUnitPrices, ExUnits, ProtocolParameters, RationalNumber, Transaction, TransactionBody, WitnessSet,
-    cbor::WithSize, plutus_execution_fee, reference_scripts_fee, size_fee, to_cbor, traits::HasExUnits,
+    AuxiliaryData, ExUnitPrices, ExUnits, ProtocolParameters, ProtocolVersion, RationalNumber, Transaction,
+    TransactionBody, WitnessSet, cbor, cbor::WithSize, plutus_execution_fee, reference_scripts_fee, size_fee,
+    traits::HasExUnits,
 };
 
 /// A mutable block body under construction.
@@ -35,6 +36,7 @@ pub struct BlockBodyBuilder<'a> {
     size: u32,
     ex_units: ExUnits,
     ref_scripts_size: u64,
+    protocol_version: ProtocolVersion,
 }
 
 /// Limits and fee parameters needed while selecting transactions for a block.
@@ -50,6 +52,7 @@ pub struct BlockBuilderConstraints {
     max_ref_script_size_per_tx: u32,
     ref_script_cost_stride: u32,
     ref_script_cost_multiplier: RationalNumber,
+    protocol_version: ProtocolVersion,
 }
 
 impl BlockBuilderConstraints {
@@ -69,6 +72,7 @@ impl BlockBuilderConstraints {
             max_ref_script_size_per_tx: 0,
             ref_script_cost_stride: u32::MAX,
             ref_script_cost_multiplier: RationalNumber::one(),
+            protocol_version: ProtocolVersion::default(),
         }
     }
 }
@@ -86,6 +90,7 @@ impl From<&ProtocolParameters> for BlockBuilderConstraints {
             max_ref_script_size_per_tx: parameters.max_ref_script_size_per_tx,
             ref_script_cost_stride: parameters.ref_script_cost_stride,
             ref_script_cost_multiplier: parameters.ref_script_cost_multiplier,
+            protocol_version: parameters.protocol_version,
         }
     }
 }
@@ -98,6 +103,8 @@ pub enum BlockBodyBuilderError {
     SizeOverflow,
     #[error("serialized block body size mismatch: counted {counted} bytes, encoded {encoded} bytes")]
     SizeMismatch { counted: u32, encoded: u32 },
+    #[error("block body builder protocol version changed from {expected} to {actual}")]
+    ProtocolVersionMismatch { expected: ProtocolVersion, actual: ProtocolVersion },
 }
 
 impl Default for BlockBodyBuilder<'_> {
@@ -110,6 +117,7 @@ impl Default for BlockBodyBuilder<'_> {
             size: Self::FIXED_CBOR_OVERHEAD,
             ex_units: ExUnits { mem: 0, steps: 0 },
             ref_scripts_size: 0,
+            protocol_version: ProtocolVersion::default(),
         }
     }
 }
@@ -151,6 +159,13 @@ impl<'a> BlockBodyBuilder<'a> {
         transaction: &'a Transaction,
         constraints: &BlockBuilderConstraints,
     ) -> Result<bool, BlockBodyBuilderError> {
+        if !self.transaction_bodies.is_empty() && self.protocol_version != constraints.protocol_version {
+            return Err(BlockBodyBuilderError::ProtocolVersionMismatch {
+                expected: self.protocol_version,
+                actual: constraints.protocol_version,
+            });
+        }
+
         let ref_scripts_size = ref_scripts_size_upper_bound(transaction, constraints);
         let index = TransactionIndex::try_from(self.transaction_bodies.len())
             .map_err(|_| BlockBodyBuilderError::TooManyTransactions)?;
@@ -160,11 +175,13 @@ impl<'a> BlockBodyBuilder<'a> {
         let is_expected_valid = transaction.is_expected_valid;
         let auxiliary_data = transaction.auxiliary_data.as_ref();
 
+        let mut protocol_version = constraints.protocol_version;
+
         // Compute sizes and check whether the transaction pushes us off limit.
         let size = u64::from(self.size)
             .checked_add(body.len())
             .and_then(|size| {
-                let witnesses_size = u64::try_from(to_cbor(&witnesses).len()).ok()?;
+                let witnesses_size = u64::try_from(cbor::to_cbor_with(&witnesses, &mut protocol_version).len()).ok()?;
                 size.checked_add(witnesses_size)
             })
             .and_then(|size| {
@@ -203,16 +220,21 @@ impl<'a> BlockBodyBuilder<'a> {
         self.size = size as u32;
         self.ex_units = ex_units;
         self.ref_scripts_size = ref_scripts_size;
+        self.protocol_version = constraints.protocol_version;
 
         Ok(true)
     }
 
     pub fn finalize(self) -> Result<BlockBodyParts, BlockBodyBuilderError> {
+        let mut protocol_version = self.protocol_version;
         let encoded = [
-            to_cbor(&IndefiniteArray(self.transaction_bodies.iter().copied())),
-            to_cbor(&IndefiniteArray(self.transaction_witnesses.iter().copied())),
-            to_cbor(&IndefiniteMap(self.auxiliary_data.iter().map(|(index, data)| (index, *data)))),
-            to_cbor(&IndefiniteArray(self.invalid_transactions.iter())),
+            cbor::to_cbor_with(&IndefiniteArray(self.transaction_bodies.iter().copied()), &mut protocol_version),
+            cbor::to_cbor_with(&IndefiniteArray(self.transaction_witnesses.iter().copied()), &mut protocol_version),
+            cbor::to_cbor_with(
+                &IndefiniteMap(self.auxiliary_data.iter().map(|(index, data)| (index, *data))),
+                &mut protocol_version,
+            ),
+            cbor::to_cbor_with(&IndefiniteArray(self.invalid_transactions.iter()), &mut protocol_version),
         ];
 
         let encoded_size = encoded.iter().try_fold(0u32, |size, part| {
@@ -419,13 +441,51 @@ mod tests {
     }
 
     #[test]
+    fn finalize_uses_the_protocol_version_from_the_constraints() {
+        let witnesses = WitnessSet {
+            verification_key_witness: Some(crate::NonEmptyVec::singleton(crate::VerificationKeyWitness {
+                verification_key: crate::VerificationKey::zeroes(),
+                signature: crate::Ed25519Signature::zeroes(),
+            })),
+            ..WitnessSet::default()
+        };
+        let witness_size = cbor::to_cbor_with(&witnesses, &mut ProtocolVersion::new(12, 0)).len();
+        let transaction = Transaction { witnesses: WithSize::new(witnesses, witness_size), ..default_transaction() };
+        let mut constraints = BlockBuilderConstraints::unlimited();
+        constraints.protocol_version = ProtocolVersion::new(12, 0);
+        let mut builder = BlockBodyBuilder::default();
+
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
+        assert!(builder.finalize().is_ok());
+    }
+
+    #[test]
+    fn try_push_rejects_mixed_protocol_versions() {
+        let transaction = default_transaction();
+        let mut first = BlockBuilderConstraints::unlimited();
+        first.protocol_version = ProtocolVersion::new(11, 0);
+        let mut second = BlockBuilderConstraints::unlimited();
+        second.protocol_version = ProtocolVersion::new(12, 0);
+        let mut builder = BlockBodyBuilder::default();
+
+        assert!(builder.try_push(&transaction, &first).unwrap());
+        assert!(matches!(
+            builder.try_push(&transaction, &second),
+            Err(BlockBodyBuilderError::ProtocolVersionMismatch {
+                expected: ProtocolVersion { .. },
+                actual: ProtocolVersion { .. },
+            })
+        ));
+    }
+
+    #[test]
     fn finalize_preserves_the_original_auxiliary_data_size() {
         // An indefinite metadata map can be decoded into the same value as a definite map. The
         // auxiliary-data bytes are committed by the transaction body, so re-serialization must
         // preserve the original encoding.
         let auxiliary_data: AuxiliaryData =
             cbor::from_cbor_no_leftovers(&[0xbf, 0xff]).expect("indefinite metadata map");
-        assert_eq!(to_cbor(&auxiliary_data), [0xbf, 0xff]);
+        assert_eq!(cbor::to_cbor(&auxiliary_data), [0xbf, 0xff]);
         let transaction = Transaction { auxiliary_data: Some(auxiliary_data), ..default_transaction() };
         let constraints = BlockBuilderConstraints::unlimited();
         let mut builder = BlockBodyBuilder::default();

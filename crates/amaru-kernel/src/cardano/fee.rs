@@ -15,8 +15,8 @@
 use num::{BigUint, Zero};
 
 use crate::{
-    rational_number::{floor_to_lovelace, into_safe_ratio, safe_ratio, SafeRatio},
     ExUnitPrices, ExUnits, HasExUnits, Lovelace, ProtocolParameters, RationalNumber, WitnessSet,
+    rational_number::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
 };
 
 pub fn minimum_fee(tx_size: u64, witness_set: &WitnessSet, ref_scripts_size: u64, pp: &ProtocolParameters) -> Lovelace {

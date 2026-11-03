@@ -83,6 +83,7 @@ impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
 
 impl<C, T> cbor::encode::Encode<C> for NonEmptyVec<T>
 where
+    C: cbor::HasProtocolVersion,
     T: Eq + cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
@@ -90,8 +91,10 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::TAG_SET_258)?;
-        e.encode_with(self.deref(), ctx)?;
+        if ctx.protocol_version() >= crate::protocol_version::PROTOCOL_VERSION_12 {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+        cbor::encode_variable_length_array(e, self.iter(), ctx)?;
         Ok(())
     }
 }
@@ -155,14 +158,14 @@ mod tests {
         }
     }
 
-    #[test_case("D901028101", &[1], true; "tagged singleton")]
-    #[test_case("8101", &[1], false; "singleton")]
+    #[test_case("D901028101", &[1], false; "tagged singleton")]
+    #[test_case("8101", &[1], true; "singleton")]
     #[test_case("D901029F010203FF", &[1,2,3], false; "tagged indef array")]
     #[test_case("9F010203FF", &[1,2,3], false; "indef array")]
-    #[test_case("D9010283040102", &[4, 1, 2], true; "tagged def array")]
-    #[test_case("83040102", &[4, 1, 2], false; "def array")]
-    #[test_case("83010201", &[1, 2, 1], false; "with duplicates")]
-    #[test_case("D901028401010203", &[1,1,2,3], true; "tagged with duplicates")]
+    #[test_case("D9010283040102", &[4, 1, 2], false; "tagged def array")]
+    #[test_case("83040102", &[4, 1, 2], true; "def array")]
+    #[test_case("83010201", &[1, 2, 1], true; "with duplicates")]
+    #[test_case("D901028401010203", &[1,1,2,3], false; "tagged with duplicates")]
     fn from_cbor_success(s: &str, expected: &[u8], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<NonEmptyVec<u8>>(original_bytes.as_slice()) {

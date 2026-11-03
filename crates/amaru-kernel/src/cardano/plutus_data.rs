@@ -398,7 +398,11 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        self.inner.encode(e, ctx)
+        if self.original_bytes.is_empty() {
+            self.inner.encode(e, ctx)
+        } else {
+            e.writer_mut().write_all(&self.original_bytes).map_err(cbor::encode::Error::write)
+        }
     }
 }
 

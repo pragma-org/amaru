@@ -119,6 +119,7 @@ impl<T: Ord> AsRef<[T]> for VecSet<T> {
 
 impl<C, T> cbor::Encode<C> for VecSet<T>
 where
+    C: cbor::HasProtocolVersion,
     T: Ord + cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
@@ -126,8 +127,10 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::TAG_SET_258)?;
-        e.encode_with(&self.0, ctx)?;
+        if ctx.protocol_version() >= crate::protocol_version::PROTOCOL_VERSION_12 {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+        cbor::encode_variable_length_array(e, self.0.iter(), ctx)?;
         Ok(())
     }
 }
@@ -181,15 +184,15 @@ mod tests {
         assert_eq!(set.as_ref(), expected);
     }
 
-    /// Whatever shape it arrived in, a set is written as a tagged array in ascending order, which is
-    /// how the ledger writes the fields it holds in a `Set`.
+    /// Whatever shape it arrived in, a set is written as an ascending array in the compact form
+    /// used before protocol version 12.
     #[test_case("83030102"; "out of order")]
     #[test_case("9f030102ff"; "indefinite-length")]
     #[test_case("d9010283010203"; "already tagged and ordered")]
-    fn always_re_encodes_as_an_ascending_tagged_set(input: &str) {
+    fn re_encodes_as_an_ascending_compact_set(input: &str) {
         let set: VecSet<u8> = from_cbor_no_leftovers(&hex::decode(input).unwrap()).unwrap();
 
-        assert_eq!(hex::encode(to_cbor(&set)), "d9010283010203");
+        assert_eq!(hex::encode(to_cbor(&set)), "83010203");
     }
 
     #[test_case("830101"; "a repeated element")]

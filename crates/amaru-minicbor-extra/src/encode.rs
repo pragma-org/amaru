@@ -93,6 +93,36 @@ where
     Ok(())
 }
 
+/// Encode an array using the shorter of the definite form for up to 23 elements and the
+/// indefinite form for larger arrays.
+pub fn encode_variable_length_array<'iter, C, T, W>(
+    e: &mut Encoder<W>,
+    values: impl ExactSizeIterator<Item = &'iter T>,
+    ctx: &mut C,
+) -> Result<(), minicbor::encode::Error<W::Error>>
+where
+    T: minicbor::Encode<C> + 'iter,
+    W: minicbor::encode::Write,
+{
+    let as_indef = values.len() > 23;
+
+    if as_indef {
+        e.begin_array()?;
+    } else {
+        e.array(values.len() as u64)?;
+    }
+
+    for value in values {
+        e.encode_with(value, ctx)?;
+    }
+
+    if as_indef {
+        e.end()?;
+    }
+
+    Ok(())
+}
+
 /// Count serialized bytes for a given value, without allocating.
 pub fn count_bytes<T: minicbor::Encode<()>>(value: &T) -> usize {
     let mut encoder = cbor::Encoder::new(ByteCounter::default());

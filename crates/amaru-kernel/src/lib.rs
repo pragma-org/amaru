@@ -60,10 +60,10 @@ pub mod cbor {
         IndefiniteArray, IndefiniteMap, TAG_MAP_259, TAG_SET_258, WithOriginalBytes, WithSize, allow_tag,
         btree_map_with_unique_keys, check_tagged_array_length, collect_array_item_bytes, collect_map_value_bytes,
         count_bytes, decode_break, decode_bytes, decode_string, encode_bytestring, encode_indefinite_array,
-        encode_indefinite_map, encode_variable_length_map, expect_tag, from_cbor, from_cbor_no_leftovers,
-        from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite, heterogeneous_map,
-        heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys, lazy, missing_field,
-        tee, to_cbor, to_cbor_with, unexpected_field,
+        encode_indefinite_map, encode_variable_length_array, encode_variable_length_map, expect_tag, from_cbor,
+        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite,
+        heterogeneous_map, heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys,
+        lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
