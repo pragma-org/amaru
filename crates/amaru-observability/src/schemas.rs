@@ -734,7 +734,7 @@ define_schemas! {
                     required error: String
                 }
                 /// Forging the header or storing it failed. The node shuts down.
-                /// Step ∈ {sign_header, validate_header, store_header, store_block}.
+                /// Step ∈ {sign_header, validate_header, store_header, store_block, seal_block}.
                 public event FORGE_FAILED {
                     levels: error
                     required slot: amaru_kernel::Slot
