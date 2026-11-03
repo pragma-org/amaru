@@ -88,7 +88,6 @@ pub struct PeerSharingInitiator {
     /// Close arrived while a request was in flight.
     closing: bool,
     /// Optional oneshot sink for the first share reply (e.g. `amaru peer probe --peer-share`).
-    #[serde(skip, default)]
     report_to: Option<StageRef<ShareResult>>,
 }
 
@@ -127,9 +126,9 @@ impl PeerSharingInitiator {
         initial_delay: Duration,
         report_to: StageRef<ShareResult>,
     ) -> (State, Self) {
-        let (_, mut stage) = Self::new(muxer, peer, conn_id, amount, initial_delay, Duration::from_secs(3600));
+        let (state, mut stage) = Self::new(muxer, peer, conn_id, amount, initial_delay, Duration::from_secs(3600));
         stage.report_to = Some(report_to);
-        (State::Idle, stage)
+        (state, stage)
     }
 
     async fn arm_timer(&mut self, delay: Duration, eff: &Effects<Inputs<PeerSharingMessage>>) -> anyhow::Result<()> {

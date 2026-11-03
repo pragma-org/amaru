@@ -18,8 +18,11 @@
 //! first viable A/AAAA; SRV lookups try records in RFC 2782 priority order (lower first) and stop
 //! at the first viable target address.
 //!
-//! [`resolve_all_peers`] collects every viable dial address (probe path): each usable SRV record
-//! that resolves, in priority order, without stopping early; duplicates are dropped.
+//! [`resolve_all_peers`] collects every viable dial address (probe / diagnostics path): each usable
+//! SRV record that resolves, in priority order, without stopping early; duplicates are dropped.
+//!
+//! TODO: the node peer pool should ingest all SRV targets (not only the first viable) and try
+//! handshakes in a priority-respecting order, optionally randomised within the same priority.
 //!
 //! SRV uses the system DNS resolver, which [`init_resolver`] loads at Tokio node start. A missing
 //! or unreadable system config is fatal there; lookup failures remain per-candidate.
@@ -71,7 +74,7 @@ pub async fn resolve_peer_candidate(candidate: &PeerCandidate) -> Option<Peer> {
     match candidate {
         PeerCandidate::Socket(peer) => Some(*peer),
         PeerCandidate::Host { host, port } => resolve_host(host.as_str(), *port).await,
-        PeerCandidate::Srv { name } => resolve_srv(name, /*all*/ false).await.into_iter().next(),
+        PeerCandidate::Srv { name } => resolve_srv(name).await.into_iter().next(),
     }
 }
 
@@ -83,7 +86,7 @@ pub async fn resolve_all_peers(candidate: &PeerCandidate) -> Vec<Peer> {
     match candidate {
         PeerCandidate::Socket(peer) => vec![*peer],
         PeerCandidate::Host { host, port } => resolve_host(host.as_str(), *port).await.into_iter().collect(),
-        PeerCandidate::Srv { name } => resolve_srv(name, /*all*/ true).await,
+        PeerCandidate::Srv { name } => resolve_srv(name).await,
     }
 }
 
@@ -127,10 +130,9 @@ fn resolver() -> &'static TokioResolver {
 
 /// Look up CIP-0155 `_cardano._tcp.<name>` SRV records.
 ///
-/// When `all` is false, returns at most the first viable peer (dial path). When `all` is true,
-/// returns every usable SRV target that resolves to a peer, preserving priority order and dropping
-/// duplicate addresses.
-async fn resolve_srv(name: &DnsName, all: bool) -> Vec<Peer> {
+/// Returns every usable SRV target that resolves to a peer, preserving priority order and dropping
+/// duplicate addresses. Callers that need a single dial target take the first element.
+async fn resolve_srv(name: &DnsName) -> Vec<Peer> {
     let query = PeerCandidate::cardano_srv_name(name);
     let resolver = resolver();
     let lookup = match resolver.srv_lookup(query.as_str()).await {
@@ -152,9 +154,6 @@ async fn resolve_srv(name: &DnsName, all: bool) -> Vec<Peer> {
             && seen.insert(peer)
         {
             peers.push(peer);
-            if !all {
-                break;
-            }
         }
     }
     if peers.is_empty() {

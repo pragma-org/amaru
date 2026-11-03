@@ -26,7 +26,7 @@ use amaru_protocols::{
     chainsync::{self, ChainSyncInitiatorMsg, InitiatorMessage as CsLocal, InitiatorResult as CsResult},
     deserializers,
     handshake::{self, HandshakeResult, RefuseReason},
-    keepalive::{InitiatorMessage as KaLocal, InitiatorResult as KaResult, register_keepalive_oneshot},
+    keepalive::{InitiatorMessage as KaLocal, OneshotResult as KaResult, register_keepalive_oneshot},
     mux::{self, MuxMessage},
     peer_sharing::{ShareResult, register_peer_sharing_initiator_oneshot},
     peer_tracking::InMemoryPeerTracking,

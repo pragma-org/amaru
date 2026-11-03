@@ -14,7 +14,7 @@
 
 //! One-shot N2N probe against one or more live peers.
 //!
-//! Prefer `amaru peer probe <TARGETS> [OPTIONS]` so optional-value flags like `--ping` are not
+//! Prefer `amaru peer probe <TARGET>... [OPTIONS]` so optional-value flags like `--ping` are not
 //! fed a target address. Values for those flags use `=` (e.g. `--ping=5`).
 //!
 //! Business output goes to stdout (EDR-0019); silence Clippy print lints for this CLI.
@@ -41,15 +41,15 @@ use anyhow::{Context, bail};
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(override_usage = "amaru peer probe <TARGETS> [OPTIONS]")]
+#[command(override_usage = "amaru peer probe <TARGET>... [OPTIONS]")]
 pub struct Args {
-    /// Peer target(s), comma-separated.
+    /// Peer target(s), as repeated arguments.
     ///
     /// Each entry is `IP:PORT`, `HOSTNAME:PORT` (A/AAAA lookup), or a bare DNS name for a
     /// CIP-0155 Cardano SRV lookup (`_cardano._tcp.<name>`). SRV names expand to every usable
     /// record (RFC 2782 priority order); each resolved peer is probed in turn.
-    #[arg(value_name = amaru::value_names::PEER_TARGETS)]
-    targets: String,
+    #[arg(value_name = amaru::value_names::PEER_TARGETS, num_args = 1.., required = true)]
+    targets: Vec<String>,
 
     /// Run ping, handshake, tip, and peer-share.
     #[arg(long, help_heading = "Probe types", display_order = 1)]
@@ -436,11 +436,11 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Io, move || run(args))
 }
 
-/// Split a comma-separated target list into [`PeerCandidate`]s.
-fn parse_targets(raw: &str) -> anyhow::Result<Vec<PeerCandidate>> {
+/// Parse repeated target arguments into [`PeerCandidate`]s.
+fn parse_targets(raw: &[String]) -> anyhow::Result<Vec<PeerCandidate>> {
     let targets: Vec<PeerCandidate> = raw
-        .split(',')
-        .map(str::trim)
+        .iter()
+        .map(|part| part.trim())
         .filter(|part| !part.is_empty())
         .map(|part| {
             part.parse::<PeerCandidate>().with_context(|| {
@@ -1148,8 +1148,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_targets_splits_comma_separated_socket_host_and_srv() {
-        let targets = parse_targets("10.0.0.1:3001, relay.example:3002, pool.example").unwrap();
+    fn parse_targets_accepts_socket_host_and_srv() {
+        let targets =
+            parse_targets(&["10.0.0.1:3001".into(), "relay.example:3002".into(), "pool.example".into()]).unwrap();
         assert_eq!(targets.len(), 3);
         assert!(matches!(targets[0], PeerCandidate::Socket(_)));
         assert!(matches!(targets[1], PeerCandidate::Host { .. }));
@@ -1158,12 +1159,12 @@ mod tests {
 
     #[test]
     fn parse_targets_rejects_empty_list() {
-        assert!(parse_targets(" , , ").is_err());
+        assert!(parse_targets(&["".into(), "  ".into()]).is_err());
     }
 
     #[test]
     fn parse_targets_rejects_literal_ip_without_port() {
-        let err = parse_targets("10.0.0.1").unwrap_err().to_string();
+        let err = parse_targets(&["10.0.0.1".into()]).unwrap_err().to_string();
         assert!(err.contains("10.0.0.1"));
     }
 
@@ -1171,14 +1172,14 @@ mod tests {
     fn clap_keeps_target_when_bare_ping_precedes_address() {
         // `--ping` requires `=` for a value, so the following token is the target.
         let args = Args::try_parse_from(["probe", "--ping", "1.2.3.4:5678"]).unwrap();
-        assert_eq!(args.targets, "1.2.3.4:5678");
+        assert_eq!(args.targets, vec!["1.2.3.4:5678".to_string()]);
         assert_eq!(args.ping.map(|p| p.count), Some(1));
     }
 
     #[test]
-    fn clap_accepts_targets_before_options() {
-        let args = Args::try_parse_from(["probe", "relay.example:3001,pool.example", "--ping=2"]).unwrap();
-        assert_eq!(args.targets, "relay.example:3001,pool.example");
+    fn clap_accepts_repeated_targets_before_options() {
+        let args = Args::try_parse_from(["probe", "relay.example:3001", "pool.example", "--ping=2"]).unwrap();
+        assert_eq!(args.targets, vec!["relay.example:3001".to_string(), "pool.example".to_string()]);
         assert_eq!(args.ping.map(|p| p.count), Some(2));
     }
 

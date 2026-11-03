@@ -3,7 +3,7 @@
 `amaru peer probe` is a one-shot node-to-node (N2N) diagnostic against one or more live peers. It does not run a full node. Use it to check TCP reachability, handshake, tip, peer-share, and keep-alive RTT from an operator machine.
 
 ```console
-amaru peer probe <TARGETS> [OPTIONS]
+amaru peer probe <TARGET>... [OPTIONS]
 ```
 
 Put targets before options. Optional-value flags use `=` (for example `--ping=5`), so a following address is not taken as a flag value.
@@ -12,7 +12,7 @@ Run `amaru peer probe --help` for the full flag list.
 
 ## Targets
 
-`<TARGETS>` is a comma-separated list. Each entry is probed in order:
+Pass one or more `<TARGET>` arguments. Each is probed in order:
 
 | Form | Meaning |
 | --- | --- |
@@ -26,7 +26,7 @@ Examples:
 amaru peer probe 1.2.3.4:3001
 amaru peer probe relay.example:3001 --ping
 amaru peer probe pool.example --all
-amaru peer probe 1.2.3.4:3001,relay.example:3001,pool.example --tip
+amaru peer probe 1.2.3.4:3001 relay.example:3001 pool.example --tip
 ```
 
 ## Probe types

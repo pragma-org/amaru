@@ -14,6 +14,7 @@
 
 mod initiator;
 mod messages;
+mod oneshot_initiator;
 mod responder;
 #[cfg(test)]
 mod tests;
@@ -23,6 +24,7 @@ use amaru_ouroboros::ConnectionId;
 use amaru_pure_stage::{Effects, StageRef, Void};
 pub use initiator::{InitiatorMessage, InitiatorResult};
 pub use messages::{Cookie, Message};
+pub use oneshot_initiator::OneshotResult;
 
 use crate::{
     connection::ConnectionMessage,
@@ -31,7 +33,14 @@ use crate::{
 };
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
-    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
+    vec![
+        initiator::register_deserializers(),
+        oneshot_initiator::register_deserializers(),
+        responder::register_deserializers(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -104,28 +113,28 @@ pub async fn register_keepalive(
     close
 }
 
-/// Register a keep-alive **initiator** that reports each RTT to `report_to` and does not auto-schedule.
+/// Register a probe keep-alive initiator: caller-driven sends, each RTT reported to `report_to`.
 pub async fn register_keepalive_oneshot<M: amaru_pure_stage::SendData>(
     peer: Peer,
     conn_id: ConnectionId,
     muxer: &StageRef<crate::mux::MuxMessage>,
-    report_to: StageRef<initiator::InitiatorResult>,
+    report_to: StageRef<OneshotResult>,
     eff: &Effects<M>,
     tombstone: M,
-) -> StageRef<initiator::InitiatorMessage> {
-    let (state, stage) = initiator::KeepAliveInitiator::oneshot(peer, conn_id, muxer.clone(), report_to);
-    let keepalive = eff.stage("keepalive", initiator::initiator()).await;
+) -> StageRef<InitiatorMessage> {
+    let (state, stage) = oneshot_initiator::KeepAliveOneshotInitiator::new(peer, conn_id, muxer.clone(), report_to);
+    let keepalive = eff.stage("keepalive-oneshot", oneshot_initiator::oneshot_initiator()).await;
     let keepalive = eff.supervise(keepalive, tombstone);
     let keepalive = eff.wire_up(keepalive, (state, stage)).await;
-    let handler = keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Network);
-    let local = keepalive.contramap(Inputs::<initiator::InitiatorMessage>::Local);
+    let handler = keepalive.contramap(Inputs::<InitiatorMessage>::Network);
+    let local = keepalive.contramap(Inputs::<InitiatorMessage>::Local);
     eff.send(
         muxer,
         crate::mux::MuxMessage::Register {
             protocol: PROTO_N2N_KEEP_ALIVE.erase(),
             frame: mux::Frame::OneCborItem,
             handler,
-            max_buffer: 65535,
+            max_buffer: ingress_limit(PROTO_N2N_KEEP_ALIVE),
         },
     )
     .await;

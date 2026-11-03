@@ -12,16 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    net::SocketAddr,
-    num::NonZeroUsize,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{NonEmptyBytes, Peer};
 use amaru_observability::{Instrument, debug, debug_span, info};
@@ -51,9 +42,11 @@ pub struct Connection {
     reader: Arc<AsyncMutex<(OwnedReadHalf, BytesMut)>>,
     writer: Arc<AsyncMutex<OwnedWriteHalf>>,
     /// Cumulative application bytes written via [`ConnectionProvider::send`].
-    bytes_sent: AtomicU64,
+    /// Mutated only while holding the connections map lock.
+    bytes_sent: u64,
     /// Cumulative application bytes delivered via [`ConnectionProvider::recv`].
-    bytes_recv: AtomicU64,
+    /// Mutated only while holding the connections map lock.
+    bytes_recv: u64,
 }
 
 impl Connection {
@@ -67,8 +60,8 @@ impl Connection {
             local_addr,
             reader: Arc::new(AsyncMutex::new((reader, BytesMut::with_capacity(read_buf_size)))),
             writer: Arc::new(AsyncMutex::new(writer)),
-            bytes_sent: AtomicU64::new(0),
-            bytes_recv: AtomicU64::new(0),
+            bytes_sent: 0,
+            bytes_recv: 0,
         })
     }
 
@@ -77,7 +70,7 @@ impl Connection {
     }
 
     fn byte_counts(&self) -> (u64, u64) {
-        (self.bytes_sent.load(Ordering::Relaxed), self.bytes_recv.load(Ordering::Relaxed))
+        (self.bytes_sent, self.bytes_recv)
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -107,6 +100,10 @@ impl Connections {
 
     fn get(&self, id: &ConnectionId) -> Option<&Connection> {
         self.connections.get(id)
+    }
+
+    fn get_mut(&mut self, id: &ConnectionId) -> Option<&mut Connection> {
+        self.connections.get_mut(id)
     }
 
     fn remove(&mut self, id: &ConnectionId) -> Option<Connection> {
@@ -354,8 +351,8 @@ impl ConnectionProvider for TokioConnections {
                     .writer
                     .clone();
                 tokio::time::timeout(Duration::from_secs(100), writer.lock().await.write_all(&data)).await??;
-                if let Some(connection) = resource.connections.lock().get(&conn) {
-                    connection.bytes_sent.fetch_add(len, Ordering::Relaxed);
+                if let Some(connection) = resource.connections.lock().get_mut(&conn) {
+                    connection.bytes_sent += len;
                 }
                 Ok(())
             }
@@ -385,8 +382,8 @@ impl ConnectionProvider for TokioConnections {
                 #[expect(clippy::expect_used)]
                 let out: NonEmptyBytes = buf.copy_to_bytes(bytes.get()).try_into().expect("guaranteed by NonZeroUsize");
                 drop(guard);
-                if let Some(connection) = resource.connections.lock().get(&conn) {
-                    connection.bytes_recv.fetch_add(out.len().get() as u64, Ordering::Relaxed);
+                if let Some(connection) = resource.connections.lock().get_mut(&conn) {
+                    connection.bytes_recv += out.len().get() as u64;
                 }
                 Ok(out)
             }
