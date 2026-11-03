@@ -200,7 +200,12 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             // transactions. Skipping one transaction from the batch should skip all the subsequent
             // one and move to the next batch.
             for transaction in mempool_view.iter() {
-                if builder.try_push(transaction, &constraints)? {
+                // The ledger tip can be older than the slot being forged. Revalidation at the
+                // previous tip is therefore not sufficient to prove that the transaction is
+                // still valid for this block.
+                if transaction.body.validity_interval().includes(this.slot)
+                    && builder.try_push(transaction, &constraints)?
+                {
                     selected.push(transaction.tx_id());
                 }
             }

@@ -168,11 +168,12 @@ impl<'a> BlockBodyBuilder<'a> {
         // Compute sizes and check whether the transaction pushes us off limit.
         let size = u64::from(self.size)
             .checked_add(body.len())
-            .and_then(|size| size.checked_add(witnesses.len() as u64))
             .and_then(|size| {
-                let auxiliary_size =
-                    auxiliary_data.as_ref().map(|data| index.cbor_size_of() as u64 + data.len()).unwrap_or_default();
-                size.checked_add(auxiliary_size)
+                let witnesses_size = u64::try_from(to_cbor(&witnesses).len()).ok()?;
+                size.checked_add(witnesses_size)
+            })
+            .and_then(|size| {
+                auxiliary_data.map_or(Some(size), |data| size.checked_add(index.cbor_size_of() as u64 + data.len()))
             })
             .and_then(|size| {
                 let invalid_size = if is_expected_valid { 0 } else { index.cbor_size_of() as u64 };
@@ -419,6 +420,42 @@ mod tests {
         let size = builder.size();
         let parts = builder.finalize().unwrap();
         assert_eq!(size, parts.commitment().size);
+    }
+
+    #[test]
+    fn finalize_uses_the_reencoded_witness_size() {
+        // An indefinite witness map can be decoded into the same value as a definite map. The
+        // block encoder emits the latter, so the input size retained by WithSize is not the size
+        // that the block body will contain.
+        let mut protocol_version = ProtocolVersion::default();
+        let witnesses: WithSize<WitnessSet> =
+            cbor::from_cbor_no_leftovers_with(&[0xbf, 0xff], &mut protocol_version).expect("indefinite witness map");
+        let transaction = Transaction { witnesses, ..default_transaction() };
+        let constraints = BlockBuilderConstraints::unlimited();
+        let mut builder = BlockBodyBuilder::default();
+
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
+        assert!(builder.finalize().is_ok());
+    }
+
+    #[test]
+    fn finalize_preserves_the_original_auxiliary_data_size() {
+        // An indefinite metadata map can be decoded into the same value as a definite map. The
+        // auxiliary-data bytes are committed by the transaction body, so re-serialization must
+        // preserve the original encoding.
+        let auxiliary_data: AuxiliaryData =
+            cbor::from_cbor_no_leftovers(&[0xbf, 0xff]).expect("indefinite metadata map");
+        assert_eq!(to_cbor(&auxiliary_data), [0xbf, 0xff]);
+        let transaction = Transaction { auxiliary_data: Some(auxiliary_data), ..default_transaction() };
+        let constraints = BlockBuilderConstraints::unlimited();
+        let mut builder = BlockBodyBuilder::default();
+
+        assert!(builder.try_push(&transaction, &constraints).unwrap());
+        let parts = builder.finalize().expect("original auxiliary data encoding is preserved");
+        assert_eq!(
+            parts.commitment().size,
+            BlockBodyBuilder::FIXED_CBOR_OVERHEAD + transaction.body.len() as u32 + 1 + 1 + 2
+        );
     }
 
     #[test]

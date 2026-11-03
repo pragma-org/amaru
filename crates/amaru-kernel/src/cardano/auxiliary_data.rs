@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Hash, Hasher, KeyValuePairs, Metadatum, NativeScript, PlutusScript, cbor};
+use crate::{Bytes, Hash, Hasher, KeyValuePairs, Metadatum, NativeScript, PlutusScript, cbor, to_cbor};
 
 /// Transaction metadata, keyed by label.
 pub type Metadata = KeyValuePairs<u64, Metadatum>;
@@ -21,15 +21,22 @@ pub type Metadata = KeyValuePairs<u64, Metadatum>;
 pub struct AuxiliaryData {
     hash: Hash<{ AuxiliaryData::HASH_SIZE }>,
 
-    original_size: u64,
+    /// The original bytes are part of the transaction-body commitment and must survive a
+    /// round-trip even when the decoded value admits a different CBOR encoding.
+    #[serde(default)]
+    original_bytes: Bytes,
 
     body: AuxiliaryDataBody,
 }
 
-/// AuxiliaryDataBody decodes auxiliary data in the era form it was encoded in, and re-encodes in the same form.
-/// Re-encoding in the same form is only desirable to run the CBOR conformance tests, in order
-/// to make valid comparisons with expected values.
+/// AuxiliaryDataBody decodes auxiliary data in the era form it was encoded in. The original CBOR
+/// remains authoritative for serialization; this representation is used for ledger inspection.
 ///
+// TODO: Simplify AuxiliaryDataBody representation
+//
+// In principle, the Conway form is sufficient to represent all the previous forms. We used to need
+// this enum in order to somewhat preserve re-serialisation. We now track the original bytes which
+// removes the need to even re-serialise.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum AuxiliaryDataBody {
     Shelley {
@@ -62,9 +69,9 @@ impl AuxiliaryData {
     }
 
     #[allow(clippy::len_without_is_empty)]
-    /// Original size of the serialised bytes
+    /// Size of the bytes that will be emitted when the auxiliary data is serialized.
     pub fn len(&self) -> u64 {
-        self.original_size
+        if self.original_bytes.is_empty() { to_cbor(self).len() as u64 } else { self.original_bytes.len() as u64 }
     }
 
     /// Obtain the transaction metadata key-value pairs, when the value carries any.
@@ -116,7 +123,7 @@ impl Default for AuxiliaryData {
     fn default() -> Self {
         Self {
             hash: Hasher::<256>::hash(EMPTY_AUXILIARY_DATA),
-            original_size: EMPTY_AUXILIARY_DATA.len() as u64,
+            original_bytes: Bytes::from(EMPTY_AUXILIARY_DATA.to_vec()),
             body: AuxiliaryDataBody::Conway {
                 metadata: None,
                 native_scripts: None,
@@ -171,20 +178,24 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AuxiliaryData {
 
         let bytes = &original_bytes[start_position..d.position()];
 
-        Ok(Self { hash: Hasher::<256>::hash(bytes), original_size: bytes.len() as u64, body })
+        Ok(Self { hash: Hasher::<256>::hash(bytes), original_bytes: crate::Bytes::from(bytes.to_vec()), body })
     }
 }
 
-/// Auxiliary data re-encodes in the era form it was decoded from, with the same entries present.
-///
-/// Rewriting an older form into the Conway one would change the digest a transaction body commits
-/// to, so each form has its own encoder.
+/// Auxiliary data preserves the original CBOR encoding because its bytes are committed by the
+/// transaction body hash. Values reconstructed without original bytes use the era-specific
+/// encoder below.
 impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AuxiliaryData {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
+        if !self.original_bytes.is_empty() {
+            e.writer_mut().write_all(&self.original_bytes).map_err(cbor::encode::Error::write)?;
+            return Ok(());
+        }
+
         match &self.body {
             AuxiliaryDataBody::Shelley { metadata } => {
                 e.encode_with(metadata, ctx)?;
@@ -339,6 +350,7 @@ mod tests {
 
     #[test_case("a11902d1182a" ; "shelley bare metadata map")]
     #[test_case("a0" ; "shelley empty metadata map")]
+    #[test_case("bfff" ; "shelley indefinite empty metadata map")]
     #[test_case("82a11902d1182a80" ; "allegra without scripts")]
     #[test_case("82a080" ; "allegra with neither metadata nor scripts")]
     #[test_case("d90103a100a11902d1182a" ; "conway")]

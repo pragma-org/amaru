@@ -24,7 +24,7 @@
 use std::sync::Arc;
 
 use amaru_consensus::effects::ResourceTxValidation;
-use amaru_kernel::{Point, Transaction, cbor::WithOriginalBytes, to_cbor};
+use amaru_kernel::{Hash, Point, Slot, Transaction, cbor::WithOriginalBytes, to_cbor};
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, ResourceMempool, TxInsertResult, TxOrigin};
 use amaru_ouroboros_traits::TransactionValidationError;
@@ -159,4 +159,23 @@ fn world_mempool_revalidation_evicts_transactions_invalidated_by_the_new_tip() {
 
     assert_eq!(test.state().tx_count, 0);
     assert_eq!(test.mempool.tip(), Point::Origin);
+}
+
+/// `mempool.expired_validity_interval`: advancing the mempool tip past an exclusive upper bound
+/// evicts the transaction even when the ledger validator itself has no other objection to it.
+#[test]
+fn world_mempool_revalidation_evicts_expired_transactions() {
+    let mut test = MempoolWorld::new();
+    test.validate_expected_validity();
+
+    let mut tx = create_transaction(6).into_inner();
+    tx.body.validity_interval_end = Some(Slot::from(10));
+    test.insert_batch(vec![WithOriginalBytes::from(tx)]);
+
+    let tip = Point::Specific(Slot::from(10), Hash::new([2; 32]), 1.into());
+    test.world.enqueue_msg(0, &test.mempool_stage, MempoolMsg::NewTip(tip));
+    test.world.run_until_horizon(1_000_000_000);
+
+    assert!(test.mempool.read().iter().next().is_none(), "expired transaction must leave the mempool");
+    assert_eq!(test.mempool.tip(), tip);
 }

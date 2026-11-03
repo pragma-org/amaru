@@ -475,6 +475,26 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
     assert!(block.into_iter().next().is_none(), "an invalidated transaction must not be forged");
 }
 
+/// `forge.target_slot_validity`: the ledger tip may still be inside a transaction's validity
+/// interval while the scheduled forge slot is already outside it. Selection must skip that
+/// transaction rather than producing a block that the ledger immediately rejects.
+#[test]
+fn world_forge_skips_transaction_expired_at_target_slot() {
+    let mut forge = ForgeWorld::new(Point::Origin);
+    let mut tx = create_transaction(17).into_inner();
+    tx.body.validity_interval_end = Some(simulation_slot());
+    let tx_id = tx.tx_id();
+    forge.submit_and_settle(tx.into());
+
+    forge.due_lead();
+    forge.world.run_until_horizon(20_000_000_000);
+
+    let header = forge.store.load_headers().next().expect("expired transaction must not prevent forging");
+    let block = forge.load_block(&header.hash());
+    assert!(block.into_iter().next().is_none(), "an expired transaction must not be included");
+    assert_eq!(forge.mempool.read().iter().map(HasTransactionId::tx_id).collect::<Vec<_>>(), vec![tx_id]);
+}
+
 /// `forge.capacity_boundary`: transaction selection stops at an exact block constraint boundary.
 ///
 /// The test matrix derives the limit from one real transaction, then submits a second transaction
