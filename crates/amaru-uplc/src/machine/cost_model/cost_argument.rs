@@ -16,7 +16,7 @@ use std::cell::OnceCell;
 
 use crate::{
     binder::Eval,
-    constant::{Constant, Integer, List, Natural},
+    constant::{Constant, Integer, List},
     data::PlutusData,
     ledger_value::LedgerValue,
     machine::value::Value,
@@ -135,12 +135,6 @@ impl IntoMachineSize for [u8] {
 impl IntoMachineSize for str {
     fn size(&self) -> i64 {
         self.chars().count() as i64
-    }
-}
-
-impl IntoMachineSize for Natural {
-    fn size(&self) -> i64 {
-        if self == &Natural::ZERO { 1 } else { 1 + ((self.bits() - 1) as i64) / 64 }
     }
 }
 

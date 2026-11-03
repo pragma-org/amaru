@@ -74,15 +74,6 @@ impl ArenaPool {
 
         PooledArena { arena: ManuallyDrop::new(arena), pool: self.inner.clone() }
     }
-
-    /// Try to acquire an arena from the pool
-    ///
-    /// Non-blocking, returns None if all arenas are in use
-    pub fn try_acquire(&self) -> Option<PooledArena> {
-        let mut guard = self.inner.arenas.lock().unwrap_or_else(|p| p.into_inner());
-
-        guard.pop_front().map(|arena| PooledArena { arena: ManuallyDrop::new(arena), pool: self.inner.clone() })
-    }
 }
 
 /// RAII Guard for the PooledArena (<https://rust-unofficial.github.io/patterns/patterns/behavioural/RAII.html>)

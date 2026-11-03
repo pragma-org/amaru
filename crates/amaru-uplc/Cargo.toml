@@ -48,13 +48,10 @@ amaru-deps.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports"] }
-divan.workspace = true
-insta.workspace = true
 itertools.workspace = true
 ouroboros.workspace = true
 pretty_assertions.workspace = true
 rayon.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 sysinfo.workspace = true
 test-case.workspace = true

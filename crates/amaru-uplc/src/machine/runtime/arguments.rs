@@ -61,12 +61,8 @@ where
         Self { head: Some(argument), len: self.len + 1 }
     }
 
-    pub fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
     }
 
     fn node(&self, index: usize) -> Option<&'a Argument<'a, V>> {

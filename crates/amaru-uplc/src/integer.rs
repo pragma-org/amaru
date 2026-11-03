@@ -20,7 +20,7 @@
 
 use std::{
     fmt,
-    ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Rem, Shl, ShlAssign, Shr, ShrAssign, Sub},
+    ops::{Add, BitAnd, BitXor, Div, Mul, Neg, Rem, Shl, Shr, ShrAssign, Sub},
     str::FromStr,
 };
 
@@ -180,13 +180,11 @@ impl_binary_ops!(Integer:
     Add::add,
     Sub::sub,
     Mul::mul,
-    Div::div,
     Rem::rem,
     BitAnd::bitand,
-    BitOr::bitor,
     BitXor::bitxor,
 );
-impl_binary_ops!(Natural: Add::add, Sub::sub, Mul::mul, Div::div, Rem::rem);
+impl_binary_ops!(Natural: Mul::mul, Div::div, Rem::rem);
 
 macro_rules! impl_shifts {
     ($wrapper:ident: $($trait:ident::$method:ident),+ $(,)?) => {
@@ -211,7 +209,7 @@ macro_rules! impl_shifts {
 }
 
 impl_shifts!(Integer: Shl::shl, Shr::shr);
-impl_shifts!(Natural: Shl::shl, Shr::shr);
+impl_shifts!(Natural: Shl::shl);
 
 macro_rules! impl_shift_assign {
     ($wrapper:ident: $($trait:ident::$method:ident),+ $(,)?) => {
@@ -225,8 +223,8 @@ macro_rules! impl_shift_assign {
     };
 }
 
-impl_shift_assign!(Integer: ShlAssign::shl_assign, ShrAssign::shr_assign);
-impl_shift_assign!(Natural: ShlAssign::shl_assign, ShrAssign::shr_assign);
+impl_shift_assign!(Integer: ShrAssign::shr_assign);
+impl_shift_assign!(Natural: ShrAssign::shr_assign);
 
 impl std::ops::BitOrAssign for Integer {
     fn bitor_assign(&mut self, rhs: Self) {
@@ -447,20 +445,6 @@ impl Natural {
 
     pub fn is_zero(&self) -> bool {
         self == &Self::ZERO
-    }
-
-    pub fn bits(&self) -> u64 {
-        #[cfg(all(feature = "dashu", not(feature = "malachite")))]
-        {
-            use dashu_base::BitTest;
-            self.0.bit_len() as u64
-        }
-
-        #[cfg(feature = "malachite")]
-        {
-            use malachite_base::num::logic::traits::SignificantBits;
-            self.0.significant_bits()
-        }
     }
 
     pub fn bit(&self, index: u64) -> bool {
