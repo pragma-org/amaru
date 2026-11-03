@@ -104,6 +104,50 @@ where
     T: Eq + Debug + cbor::Decode<'b, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let (vec, _) = Self::decode_with_metadata(d, ctx)?;
+        Ok(vec)
+    }
+}
+
+/// Some information that helps re-serialising a NonEmptyVec back to its original shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EncodingMetadata {
+    has_set_tag: bool,
+    indefinite: bool,
+}
+
+impl<T: Eq + Debug> NonEmptyVec<T> {
+    pub fn reencode<W: cbor::encode::Write, C>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+        metadata: &EncodingMetadata,
+    ) -> Result<(), cbor::encode::Error<W::Error>>
+    where
+        T: Eq + cbor::Encode<C>,
+    {
+        if metadata.has_set_tag {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+
+        if metadata.indefinite {
+            cbor::encode_indefinite_array(e, self.iter(), ctx)?;
+        } else {
+            e.encode_with(&self.0, ctx)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn decode_with_metadata<'b, C>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<(Self, EncodingMetadata), cbor::decode::Error>
+    where
+        T: cbor::Decode<'b, C>,
+    {
+        let mut metadata = EncodingMetadata::default();
+
         // NOTE: Set tag for non-empty vectors
         //
         // This looks weird, doesn't it? This is because non_empty_vec were meant to be non-empty
@@ -115,13 +159,18 @@ where
             if found_tag != expected_tag {
                 return Err(cbor::decode::Error::tag_mismatch(expected_tag));
             }
+            metadata.has_set_tag = true;
         }
 
         let position = d.position();
 
+        metadata.indefinite = d.datatype()? == cbor::Type::ArrayIndef;
+
         let vec: Vec<T> = d.decode_with(ctx)?;
 
-        Self::try_from(vec).map_err(|e| cbor::decode::Error::message(e).at(position))
+        let non_empty_vec = Self::try_from(vec).map_err(|e| cbor::decode::Error::message(e).at(position))?;
+
+        Ok((non_empty_vec, metadata))
     }
 }
 
