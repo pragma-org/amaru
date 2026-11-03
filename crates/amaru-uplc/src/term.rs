@@ -122,24 +122,6 @@ impl<'a, V> Term<'a, V> {
         Term::constant(arena, constant)
     }
 
-    pub fn data_byte_string(arena: &'a Arena, bytes: &'a [u8]) -> &'a Term<'a, V> {
-        let data = PlutusData::byte_string(arena, bytes);
-
-        Term::data(arena, data)
-    }
-
-    pub fn data_integer(arena: &'a Arena, i: &'a Integer) -> &'a Term<'a, V> {
-        let data = PlutusData::integer(arena, i);
-
-        Term::data(arena, data)
-    }
-
-    pub fn data_integer_from(arena: &'a Arena, i: i128) -> &'a Term<'a, V> {
-        let data = PlutusData::integer_from(arena, i);
-
-        Term::data(arena, data)
-    }
-
     pub fn unit(arena: &'a Arena) -> &'a Term<'a, V> {
         let constant = Constant::unit(arena);
 

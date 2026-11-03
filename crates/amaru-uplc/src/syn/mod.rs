@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{ProtocolVersion, protocol_version};
+use amaru_kernel::ProtocolVersion;
 use chumsky::{ParseResult, Parser, extra::SimpleState, prelude::*};
 
 mod constant;
@@ -24,7 +24,7 @@ mod types;
 mod utils;
 mod version;
 
-use crate::{arena::Arena, binder::DeBruijn, constant::Constant, data::PlutusData, program::Program, term::Term};
+use crate::{arena::Arena, binder::DeBruijn, program::Program};
 
 pub fn parse_program<'a>(
     arena: &'a Arena,
@@ -33,19 +33,4 @@ pub fn parse_program<'a>(
 ) -> ParseResult<&'a Program<'a, DeBruijn>, Rich<'a, char>> {
     let mut initial_state = SimpleState(types::State::new(arena, protocol_version));
     program::parser().parse_with_state(input, &mut initial_state)
-}
-
-pub fn parse_term<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a Term<'a, DeBruijn>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena, protocol_version::DEFAULT));
-    term::parser().parse_with_state(input, &mut initial_state)
-}
-
-pub fn parse_constant<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a Constant<'a>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena, protocol_version::DEFAULT));
-    constant::parser().parse_with_state(input, &mut initial_state)
-}
-
-pub fn parse_data<'a>(arena: &'a Arena, input: &'a str) -> ParseResult<&'a PlutusData<'a>, Rich<'a, char>> {
-    let mut initial_state = SimpleState(types::State::new(arena, protocol_version::DEFAULT));
-    data::parser().parse_with_state(input, &mut initial_state)
 }

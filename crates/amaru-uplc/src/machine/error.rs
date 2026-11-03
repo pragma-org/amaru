@@ -18,7 +18,6 @@ use super::{ExBudget, value::Value};
 use crate::{
     binder::Eval,
     bls::BlsError,
-    builtin::DefaultFunction,
     constant::{Constant, Integer, List},
     data::PlutusData,
     ledger_value::ValueError,
@@ -53,10 +52,6 @@ where
     MissingCaseBranch(&'a [&'a Term<'a, V>], &'a Value<'a, V>),
     #[error(transparent)]
     Runtime(RuntimeError<'a>),
-    #[error("Max constr tag exceeded")]
-    MaxConstrTagExceeded(&'a Value<'a, V>),
-    #[error("No cost found for builtin function: {0:?}")]
-    NoCostForBuiltin(DefaultFunction),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -121,8 +116,6 @@ pub enum RuntimeError<'a> {
     OutsideUsizeBounds(&'a Integer),
     #[error("bytes size beyond limit when replicating byte\n         Size {0}\n      Maximum {1}")]
     ReplicateByteSizeTooBig(&'a Integer, i64),
-    #[error("bytes size below limit when replicating byte\n         Size {0}\n      Minimum {1}")]
-    ReplicateByteSizeTooSmall(&'a Integer, usize),
     #[error("replicateByte encountered negative input\n        Input {0}")]
     ReplicateByteNegativeInput(&'a Integer),
     #[error("replicateByte encountered negative size\n         Size {0}")]

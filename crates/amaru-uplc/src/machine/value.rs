@@ -160,16 +160,6 @@ where
         Ok((t1, array))
     }
 
-    pub fn unwrap_map(&'a self) -> Result<(&'a Type<'a>, &'a List<'a>), MachineError<'a, V>> {
-        let inner = self.unwrap_constant()?;
-
-        let Constant::ProtoList(t1, list) = inner else {
-            return Err(MachineError::expected_list(inner));
-        };
-
-        Ok((t1, list))
-    }
-
     pub fn unwrap_constant(&'a self) -> Result<&'a Constant<'a>, MachineError<'a, V>> {
         let Value::Con(item) = self else {
             return Err(MachineError::NotAConstant(self));

@@ -33,16 +33,12 @@ pub enum FlatDecodeError {
     DecodeUtf8(#[from] std::str::Utf8Error),
     #[error(transparent)]
     DecodeCbor(#[from] minicbor::decode::Error),
-    #[error("Decoding u32 to char {0}")]
-    DecodeChar(u32),
     #[error("{0}")]
     Message(String),
     #[error("Default Function not found: {0}")]
     DefaultFunctionNotFound(u8),
     #[error("Unknown term constructor tag: {0}")]
     UnknownTermConstructor(u8),
-    #[error("Unknown constant constructor tag: {0:#?}")]
-    UnknownConstantConstructor(Vec<u8>),
     #[error("Unknown type tags: {0:#?}")]
     UnknownTypeTags(Vec<u8>),
     #[error("Missing type tag")]
@@ -55,8 +51,6 @@ pub enum FlatDecodeError {
     TrailingBytes(usize),
     #[error("Builtin function {1} (tag {0}) is not available in the given language version")]
     BuiltinNotAvailable(u8, String),
-    #[error("Constant type {1} (tag {0}) is not available before UPLC version 1.1.0")]
-    ConstantTypeNotAvailable(u8, &'static str),
     #[error("Term {1} (tag {0}) is not available before UPLC version 1.1.0")]
     TermNotAvailable(u8, &'static str),
     #[error(

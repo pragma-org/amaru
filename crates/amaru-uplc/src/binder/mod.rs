@@ -13,10 +13,8 @@
 // limitations under the License.
 
 mod debruijn;
-mod name;
 
 pub use debruijn::*;
-pub use name::*;
 
 use crate::{arena::Arena, flat};
 

@@ -25,15 +25,6 @@ pub struct Costing<T: Cost> {
     pub cpu: T,
 }
 
-impl<T> Costing<T>
-where
-    T: Cost,
-{
-    pub fn new(mem: T, cpu: T) -> Self {
-        Self { mem, cpu }
-    }
-}
-
 // TODO: {One, Two, Three, Four, Five, Size}Arguments enum no longer needed
 //
 // The multiple enums are no longer necessary since we have made the cost arguments more uniform. We
@@ -69,8 +60,6 @@ impl Cost for OneArgument {
     }
 }
 
-pub type OneArgumentCosting = Costing<OneArgument>;
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum TwoArguments {
     Constant(i64),
@@ -89,8 +78,6 @@ pub enum TwoArguments {
     QuadraticInXAndY(TwoArgumentsQuadraticFunction),
     WithInteraction(WithInteraction),
 }
-
-pub type TwoArgumentsCosting = Costing<TwoArguments>;
 
 impl Cost for TwoArguments {
     fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
@@ -196,8 +183,6 @@ pub enum ThreeArguments {
     ExpModCost(ExpModCost),
 }
 
-pub type ThreeArgumentsCosting = Costing<ThreeArguments>;
-
 impl Cost for ThreeArguments {
     fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
@@ -255,16 +240,12 @@ impl Cost for ThreeArguments {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum FourArguments {
-    Constant(i64),
     LinearInU(LinearSize),
 }
-
-pub type FourArgumentsCosting = Costing<FourArguments>;
 
 impl Cost for FourArguments {
     fn cost(&self, args: &[CostArgument<'_>]) -> i64 {
         match self {
-            FourArguments::Constant(c) => *c,
             FourArguments::LinearInU(l) => {
                 let u = args[3].size();
                 u.saturating_mul(l.slope).saturating_add(l.intercept)
@@ -277,8 +258,6 @@ impl Cost for FourArguments {
 pub enum SixArguments {
     Constant(i64),
 }
-
-pub type SixArgumentsCosting = Costing<SixArguments>;
 
 impl Cost for SixArguments {
     fn cost(&self, _args: &[CostArgument<'_>]) -> i64 {
