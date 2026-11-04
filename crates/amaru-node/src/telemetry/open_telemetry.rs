@@ -37,10 +37,14 @@ pub const DEFAULT_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(1000)
 ///
 /// Surrounding whitespace is ignored. Unset, empty, zero, or non-numeric values fall back to
 /// [`DEFAULT_METRIC_EXPORT_INTERVAL`] rather than the SDK's 60s default.
-fn metric_export_interval(env_value: Option<&str>) -> Duration {
-    env_value
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|&millis| millis > 0)
+#[expect(clippy::panic)]
+fn read_metric_export_interval() -> Duration {
+    std::env::var(OTEL_METRIC_EXPORT_INTERVAL)
+        .ok()
+        .as_deref()
+        .map(|value| value.trim().parse::<u64>())
+        .transpose()
+        .unwrap_or_else(|err| panic!("invalid {OTEL_METRIC_EXPORT_INTERVAL}: {err:?}"))
         .map(Duration::from_millis)
         .unwrap_or(DEFAULT_METRIC_EXPORT_INTERVAL)
 }
@@ -221,7 +225,7 @@ impl OpenTelemetryProviders {
                     .with_temporality(Temporality::default())
                     .build()
                     .map_err(BuildOpenTelemetryProvidersError::Metrics)?;
-                let interval = metric_export_interval(std::env::var(OTEL_METRIC_EXPORT_INTERVAL).ok().as_deref());
+                let interval = read_metric_export_interval();
                 let reader =
                     opentelemetry_sdk::metrics::PeriodicReader::builder(exporter).with_interval(interval).build();
                 Ok(SdkMeterProvider::builder().with_resource(resource).with_reader(reader).build())
