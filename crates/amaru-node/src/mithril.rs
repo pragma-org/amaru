@@ -1807,6 +1807,7 @@ mod tests {
             )
         };
         let block = EncodedTestBlock::from_seed(&header, &EraHistory::default());
+        let encoded_point = block.header.point();
         let raw = if case == "cbor" { RawBlock::from(vec![0xff].into_boxed_slice()) } else { block.raw };
         let mut builder = TokioBuilder::default();
         let (source, mut events) =
@@ -1817,7 +1818,7 @@ mod tests {
         if case == "limit" {
             assert_eq!(event, MithrilBlockEvent::Finished);
         } else if case == "origin" {
-            assert_eq!(event, MithrilBlockEvent::Failed(header.point(), "replay from origin is not supported".into()));
+            assert_eq!(event, MithrilBlockEvent::Failed(encoded_point, "replay from origin is not supported".into()));
         } else {
             assert!(matches!(event, MithrilBlockEvent::Failed(..)), "{event:?}");
         }

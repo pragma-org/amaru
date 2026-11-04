@@ -62,7 +62,7 @@ use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
-    mempool_effects::{AsyncMempool, MemoryPool},
+    mempool_effects::{AsyncMempool, MempoolEffects},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
@@ -94,14 +94,14 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let mempool = MemoryPool::new(eff.clone());
+        let mempool = MempoolEffects::new(eff.clone());
         let action = match input {
             InitiatorLocalIn::WaitForAtLeastReached => {
                 let action = self.complete_request_tx_ids_blocking(&mempool).await?;
                 if action.is_none() {
                     // Mempool reached the expected seq_no but the tx was removed before we could read it
-                    // Send a new wait message with the last_seq_no next value
-                    let seq_no = mempool.last_seq_no().await.next();
+                    // Send a new wait message with the next sequence number.
+                    let seq_no = mempool.last().await.next();
                     debug!(protocols::tx_submission::initiator::WAIT_FOR_AT_LEAST, peer = self.peer, seq_no = seq_no.0);
                     eff.send(
                         &self.mempool_stage,
@@ -133,7 +133,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         let peer = self.peer;
 
         async move {
-            let mempool = MemoryPool::new(eff.clone());
+            let mempool = MempoolEffects::new(eff.clone());
 
             let action = match input {
                 InitiatorResult::RequestTxIds { blocking: Blocking::Yes, .. } if self.pending_close => {
@@ -458,7 +458,7 @@ impl TxSubmissionInitiator {
             warn!(protocols::tx_submission::initiator::UNAVAILABLE_TXS, unavailable = format!("{unavailable:?}"));
             return terminate(RequestedUnavailableTx);
         }
-        let txs = mempool.get_txs_for_ids(&tx_ids).await;
+        let txs = mempool.get(&tx_ids).await;
         let delivered: BTreeSet<TransactionId> = txs.iter().map(|tx| tx.tx_id()).collect();
         let omitted: Vec<&TransactionId> = tx_ids.iter().filter(|id| !delivered.contains(id)).collect();
         if omitted.is_empty() {
@@ -499,7 +499,7 @@ impl TxSubmissionInitiator {
         mempool: &dyn AsyncMempool,
         required_next: u16,
     ) -> anyhow::Result<Vec<(TransactionId, u32)>> {
-        let tx_ids = mempool.tx_ids_since(self.next_seq(), required_next).await;
+        let tx_ids = mempool.slice(self.next_seq(), required_next).await;
         let result = tx_ids.clone().into_iter().map(|(tx_id, tx_size, _)| (tx_id, tx_size)).collect();
         self.update(tx_ids);
         Ok(result)
@@ -577,7 +577,7 @@ mod tests {
 
     use amaru_kernel::{EraHistory, EraName, to_cbor};
     use amaru_mempool::InMemoryMempool;
-    use amaru_ouroboros_traits::{TxOrigin, TxSubmissionMempool};
+    use amaru_ouroboros_traits::{Mempool, TxOrigin};
 
     use super::*;
     use crate::tx_submission::{assert_actions_eq, create_transactions_in_mempool, tests::create_transactions};
@@ -633,7 +633,7 @@ mod tests {
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
-            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
+            Mempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
         }
 
         // Send requests to retrieve transactions and block until they are available.
@@ -646,7 +646,7 @@ mod tests {
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
-            TxSubmissionMempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
+            Mempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
         }
         let messages = vec![
             request_tx_ids(1, 2, Blocking::Yes),
@@ -686,9 +686,9 @@ mod tests {
 
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
-        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) < seq_no);
-        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
-        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+        assert!(Mempool::last(mempool.as_ref()) < seq_no);
+        Mempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
+        assert!(Mempool::last(mempool.as_ref()) >= seq_no);
         assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
 
         Ok(())
@@ -708,10 +708,10 @@ mod tests {
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
         let tx_id = txs[0].tx_id();
-        TxSubmissionMempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[tx_id]);
+        Mempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
+        Mempool::remove(mempool.as_ref(), &[tx_id]);
         // the last seq_no is greater than the requested seq_no
-        assert!(TxSubmissionMempool::last_seq_no(mempool.as_ref()) >= seq_no);
+        assert!(Mempool::last(mempool.as_ref()) >= seq_no);
 
         // yet we don't complete the request because the mempool is empty
         assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, None);
@@ -735,7 +735,7 @@ mod tests {
         let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
         assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
 
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id()]);
+        Mempool::remove(mempool.as_ref(), &[txs[0].tx_id()]);
 
         let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
         assert_actions_eq(&actions, &[reply_txs(&txs, &[1])]);
@@ -755,7 +755,7 @@ mod tests {
         let (actions, initiator) = run_stage_and_return_state(mempool.clone(), vec![advertise]).await?;
         assert_actions_eq(&actions, &[reply_tx_ids(&txs, &[0, 1])]);
 
-        TxSubmissionMempool::remove_txs(mempool.as_ref(), &[txs[0].tx_id(), txs[1].tx_id()]);
+        Mempool::remove(mempool.as_ref(), &[txs[0].tx_id(), txs[1].tx_id()]);
 
         let (actions, _) = run_stage_and_return_state_with(initiator, mempool, vec![request_both]).await?;
         assert_actions_eq(&actions, &[reply_txs(&txs, &[])]);
@@ -990,7 +990,7 @@ mod tests {
         let action = match input {
             InitiatorResult::RequestTxIds { ack, req, blocking: Blocking::Yes } => {
                 match initiator.begin_request_tx_ids_blocking(ack, req) {
-                    Ok(seq_no) if mempool.last_seq_no().await >= seq_no => {
+                    Ok(seq_no) if mempool.last().await >= seq_no => {
                         initiator.complete_request_tx_ids_blocking(mempool).await?
                     }
                     Ok(_) => None,

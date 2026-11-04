@@ -21,7 +21,7 @@ use amaru_observability::tracing::Level;
 use amaru_ouroboros::{
     MempoolMsg, MempoolSeqNo, MempoolState, TransactionValidationError, TxInsertResult, TxOrigin, TxRejectReason,
 };
-use amaru_ouroboros_traits::{TxSubmissionMempool, in_memory_chain_store::InMemoryChainStore};
+use amaru_ouroboros_traits::{Mempool, in_memory_chain_store::InMemoryChainStore};
 use amaru_pure_stage::StageRef;
 
 use crate::stages::{
@@ -97,7 +97,7 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert_eq!(mempool.mempool_txs(), vec![tx_0, tx_2]);
+    assert_eq!(mempool.read().iter().collect::<Vec<_>>(), vec![&tx_0, &tx_2]);
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
     logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
@@ -131,8 +131,9 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
     let chain_store = Arc::new(InMemoryChainStore::default());
     chain_store.store_block(&header.hash(), &raw).unwrap();
 
+    let tip = amaru_kernel::Point::Specific(1.into(), header.hash(), 1.into());
     let prep = TestPrep {
-        msg: MempoolMsg::NewTip(amaru_kernel::Point::Specific(1.into(), header.hash(), 1.into())),
+        msg: MempoolMsg::NewTip(tip),
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
         validator: Arc::new(|_: &Transaction| Err(anyhow::anyhow!("invalid after tip").into())),
@@ -141,7 +142,8 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert!(mempool.mempool_txs().is_empty());
+    assert!(mempool.read_at(tip).is_some());
+    assert!(mempool.read().iter().next().is_none());
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "included_in_adopted_block"])
         .assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);

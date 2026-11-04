@@ -104,14 +104,14 @@ mod tests {
 
     /// A set of verification key witnesses arrives on-chain in any of three shapes: a bare
     /// definite-length array, an indefinite-length array, or the `#6.258(…)` form the Conway CDDL
-    /// prescribes. All three must decode, and all three re-encode to the tagged definite form —
-    /// which is why a block carrying either lenient shape never reproduces its own bytes.
+    /// prescribes. All three must decode. Before protocol version 12, the compact untagged form is
+    /// emitted; from protocol version 12, the set tag is mandatory.
     #[test_case("81", ""; "bare definite array, as found on-chain before Conway")]
     #[test_case("9f", "ff"; "indefinite-length array")]
     #[test_case("d9010281", ""; "tagged set, as the Conway CDDL prescribes")]
-    fn verification_key_witnesses_always_re_encode_as_a_tagged_definite_set(prefix: &str, suffix: &str) {
+    fn verification_key_witnesses_re_encode_for_the_target_protocol(prefix: &str, suffix: &str) {
         let input = format!("a100{prefix}825820{KEY}5840{SIGNATURE}{suffix}");
-        let expected = format!("a100d9010281825820{KEY}5840{SIGNATURE}");
+        let expected = format!("a10081825820{KEY}5840{SIGNATURE}");
 
         let witnesses: WitnessSet = from_cbor_no_leftovers(&hex::decode(&input).unwrap()).unwrap();
 
@@ -120,6 +120,17 @@ mod tests {
 
         let re_decoded: WitnessSet = from_cbor_no_leftovers(&encoded).unwrap();
         assert_eq!(to_cbor(&re_decoded), encoded, "encoding is not a fixed point");
+    }
+
+    #[test]
+    fn verification_key_witnesses_include_the_set_tag_from_protocol_version_12() {
+        let input = format!("a10081825820{KEY}5840{SIGNATURE}");
+        let witnesses: WitnessSet = from_cbor_no_leftovers(&hex::decode(&input).unwrap()).unwrap();
+        let mut protocol_version = crate::protocol_version::PROTOCOL_VERSION_12;
+
+        let encoded = cbor::to_cbor_with(&witnesses, &mut protocol_version);
+        let expected = format!("a100d9010281825820{KEY}5840{SIGNATURE}");
+        assert_eq!(hex::encode(encoded), expected);
     }
 
     /// The ledger reads this map with `decodeSparseKeyed`, which fails on a key it does not know

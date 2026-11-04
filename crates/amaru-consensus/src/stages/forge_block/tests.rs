@@ -83,11 +83,9 @@ fn lead_slot_before_certificate_start_is_a_miss() {
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
     let (running, _guards, mut logs, stage) = setup(&prep, msg);
 
-    logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"])
+        .assert_and_remove(Level::INFO, &["forge.block_body"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 
     let state = running.get_state(&stage).cloned().unwrap().data;
     assert!(state.next_lead.is_none());
@@ -128,6 +126,7 @@ fn an_accepted_lead_arms_the_following_slot() {
     let timestamp = super::calc::format_utc_timestamp(wall).unwrap();
     logs.assert_and_remove(Level::WARN, &["ocert_not_yet_valid"])
         .assert_and_remove(Level::DEBUG, &[timestamp.as_str()])
+        .assert_and_remove(Level::INFO, &["forge.block_body"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 
     let state = running.get_state(&stage).cloned().unwrap().data;
@@ -184,7 +183,7 @@ fn lead_slot_forges_a_signed_header() {
     let header = prep.store.load_headers().find(|header| header.slot() == slot).expect("forged header stored");
     let block = prep.store.load_block(&header.hash()).unwrap().expect("forged block stored");
     assert_eq!(block.decode_header().unwrap().hash(), header.hash());
-    assert_eq!(block.body_hash().unwrap(), header.body().block_body_hash);
+    assert_eq!(block.decode().unwrap().body_hash(), header.body().block_body_hash);
     let credentials = prep.credentials.as_ref().unwrap();
     let parameters = &prep.state.data.consensus_parameters;
     let ocert = &header.body().operational_cert;
@@ -215,11 +214,9 @@ fn lead_slot_without_credentials_terminates() {
     let msg = ForgeBlockMsg::from(DueLead { slot, generation: 0 });
     let (_running, _guards, mut logs, _stage) = setup(&prep, msg);
 
-    logs.assert_and_remove(Level::ERROR, &["sign_header", "credentials resource is missing"]).assert_no_remaining_at([
-        Level::INFO,
-        Level::WARN,
-        Level::ERROR,
-    ]);
+    logs.assert_and_remove(Level::ERROR, &["sign_header", "credentials resource is missing"])
+        .assert_and_remove(Level::INFO, &["forge.block_body"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
     assert!(prep.store.load_headers().next().is_none());
 }
 

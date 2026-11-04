@@ -17,7 +17,8 @@ use std::{collections::BTreeMap, ops::Deref};
 use stacksafe::{StackSafe, stacksafe};
 
 use crate::{
-    Bytes, Hash, Hasher, NonEmptyVec, cbor, from_cbor, size::DATUM, to_cbor, utils::string::blanket_try_from_hex_bytes,
+    Bytes, Hash, Hasher, NonEmptyVec, cbor, data_structures::non_empty_vec, from_cbor, size::DATUM, to_cbor,
+    utils::string::blanket_try_from_hex_bytes,
 };
 
 mod bigint;
@@ -383,12 +384,8 @@ impl<C> cbor::Encode<C> for BoundedBytes {
 // the original bytes, we only need to store the original envelope, and defer to the `inner` plutus
 // data for each item original bytes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
 pub struct PlutusDataSet {
-    // FIXME: wrong serde 'skip' & default.
-    // This looks wrong; we cannot skip bytes here. Should be fixed once the note above is adressed.
-    #[serde(skip, default = "crate::Bytes::default")]
-    original_bytes: Bytes,
+    encoding_metadata: non_empty_vec::EncodingMetadata,
     inner: NonEmptyVec<MemoizedPlutusData>,
 }
 
@@ -398,20 +395,20 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for PlutusDataSet {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        self.inner.encode(e, ctx)
+        self.inner.reencode(e, ctx, &self.encoding_metadata)
     }
 }
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for PlutusDataSet {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let (inner, bytes) = cbor::tee(d, |d| NonEmptyVec::<MemoizedPlutusData>::decode(d, ctx))?;
-        Ok(Self { original_bytes: Bytes::from(bytes.to_vec()), inner })
+        let (inner, encoding_metadata) = NonEmptyVec::<MemoizedPlutusData>::decode_with_metadata(d, ctx)?;
+        Ok(Self { inner, encoding_metadata })
     }
 }
 
 impl PlutusDataSet {
-    pub fn original_bytes(&self) -> &[u8] {
-        &self.original_bytes
+    pub fn original_bytes(&self) -> Vec<u8> {
+        to_cbor(self)
     }
 }
 

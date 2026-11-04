@@ -16,8 +16,13 @@ use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{
     ConsensusParameters, KesPeriod, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PoolId, ProtocolVersion,
+    Transaction, cbor::WithOriginalBytes,
 };
-use amaru_ouroboros_traits::{ForgingCredentials, Nonces, in_memory_chain_store::InMemoryChainStore};
+use amaru_mempool::InMemoryMempool;
+use amaru_ouroboros::ResourceMempool;
+use amaru_ouroboros_traits::{
+    ForgingCredentials, MockBlockValidator, Nonces, in_memory_chain_store::InMemoryChainStore,
+};
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{
     DeserializerGuards, StageGraph, StageRef,
@@ -31,7 +36,7 @@ use super::{
     schedule::EpochSchedule, stage, test_vrf_key,
 };
 use crate::{
-    effects::ValidateHeaderEffect,
+    effects::{ResourceBlockBuilderConstraints, ValidateHeaderEffect},
     stages::{
         select_chain::SelectChainMsg,
         test_utils::{Logs, SimulationRunMode, run_simulation_with},
@@ -49,6 +54,7 @@ pub struct TestPrep {
     pub rt: tokio::runtime::Runtime,
     pub store: Arc<InMemoryChainStore>,
     pub credentials: Option<Arc<TestCredentials>>,
+    pub mempool: ResourceMempool<Transaction>,
 }
 
 pub fn test_prep() -> TestPrep {
@@ -68,6 +74,7 @@ pub fn test_prep() -> TestPrep {
         rt: crate::stages::test_utils::test_runtime(),
         store: Arc::new(InMemoryChainStore::new()),
         credentials: Some(Arc::new(credentials)),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
     }
 }
 
@@ -119,6 +126,7 @@ fn setup_with(
 ) -> (SimulationRunning, DeserializerGuards, Logs, StageStateRef<ForgeBlockMsg, ForgeBlock>) {
     let guards = register_guards();
     let state = prep.state.clone();
+    let ledger_tip = state.data.adopted_tip;
     let msgs: Vec<_> = msgs.into_iter().collect();
     let wired_slot: Mutex<Option<StageStateRef<ForgeBlockMsg, ForgeBlock>>> = Mutex::new(None);
     let (running, guards, logs) = run_simulation_with(
@@ -133,6 +141,9 @@ fn setup_with(
         },
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
+            prep.mempool.set_tip(ledger_tip);
+            resources.put::<ResourceMempool<Transaction>>(prep.mempool.clone());
+            resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::new(ledger_tip)));
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),
             ));

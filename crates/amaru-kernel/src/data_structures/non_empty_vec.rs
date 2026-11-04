@@ -83,6 +83,7 @@ impl<T: Eq> From<NonEmptyVec<T>> for Vec<T> {
 
 impl<C, T> cbor::encode::Encode<C> for NonEmptyVec<T>
 where
+    C: cbor::HasProtocolVersion,
     T: Eq + cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
@@ -90,8 +91,10 @@ where
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.tag(cbor::TAG_SET_258)?;
-        e.encode_with(self.deref(), ctx)?;
+        if ctx.protocol_version() >= crate::protocol_version::PROTOCOL_VERSION_12 {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+        cbor::encode_variable_length_array(e, self.iter(), ctx)?;
         Ok(())
     }
 }
@@ -101,6 +104,50 @@ where
     T: Eq + Debug + cbor::Decode<'b, C>,
 {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let (vec, _) = Self::decode_with_metadata(d, ctx)?;
+        Ok(vec)
+    }
+}
+
+/// Some information that helps re-serialising a NonEmptyVec back to its original shape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EncodingMetadata {
+    has_set_tag: bool,
+    indefinite: bool,
+}
+
+impl<T: Eq + Debug> NonEmptyVec<T> {
+    pub fn reencode<W: cbor::encode::Write, C>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+        metadata: &EncodingMetadata,
+    ) -> Result<(), cbor::encode::Error<W::Error>>
+    where
+        T: Eq + cbor::Encode<C>,
+    {
+        if metadata.has_set_tag {
+            e.tag(cbor::TAG_SET_258)?;
+        }
+
+        if metadata.indefinite {
+            cbor::encode_indefinite_array(e, self.iter(), ctx)?;
+        } else {
+            e.encode_with(&self.0, ctx)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn decode_with_metadata<'b, C>(
+        d: &mut cbor::Decoder<'b>,
+        ctx: &mut C,
+    ) -> Result<(Self, EncodingMetadata), cbor::decode::Error>
+    where
+        T: cbor::Decode<'b, C>,
+    {
+        let mut metadata = EncodingMetadata::default();
+
         // NOTE: Set tag for non-empty vectors
         //
         // This looks weird, doesn't it? This is because non_empty_vec were meant to be non-empty
@@ -112,13 +159,18 @@ where
             if found_tag != expected_tag {
                 return Err(cbor::decode::Error::tag_mismatch(expected_tag));
             }
+            metadata.has_set_tag = true;
         }
 
         let position = d.position();
 
+        metadata.indefinite = d.datatype()? == cbor::Type::ArrayIndef;
+
         let vec: Vec<T> = d.decode_with(ctx)?;
 
-        Self::try_from(vec).map_err(|e| cbor::decode::Error::message(e).at(position))
+        let non_empty_vec = Self::try_from(vec).map_err(|e| cbor::decode::Error::message(e).at(position))?;
+
+        Ok((non_empty_vec, metadata))
     }
 }
 
@@ -155,14 +207,14 @@ mod tests {
         }
     }
 
-    #[test_case("D901028101", &[1], true; "tagged singleton")]
-    #[test_case("8101", &[1], false; "singleton")]
+    #[test_case("D901028101", &[1], false; "tagged singleton")]
+    #[test_case("8101", &[1], true; "singleton")]
     #[test_case("D901029F010203FF", &[1,2,3], false; "tagged indef array")]
     #[test_case("9F010203FF", &[1,2,3], false; "indef array")]
-    #[test_case("D9010283040102", &[4, 1, 2], true; "tagged def array")]
-    #[test_case("83040102", &[4, 1, 2], false; "def array")]
-    #[test_case("83010201", &[1, 2, 1], false; "with duplicates")]
-    #[test_case("D901028401010203", &[1,1,2,3], true; "tagged with duplicates")]
+    #[test_case("D9010283040102", &[4, 1, 2], false; "tagged def array")]
+    #[test_case("83040102", &[4, 1, 2], true; "def array")]
+    #[test_case("83010201", &[1, 2, 1], true; "with duplicates")]
+    #[test_case("D901028401010203", &[1,1,2,3], false; "tagged with duplicates")]
     fn from_cbor_success(s: &str, expected: &[u8], expected_roundtrip: bool) {
         let original_bytes = hex::decode(s).unwrap();
         match from_cbor_no_leftovers::<NonEmptyVec<u8>>(original_bytes.as_slice()) {

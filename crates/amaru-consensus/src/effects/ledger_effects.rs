@@ -18,8 +18,8 @@ use amaru_kernel::{ConsensusParameters, EraHistory, Header, PeerCandidate, Point
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
-    BlockValidationError, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult, ForkSwitchOutcome,
-    HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
+    BlockValidationError, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult,
+    ForkSwitchOutcome, HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
@@ -133,6 +133,7 @@ impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
 
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
+pub type ResourceBlockBuilderConstraints = Arc<dyn CanReadBlockBuilderConstraints + Send + Sync>;
 pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;

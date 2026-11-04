@@ -4862,6 +4862,68 @@
         "warn"
       ]
     },
+    "amaru::consensus::forge::BLOCK_BODY": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tx_count": {
+          "type": "integer"
+        },
+        "size_bytes": {
+          "type": "integer"
+        },
+        "ex_units": {
+          "type": "string"
+        },
+        "ref_scripts_size": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slot",
+        "tx_count",
+        "size_bytes",
+        "ex_units",
+        "ref_scripts_size"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "block_body",
+      "kind": "event",
+      "target": "amaru::consensus::forge",
+      "description": "The non-empty block body selected for the current forge attempt.",
+      "public": true,
+      "levels": [
+        "debug",
+        "info"
+      ]
+    },
+    "amaru::consensus::forge::BUILD_BLOCK": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "slot"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "build_block",
+      "kind": "span",
+      "target": "amaru::consensus::forge",
+      "description": "Transaction selection for building blocks",
+      "public": true
+    },
     "amaru::consensus::forge::FORGED": {
       "type": "object",
       "properties": {
@@ -4926,7 +4988,7 @@
       "name": "forge_failed",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block}.",
+      "description": "Forging the header or storing it failed. The node shuts down. Step ∈ {sign_header, validate_header, store_header, store_block, seal_block}.",
       "public": true,
       "levels": [
         "error"
@@ -4975,7 +5037,7 @@
       "name": "missed_slot",
       "kind": "event",
       "target": "amaru::consensus::forge",
-      "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}.",
+      "description": "A led slot was not forged. Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored, ledger_tip_changed}.",
       "public": true,
       "levels": [
         "warn"
@@ -5024,6 +5086,38 @@
       "levels": [
         "debug",
         "info"
+      ]
+    },
+    "amaru::consensus::forge::TAKE_FOR_FORGE_FAILED": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "step": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "step",
+        "error"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "take_for_forge_failed",
+      "kind": "event",
+      "target": "amaru::consensus::forge",
+      "description": "Selecting transactions for block forging failed; an empty block is forged instead.",
+      "public": true,
+      "levels": [
+        "error"
       ]
     },
     "amaru::consensus::kes::LEGACY_KEY_ENVELOPE": {

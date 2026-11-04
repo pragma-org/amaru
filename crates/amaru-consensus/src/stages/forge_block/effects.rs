@@ -15,33 +15,26 @@
 //! External effects the `forge_block` stage calls.
 //!
 //! Leader schedules are computed here from the credentials resource and
-//! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body
-//! effect returns an empty block until the mempool can supply one.
+//! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body effect resolves
+//! the current ledger parameters and selects transactions from the registered mempool without
+//! cloning transactions that do not fit in the block.
 
 use std::sync::Arc;
 
 use amaru_kernel::{
-    Block, BodyParts, Epoch, EraHistory, EraHistoryError, Hash, Header, HeaderHash, KesPeriod, KesSignature, Nonce,
-    PoolId, RawBlock, Slot, cardano::network_block::NetworkBlock, maths::FixedDecimal,
+    BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, Point, PoolId, Slot,
+    Transaction, maths::FixedDecimal,
 };
-use amaru_ouroboros::vrf;
-use amaru_ouroboros_traits::{ForgingCredentials, ForgingCredentialsError};
+use amaru_observability::{info, info_span};
+use amaru_ouroboros::{ResourceMempool, vrf};
+use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
-use crate::effects::{ResourceConsensusParameters, ResourcePoolSummaries};
+use crate::effects::{ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourcePoolSummaries};
 
 /// `None` in the product binary. Tests (and, later, a configured pool) install `Some`.
 pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
-
-/// Transactions selected for a parent and slot, already a well-formed block body.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ForgedBody {
-    pub hash: Hash<32>,
-    pub size: u32,
-    /// Body items encoded once. [`Self::seal`] prefixes the signed header; it does not encode the body again.
-    parts: BodyParts,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SignHeaderError {
@@ -51,43 +44,14 @@ pub enum SignHeaderError {
     Credentials(#[from] ForgingCredentialsError),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum EmptyBlockError {
-    #[error("forged header does not commit to the empty block body")]
-    CommitmentMismatch,
-    #[error("empty block encoding failed: {0}")]
-    Encode(String),
-    #[error("era for the forged slot is unknown: {0}")]
-    Era(#[from] EraHistoryError),
-}
-
-impl ForgedBody {
-    /// No transactions. `hash` and `size` are what the header must commit to.
-    ///
-    /// `block` is empty until [`Self::seal`] wraps a signed header around that body.
-    pub fn empty() -> Self {
-        let parts = BodyParts::from_transactions(std::iter::empty())
-            .unwrap_or_else(|error| unreachable!("an empty transaction list fits in a block: {error}"));
-        let (hash, size) = parts.commitment();
-        Self { hash, size, parts }
-    }
-
-    /// Network-block bytes for `header` and this body.
-    ///
-    /// `header` must already carry [`Self::hash`] and [`Self::size`]. The body bytes are the ones
-    /// [`BodyParts`] encoded when this value was built.
-    pub fn seal(&self, header: &Header, era_history: &EraHistory) -> Result<RawBlock, EmptyBlockError> {
-        let committed = &header.body().block_body_hash;
-        if *committed != self.hash || header.body().block_body_size != self.size {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        let bytes = self.parts.encode_block(header);
-        let actual = Block::hash_encoded_body(&bytes).map_err(|error| EmptyBlockError::Encode(error.to_string()))?;
-        if actual != self.hash {
-            return Err(EmptyBlockError::CommitmentMismatch);
-        }
-        Ok(NetworkBlock::from_encoded_block(era_history, Slot::from(header.body().slot), bytes)?.raw_block())
-    }
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
+pub enum TakeForForgeError {
+    #[error("unable to construct block body: {0}")]
+    Body(#[from] amaru_kernel::BlockBodyBuilderError),
+    #[error("ledger worker terminated while reading block-builder constraints")]
+    LedgerThreadTerminated,
+    #[error("ledger or mempool tip does not match forge parent {parent} at slot {slot} (ledger tip: {ledger_tip})")]
+    TipsChanged { ledger_tip: Point, parent: HeaderHash, slot: Slot },
 }
 
 /// Detached leader-schedule computation for one epoch.
@@ -175,10 +139,10 @@ impl ExternalEffectAPI for SignHeaderEffect {
     }
 }
 
-/// Ask the mempool for a body valid on `parent` as of `slot`.
+/// Select a body only when the ledger and mempool views still match `parent` at `slot`.
 ///
-/// The mempool is not consulted yet. The default body is empty and [`ForgedBody::seal`]
-/// turns it into a block the ledger can apply.
+/// The consistency check prevents transactions validated against a different ledger tip from
+/// being removed and included in a block on a stale fork.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TakeForForgeEffect {
     pub parent: HeaderHash,
@@ -192,10 +156,74 @@ impl TakeForForgeEffect {
 }
 
 impl ExternalEffectAPI for TakeForForgeEffect {
-    type Response = ForgedBody;
+    type Response = Result<BlockBodyParts, TakeForForgeError>;
 
-    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
-        self.wrap_sync(ForgedBody::empty())
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        let mempool = resources
+            .get::<ResourceMempool<Transaction>>()
+            .expect("ResourceMempool must be registered before the forge stage is started")
+            .clone();
+
+        let constraints = resources
+            .get::<ResourceBlockBuilderConstraints>()
+            .expect("ResourceBlockBuilderConstraints must be registered before the forge stage is started")
+            .clone();
+
+        self.wrap(|this| async move {
+            let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
+                constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
+
+            if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot {
+                return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
+            }
+
+            let Some(mempool_view) = mempool.read_at(ledger_tip) else {
+                return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
+            };
+
+            info_span!(consensus::forge::BUILD_BLOCK, slot = this.slot).in_scope(|| {
+                let mut builder = BlockBodyBuilder::default();
+                let mut selected = Vec::new();
+
+                // FIXME: Assumptions of block forging iterating through mempool
+                //
+                // This simple construction works only because we assume transactions in the mempool to
+                // be independent; which is the case with the current strategy, but the underlying code
+                // here should not be able to make this assumption.
+                //
+                // In principle, we should be able to inform the iterator of us skipping a transaction;
+                // or reverse the problem and have the iterator return batches of dependent
+                // transactions. Skipping one transaction from the batch should skip all the subsequent
+                // one and move to the next batch.
+                for transaction in mempool_view.iter() {
+                    // The ledger tip can be older than the slot being forged. Revalidation at the
+                    // previous tip is therefore not sufficient to prove that the transaction is
+                    // still valid for this block.
+                    if transaction.body.validity_interval().includes(this.slot)
+                        && builder.try_push(transaction, &constraints)?
+                    {
+                        selected.push(transaction.tx_id());
+                    }
+                }
+
+                info!(
+                    consensus::forge::BLOCK_BODY,
+                    slot = this.slot,
+                    tx_count = selected.len() as u64,
+                    size_bytes = builder.size(),
+                    ex_units = builder.ex_units(),
+                    ref_scripts_size = builder.ref_scripts_size(),
+                );
+
+                let body = builder.finalize()?;
+
+                drop(mempool_view);
+                mempool.remove(&selected);
+
+                Ok(body)
+            })
+        })
     }
 }
 

@@ -47,6 +47,8 @@ pub(super) enum MissedSlotReason {
     WokeLate,
     /// Same-slot lead whose adopted parent was not in the chain store.
     ParentNotStored,
+    /// The ledger tip changed while a block was being prepared.
+    LedgerTipChanged,
 }
 
 impl MissedSlotReason {
@@ -58,6 +60,7 @@ impl MissedSlotReason {
             Self::NotLed => "not_led",
             Self::WokeLate => "woke_late",
             Self::ParentNotStored => "parent_not_stored",
+            Self::LedgerTipChanged => "ledger_tip_changed",
         }
     }
 }

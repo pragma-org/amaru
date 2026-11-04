@@ -720,14 +720,21 @@ define_schemas! {
             }
             forge {
                 /// A led slot was not forged.
-                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored}.
+                /// Reason ∈ {ocert_not_yet_valid, ocert_expired, tip_ahead, not_led, woke_late, parent_not_stored, ledger_tip_changed}.
                 public event MISSED_SLOT {
                     levels: warn
                     required slot: amaru_kernel::Slot
                     required reason: String
                 }
+                /// Selecting transactions for block forging failed; an empty block is forged instead.
+                public event TAKE_FOR_FORGE_FAILED {
+                    levels: error
+                    required slot: amaru_kernel::Slot
+                    required step: String
+                    required error: String
+                }
                 /// Forging the header or storing it failed. The node shuts down.
-                /// Step ∈ {sign_header, validate_header, store_header, store_block}.
+                /// Step ∈ {sign_header, validate_header, store_header, store_block, seal_block}.
                 public event FORGE_FAILED {
                     levels: error
                     required slot: amaru_kernel::Slot
@@ -743,6 +750,19 @@ define_schemas! {
                     optional next_slot: Option<String>
                     required freeze_depth: u64
                     required settled: bool
+                }
+                /// Transaction selection for building blocks
+                public span BUILD_BLOCK {
+                    required slot: amaru_kernel::Slot
+                }
+                /// The non-empty block body selected for the current forge attempt.
+                public event BLOCK_BODY {
+                    levels: debug, info
+                    required slot: amaru_kernel::Slot
+                    required tx_count: u64
+                    required size_bytes: u32
+                    required ex_units: %amaru_kernel::ExUnits
+                    required ref_scripts_size: u64
                 }
                 /// A block was forged and stored, and its tip sent to chain selection.
                 public event FORGED {

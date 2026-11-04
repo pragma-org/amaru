@@ -139,6 +139,7 @@ pub fn build_stage_graph(
         let sender = forge.sender();
         (forge, sender, credentials)
     });
+    let forge_stage = forge.as_ref().map(|(stage, _, _)| stage.sender());
 
     let mut adopt =
         AdoptChain::new(manager.sender(), block_source_sender.clone(), mempool_stage.clone(), k, ledger_tip);
@@ -243,7 +244,7 @@ pub fn build_stage_graph(
             ),
         )
         .without_state();
-    NodeStages { manager_stage, mempool_stage, track_peers_stake_dist_sender }
+    NodeStages { manager_stage, mempool_stage, forge_stage, track_peers_stake_dist_sender }
 }
 
 /// This data types encapsulates stage references that we need to export in order to
@@ -252,6 +253,7 @@ pub fn build_stage_graph(
 pub struct NodeStages {
     pub manager_stage: StageRef<ManagerMessage>,
     pub mempool_stage: StageRef<MempoolMsg>,
+    pub forge_stage: Option<StageRef<ForgeBlockMsg>>,
     /// Sender to notify track_peers when a new stake distribution becomes available in the ledger.
     /// Created via stage_graph.input().
     pub track_peers_stake_dist_sender: Sender<TrackPeersMsg>,
@@ -264,6 +266,10 @@ impl NodeStages {
 
     pub fn mempool_stage(&self) -> StageRef<MempoolMsg> {
         self.mempool_stage.clone()
+    }
+
+    pub fn forge_stage(&self) -> Option<StageRef<ForgeBlockMsg>> {
+        self.forge_stage.clone()
     }
 
     pub fn track_peers_stake_dist_sender(&self) -> Sender<TrackPeersMsg> {

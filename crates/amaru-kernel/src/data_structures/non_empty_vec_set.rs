@@ -49,6 +49,7 @@ impl<T: Ord> AsRef<[T]> for NonEmptyVecSet<T> {
 
 impl<C, T> cbor::Encode<C> for NonEmptyVecSet<T>
 where
+    C: cbor::HasProtocolVersion,
     T: Ord + cbor::Encode<C>,
 {
     fn encode<W: cbor::encode::Write>(
@@ -135,14 +136,15 @@ mod tests {
     use super::NonEmptyVecSet;
     use crate::{from_cbor_no_leftovers, to_cbor};
 
-    /// However the elements arrived, they are written as a tagged array in ascending order.
+    /// However the elements arrived, they are written as an ascending array in the compact form
+    /// used before protocol version 12.
     #[test_case("83030102"; "out of order")]
     #[test_case("9f030102ff"; "indefinite-length")]
     #[test_case("d9010283010203"; "already tagged and ordered")]
-    fn always_re_encodes_as_an_ascending_tagged_set(input: &str) {
+    fn re_encodes_as_an_ascending_compact_set(input: &str) {
         let set: NonEmptyVecSet<u8> = from_cbor_no_leftovers(&hex::decode(input).unwrap()).unwrap();
 
-        assert_eq!(hex::encode(to_cbor(&set)), "d9010283010203");
+        assert_eq!(hex::encode(to_cbor(&set)), "83010203");
     }
 
     #[test_case("80"; "the empty array")]

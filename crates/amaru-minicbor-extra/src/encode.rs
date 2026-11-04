@@ -17,6 +17,12 @@ use std::convert::Infallible;
 use minicbor as cbor;
 use minicbor::Encoder;
 
+pub mod indefinite_array;
+pub mod indefinite_map;
+
+pub use indefinite_array::{IndefiniteArray, encode_indefinite_array};
+pub use indefinite_map::{IndefiniteMap, encode_indefinite_map};
+
 /// Encode a field with an optional value.
 pub fn encode_optional<C, T, W>(
     e: &mut cbor::Encoder<W>,
@@ -78,6 +84,36 @@ where
     for (k, v) in map {
         e.encode_with(k, ctx)?;
         e.encode_with(v, ctx)?;
+    }
+
+    if as_indef {
+        e.end()?;
+    }
+
+    Ok(())
+}
+
+/// Encode an array using the shorter of the definite form for up to 23 elements and the
+/// indefinite form for larger arrays.
+pub fn encode_variable_length_array<'iter, C, T, W>(
+    e: &mut Encoder<W>,
+    values: impl ExactSizeIterator<Item = &'iter T>,
+    ctx: &mut C,
+) -> Result<(), minicbor::encode::Error<W::Error>>
+where
+    T: minicbor::Encode<C> + 'iter,
+    W: minicbor::encode::Write,
+{
+    let as_indef = values.len() > 23;
+
+    if as_indef {
+        e.begin_array()?;
+    } else {
+        e.array(values.len() as u64)?;
+    }
+
+    for value in values {
+        e.encode_with(value, ctx)?;
     }
 
     if as_indef {

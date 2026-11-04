@@ -13,7 +13,9 @@
 // limitations under the License.
 
 pub mod blocks;
+pub mod protocol_parameters;
 pub mod txs;
 
 pub use blocks::*;
+pub use protocol_parameters::*;
 pub use txs::*;

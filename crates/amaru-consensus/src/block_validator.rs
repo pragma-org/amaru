@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use amaru_kernel::{Block, PeerCandidate, Point, Transaction};
+use amaru_kernel::{Block, BlockBuilderConstraints, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     rules::block::BlockValidation,
     state::State,
@@ -29,8 +29,9 @@ use amaru_ledger::{
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::warn;
 use amaru_ouroboros_traits::{
-    CanValidateBlocks, CanValidateTxs, ChainStore, ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated,
-    PoolSummaries, TransactionValidationError, can_validate_blocks::BlockValidationError,
+    BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, ChainStore,
+    ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated, PoolSummaries, TransactionValidationError,
+    can_validate_blocks::BlockValidationError,
 };
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -60,6 +61,7 @@ enum LedgerRequest {
     VolatileTip(oneshot::Sender<Option<Point>>),
     ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
+    BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
 }
 
@@ -74,6 +76,7 @@ pub enum LedgerThreadPhase {
     ReadingVolatileTip,
     ValidatingTransaction,
     ReadingRelayCandidates,
+    ReadingBlockBuilderConstraints,
     UpdatingStakeDistributionCallback,
     JoiningRewards,
     ReleasingStores,
@@ -240,6 +243,13 @@ impl CanValidateTxs for BlockValidator {
 }
 
 #[async_trait::async_trait]
+impl CanReadBlockBuilderConstraints for BlockValidator {
+    async fn block_builder_constraints(&self) -> Result<BlockBuilderConstraintsResponse, LedgerThreadTerminated> {
+        self.request(LedgerRequest::BlockBuilderConstraints).await
+    }
+}
+
+#[async_trait::async_trait]
 impl CanValidateBlocks for BlockValidator {
     // NOTE: Requests execute once queued
     //
@@ -338,6 +348,13 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                 *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
                 let _ = reply
                     .send(self.state.registered_relay_candidates().map_err(|e| BlockValidationError::new(anyhow!(e))));
+            }
+            LedgerRequest::BlockBuilderConstraints(reply) => {
+                *phase.lock() = LedgerThreadPhase::ReadingBlockBuilderConstraints;
+                let _ = reply.send(BlockBuilderConstraintsResponse {
+                    tip: self.state.tip().into_owned(),
+                    constraints: BlockBuilderConstraints::from(self.state.protocol_parameters()),
+                });
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;

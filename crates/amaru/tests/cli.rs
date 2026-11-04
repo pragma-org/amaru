@@ -108,6 +108,7 @@ fn amaru_help(args: &[&str]) -> anyhow::Result<String> {
         command.arg(arg);
     }
     command.arg("--help");
+    command.env("NO_COLOR", "true");
     let output = command.output()?;
     assert!(output.status.success(), "amaru {} --help failed", args.join(" "));
     Ok(String::from_utf8(output.stdout)?)
@@ -142,7 +143,7 @@ fn mithril_sync_help_shows_all_options() -> anyhow::Result<()> {
 #[test]
 fn removed_dev_ledger_command_is_rejected() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
-    let output = Command::new(amaru).args(["dev", "ledger", "--help"]).output()?;
+    let output = Command::new(amaru).args(["dev", "ledger", "--help"]).env("NO_COLOR", "true").output()?;
     assert!(!output.status.success(), "removed 'dev ledger' command should be rejected");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(stderr.contains("unrecognized subcommand 'ledger'"), "got {stderr}");

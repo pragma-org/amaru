@@ -57,7 +57,7 @@ impl ScriptIntegrityData {
             None => vec![0xa0],
         };
 
-        let datums_bytes = witness_set.plutus_data.as_ref().map(|d| d.original_bytes().to_vec());
+        let datums_bytes = witness_set.plutus_data.as_ref().map(|d| d.original_bytes());
 
         let language_views: BTreeSet<LanguageView> =
             languages.iter().map(|lang| LanguageView::from_cost_models(*lang, cost_models)).collect();

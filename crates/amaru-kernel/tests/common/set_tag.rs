@@ -20,11 +20,11 @@
 //! always writes the tagged form. Dropping the tag from both sides before comparing forgives that choice
 //! and nothing else.
 //!
-//! The scope is deliberately narrow. Only the values of a witness set map lose their tag, so a set
-//! elsewhere in a transaction — the inputs, the certificates, the required signers — is still compared
-//! with its tag in place. The tag becomes mandatory at protocol version 12, and the unit tests in
-//! `amaru-kernel` pin that amaru writes it, so forgiving it here does not let a missing tag through
-//! unnoticed.
+//! The scope is deliberately narrow. Transaction and block samples only lose tags on witness-set
+//! fields. Certificate and proposal samples are walked recursively because their set-valued fields
+//! are nested inside the value being tested. The tag becomes mandatory at protocol version 12, and
+//! the unit tests in `amaru-kernel` pin that amaru writes it, so forgiving it here does not let a
+//! missing tag through unnoticed.
 
 use amaru_kernel::cbor::{self, data::Type};
 
@@ -36,7 +36,10 @@ const WITNESS_SETS_IN_BLOCK: u64 = 2;
 
 /// Whether a rule's samples carry a witness set whose set tags are optional.
 pub fn forgives_optional_set_tags(rule: &str) -> bool {
-    matches!(rule, "transaction_witness_set" | "transaction" | "block")
+    matches!(
+        rule,
+        "transaction_witness_set" | "transaction" | "block" | "certificate" | "certificates" | "proposal_procedures"
+    )
 }
 
 /// Rewrite a sample so that no field of a witness set carries the `#6.258` tag, leaving every other byte
@@ -72,12 +75,77 @@ pub fn drop_optional_set_tags(rule: &str, bytes: &[u8]) -> Result<Vec<u8>, cbor:
             }
         }
 
+        "certificate" | "certificates" | "proposal_procedures" => copy_without_set_tags(&mut d, &mut out)?,
+
         _ => {
             return Err(cbor::decode::Error::message(format!("rule `{rule}` carries no witness set")));
         }
     }
 
     Ok(out)
+}
+
+/// Copy a shape-normalised value while removing optional set tags at any nesting level.
+///
+/// These rule values contain sets below their top-level array, unlike a witness set where the
+/// fields carrying a set can be identified directly from the map. Tags other than `#6.258` are
+/// preserved byte-for-byte, including their nested value.
+fn copy_without_set_tags(d: &mut cbor::Decoder<'_>, out: &mut Vec<u8>) -> Result<(), cbor::decode::Error> {
+    let start = d.position();
+
+    match d.datatype()? {
+        Type::Tag => {
+            let tag = d.tag()?;
+            if tag != cbor::TAG_SET_258 {
+                copy_from(d, out, start);
+            }
+            copy_without_set_tags(d, out)
+        }
+
+        Type::Array => {
+            let len = d.array()?.ok_or_else(|| indefinite_container("array", start))?;
+            copy_from(d, out, start);
+            for _ in 0..len {
+                copy_without_set_tags(d, out)?;
+            }
+            Ok(())
+        }
+
+        Type::Map => {
+            let len = d.map()?.ok_or_else(|| indefinite_container("map", start))?;
+            copy_from(d, out, start);
+            for _ in 0..len {
+                copy_without_set_tags(d, out)?;
+                copy_without_set_tags(d, out)?;
+            }
+            Ok(())
+        }
+
+        Type::ArrayIndef => Err(indefinite_container("array", start)),
+        Type::MapIndef => Err(indefinite_container("map", start)),
+        Type::Bool
+        | Type::Null
+        | Type::Undefined
+        | Type::U8
+        | Type::U16
+        | Type::U32
+        | Type::U64
+        | Type::I8
+        | Type::I16
+        | Type::I32
+        | Type::I64
+        | Type::Int
+        | Type::F16
+        | Type::F32
+        | Type::F64
+        | Type::Simple
+        | Type::Bytes
+        | Type::BytesIndef
+        | Type::String
+        | Type::StringIndef
+        | Type::Break
+        | Type::Unknown(_) => copy_item(d, out),
+    }
 }
 
 /// Copy a witness set, dropping the `#6.258` tag from the value of every field that carries one.
