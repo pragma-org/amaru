@@ -61,8 +61,8 @@ mod open_telemetry;
 #[cfg(test)]
 pub(crate) use open_telemetry::NotingSpanProcessor;
 pub use open_telemetry::{
-    BuildOpenTelemetryProvidersError, CborSpanExporter, OpenTelemetryProviders, OtelSignal, OtelSignals,
-    ShutdownOpenTelemetryProvidersError,
+    BuildOpenTelemetryProvidersError, CborSpanExporter, DEFAULT_METRIC_EXPORT_INTERVAL, OpenTelemetryProviders,
+    OtelSignal, OtelSignals, ShutdownOpenTelemetryProvidersError,
 };
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
@@ -127,6 +127,8 @@ impl Telemetry {
     /// - `AMARU_TRACE` — filter for Amaru event targets (default `info`).
     /// - `RUST_LOG` — optional extra filter for non-schema logging.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
+    /// - `OTEL_METRIC_EXPORT_INTERVAL` — milliseconds between two OTLP metrics
+    ///   exports (default `1000`).
     ///
     /// When OTLP is disabled, installs a CBOR-aware stderr (or JSON stdout)
     /// layer only and a default empty [`Meter`].

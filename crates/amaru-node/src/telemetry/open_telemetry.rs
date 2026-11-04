@@ -27,6 +27,24 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
 
+/// Environment variable controlling the interval between two OTLP metrics exports, in milliseconds.
+const OTEL_METRIC_EXPORT_INTERVAL: &str = "OTEL_METRIC_EXPORT_INTERVAL";
+
+/// Amaru's metrics export interval when `OTEL_METRIC_EXPORT_INTERVAL` is not set (the SDK default is 60s).
+pub const DEFAULT_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(1000);
+
+/// Return the interval to force on the metrics reader, or `None` to let the SDK honour a valid
+/// `OTEL_METRIC_EXPORT_INTERVAL` value (`with_interval` would otherwise override it).
+///
+/// Unset, empty, zero, or non-numeric values fall back to [`DEFAULT_METRIC_EXPORT_INTERVAL`] rather than
+/// the SDK's 60s default.
+fn default_metric_export_interval(env_value: Option<String>) -> Option<Duration> {
+    match env_value.and_then(|value| value.trim().parse::<u64>().ok()) {
+        Some(millis) if millis > 0 => None,
+        _ => Some(DEFAULT_METRIC_EXPORT_INTERVAL),
+    }
+}
+
 /// Replaces a stock CBOR debug dump with the decoded attribute and keeps one value per key.
 #[derive(Debug)]
 pub struct CborSpanExporter<E> {
@@ -203,10 +221,12 @@ impl OpenTelemetryProviders {
                     .with_temporality(Temporality::default())
                     .build()
                     .map_err(BuildOpenTelemetryProvidersError::Metrics)?;
-                Ok(SdkMeterProvider::builder()
-                    .with_resource(resource)
-                    .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(exporter).build())
-                    .build())
+                let mut reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter);
+                if let Some(interval) = default_metric_export_interval(std::env::var(OTEL_METRIC_EXPORT_INTERVAL).ok())
+                {
+                    reader = reader.with_interval(interval);
+                }
+                Ok(SdkMeterProvider::builder().with_resource(resource).with_reader(reader.build()).build())
             })
             .transpose()?;
 

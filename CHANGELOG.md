@@ -45,6 +45,7 @@ Other guiding principles:
 ### Changed
 
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
+- **amaru**: with OpenTelemetry enabled, metrics are now exported every second by default (previously every 60 seconds), including when running interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) to use a different interval. The generated environment files (`/etc/default/amaru`, `/etc/sysconfig/amaru`, `.env.example`) now list it.
 
 ### Fixed
 

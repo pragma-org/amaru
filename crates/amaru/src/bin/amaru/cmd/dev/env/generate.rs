@@ -192,8 +192,21 @@ fn collect_environment_variables(command: &Command) -> anyhow::Result<BTreeMap<S
     extend_environment_variables(&mut variables, command)?;
     extend_environment_variables(&mut variables, run)?;
     extend_environment_variables(&mut variables, bootstrap)?;
+    extend_opentelemetry_variables(&mut variables);
 
     Ok(variables)
+}
+
+/// OpenTelemetry SDK variables that are not Clap arguments but that Amaru gives a non-standard default.
+fn extend_opentelemetry_variables(variables: &mut BTreeMap<String, EnvironmentVariable>) {
+    variables.insert(
+        "OTEL_METRIC_EXPORT_INTERVAL".to_string(),
+        EnvironmentVariable {
+            description: "Interval between two OTLP metrics exports.".to_string(),
+            default_value: Some(amaru_node::telemetry::DEFAULT_METRIC_EXPORT_INTERVAL.as_millis().to_string()),
+            meta_type: "MILLISECONDS".to_string(),
+        },
+    );
 }
 
 fn find_subcommand<'a>(command: &'a Command, name: &str) -> anyhow::Result<&'a Command> {
