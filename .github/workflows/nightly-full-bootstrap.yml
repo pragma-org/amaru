@@ -84,16 +84,18 @@ jobs:
           ' EXIT
 
           fail() {
-            local message="$1" cause
-            cause="$(jq -Rc '
-              fromjson? | objects | select(.level == "ERROR")
-              | .fields.cause // .fields.description // .fields.message // empty
-            ' "$current_log" | tail -1 | jq -r '.')"
-            if [[ -n "$cause" ]]; then
-              message="$message: $cause"
+            local message="$1" diagnostic
+            diagnostic="$(jq -Rc '
+              fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
+              | .fields.error // .fields.cause // .fields.description // .fields.detail // .fields.message // empty
+            ' "$current_log" | sed -n '1p' | jq -r '.')"
+            if [[ -n "$diagnostic" ]]; then
+              message="$message; first warning/error: $diagnostic"
             fi
-            echo "::group::Last 200 lines of $current_log" >&2
-            tail -200 "$current_log" >&2 || true
+            echo "::group::First 50 errors and warnings in $current_log" >&2
+            jq -Rc '
+              fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
+            ' "$current_log" | sed -n '1,50p' >&2 || true
             echo "::endgroup::" >&2
             printf '%s' "$message" | jq -Rrs '
               gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
@@ -176,7 +178,7 @@ jobs:
             jq -Rr --arg log "$log" '
               fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
               | "\($log):\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"
-            ' "$log"
+            ' "$log" | sed -n '1,50p'
             printf '::%s::\n' "$stop_commands_token"
             trap - EXIT
 
@@ -185,7 +187,7 @@ jobs:
               jq -Rc --arg level "$level" '
                 fromjson? | objects | select(.level == $level)
                 | {level, message: "\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"}
-              ' "$log" | tail -5 | jq -r --arg log "$log" '
+              ' "$log" | sed -n '1,5p' | jq -r --arg log "$log" '
                 (if .level == "ERROR" then "error" else "warning" end) as $command
                 | "\($log):\(.message[:2000])"
                 | gsub("%"; "%25") | gsub("\r"; "%0D") | gsub("\n"; "%0A")
@@ -196,9 +198,9 @@ jobs:
             entries="$(jq -Rc '
               fromjson? | objects | select(.level == "ERROR" or .level == "WARN")
               | {level, message: "\(input_line_number):\(.timestamp) \(.level) \(.target) \(.fields | tojson)"}
-            ' "$log" | tail -20)"
+            ' "$log" | sed -n '1,50p')"
             {
-              printf '### %s: latest errors and warnings (up to 20)\n\n<pre>\n' "$log"
+              printf '### %s: first errors and warnings (up to 50)\n\n<pre>\n' "$log"
               printf '%s\n' "$entries" | jq -r '.message[:2000] | @html'
               printf '</pre>\n\n'
             } >> "$GITHUB_STEP_SUMMARY"
