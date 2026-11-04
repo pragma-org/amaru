@@ -48,6 +48,23 @@ fn ready_schedule(epoch: Epoch, slots: Range<Slot>) -> Schedule {
 }
 
 #[test]
+fn adopted_tip_reports_the_kes_state_of_the_forging_key() {
+    let prep = test_prep();
+    let msg = ForgeBlockMsg::from(AdoptedTip { tip: Point::Origin, parent: Point::Origin });
+    let (_running, _guards, _logs, _stage) = setup(&prep, msg);
+
+    let recorded = prep.metrics.lock().unwrap();
+    let kes = recorded
+        .iter()
+        .find_map(|event| if let amaru_metrics::MetricsEvent::KesMetrics(kes) = event { Some(*kes) } else { None })
+        .expect("the forge stage records the KES state on an adopted tip");
+    // test_prep's certificate starts at KES period 0 and preprod allows 62 evolutions.
+    assert_eq!(kes.operational_certificate_start_kes_period, 0);
+    assert_eq!(kes.operational_certificate_expiry_kes_period, 62);
+    assert!(kes.remaining_kes_periods <= 62);
+}
+
+#[test]
 fn adopted_origin_records_the_tip_and_does_not_schedule() {
     let prep = test_prep();
     let msg = ForgeBlockMsg::from(AdoptedTip { tip: Point::Origin, parent: Point::Origin });

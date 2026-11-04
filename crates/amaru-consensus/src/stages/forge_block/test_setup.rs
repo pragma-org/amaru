@@ -19,11 +19,15 @@ use amaru_kernel::{
     Transaction, cbor::WithOriginalBytes,
 };
 use amaru_mempool::InMemoryMempool;
+use amaru_metrics::{Meter, MetricsEvent};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{
     ForgingCredentials, MockBlockValidator, Nonces, in_memory_chain_store::InMemoryChainStore,
 };
-use amaru_protocols::store_effects::ResourceHeaderStore;
+use amaru_protocols::{
+    metrics_effects::{RecordMetricsEffect, ResourceMeter},
+    store_effects::ResourceHeaderStore,
+};
 use amaru_pure_stage::{
     DeserializerGuards, StageGraph, StageRef,
     simulation::{SimulationRunning, running::OverrideResult},
@@ -55,6 +59,8 @@ pub struct TestPrep {
     pub store: Arc<InMemoryChainStore>,
     pub credentials: Option<Arc<TestCredentials>>,
     pub mempool: ResourceMempool<Transaction>,
+    /// Metric events the stage recorded, in order.
+    pub metrics: Arc<Mutex<Vec<MetricsEvent>>>,
 }
 
 pub fn test_prep() -> TestPrep {
@@ -75,6 +81,7 @@ pub fn test_prep() -> TestPrep {
         store: Arc::new(InMemoryChainStore::new()),
         credentials: Some(Arc::new(credentials)),
         mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
+        metrics: Arc::new(Mutex::new(Vec::new())),
     }
 }
 
@@ -90,6 +97,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::store_effects::StoreValidatedHeaderEffect>()
             .boxed(),
         amaru_pure_stage::register_effect_deserializer::<amaru_protocols::store_effects::StoreBlockEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
     ]
     .into_iter()
     .chain(amaru_protocols::store_effects::register_deserializers())
@@ -149,6 +157,12 @@ fn setup_with(
             ));
             let credentials = prep.credentials.clone().map(|credentials| credentials as Arc<dyn ForgingCredentials>);
             resources.put::<ResourceForgingCredentials>(credentials);
+            let mut meter = Meter::default();
+            let recorded = prep.metrics.clone();
+            meter.set_local_observer(Box::new(move |event| {
+                recorded.lock().expect("recorded metrics").push(event.clone());
+            }));
+            resources.put::<ResourceMeter>(Arc::new(meter));
         },
         |running| {
             running.override_external_effect::<LeaderScheduleEffect>(usize::MAX, |effect| {
