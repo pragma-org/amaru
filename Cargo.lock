@@ -422,6 +422,7 @@ version = "0.1.2"
 dependencies = [
  "amaru-deps",
  "opentelemetry",
+ "opentelemetry_sdk",
  "serde",
 ]
 

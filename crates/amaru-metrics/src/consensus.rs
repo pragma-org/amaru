@@ -24,6 +24,32 @@ use opentelemetry::metrics::Meter as OpenTelemetryMeter;
 use crate::{Counter, Histogram};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
+/// Bucket boundaries, in microseconds, of the duration histograms below: 0.5 ms to 30 s.
+///
+/// Without them the OpenTelemetry SDK falls back to its default boundaries (0 to 10,000), which
+/// are meant for milliseconds. Every duration above 10 ms then lands in the overflow bucket, so a
+/// header arriving 300 ms into its slot is indistinguishable from one arriving after 20 s. The
+/// 1 s, 3 s and 5 s boundaries match the block delay thresholds that cardano-node reports.
+#[cfg(not(target_arch = "wasm32"))]
+const DURATION_BOUNDARIES_MICROS: [f64; 16] = [
+    500.0,
+    1_000.0,
+    2_500.0,
+    5_000.0,
+    10_000.0,
+    25_000.0,
+    50_000.0,
+    100_000.0,
+    250_000.0,
+    500_000.0,
+    1_000_000.0,
+    2_000_000.0,
+    3_000_000.0,
+    5_000_000.0,
+    10_000_000.0,
+    30_000_000.0,
+];
+
 /// Performance measurements emitted by the select_chain stage, computed from `perf.*` events
 /// but aggregatable as OpenTelemetry metrics (a duration histogram plus an outcome-labelled
 /// counter per measurement kind).
@@ -150,7 +176,12 @@ fn record_optional_duration(
         return;
     };
     let duration = duration.get_or_init(|| {
-        meter.u64_histogram(duration_name).with_description(duration_description).with_unit("us").build()
+        meter
+            .u64_histogram(duration_name)
+            .with_description(duration_description)
+            .with_unit("us")
+            .with_boundaries(DURATION_BOUNDARIES_MICROS.to_vec())
+            .build()
     });
     duration.record(duration_micros, attributes);
 }
@@ -170,7 +201,12 @@ fn record_duration(
     duration_micros: u64,
 ) {
     let duration = duration.get_or_init(|| {
-        meter.u64_histogram(duration_name).with_description(duration_description).with_unit("us").build()
+        meter
+            .u64_histogram(duration_name)
+            .with_description(duration_description)
+            .with_unit("us")
+            .with_boundaries(DURATION_BOUNDARIES_MICROS.to_vec())
+            .build()
     });
     let total = total.get_or_init(|| meter.u64_counter(total_name).with_description(total_description).build());
 
@@ -182,5 +218,72 @@ fn record_duration(
 impl From<ConsensusMetrics> for MetricsEvent {
     fn from(value: ConsensusMetrics) -> Self {
         MetricsEvent::ConsensusMetrics(value)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use opentelemetry::metrics::MeterProvider;
+    use opentelemetry_sdk::metrics::{
+        InMemoryMetricExporter, PeriodicReader, SdkMeterProvider,
+        data::{AggregatedMetrics, MetricData},
+    };
+
+    use super::*;
+
+    /// A 300 ms duration must land in the (250 ms, 500 ms] bucket, not in the overflow bucket, for both histogram
+    /// builders. Both cases share one test because the histograms live in process-wide `OnceLock`s, bound to the
+    /// meter that first initialises them.
+    #[test]
+    fn duration_histograms_land_in_their_own_buckets() {
+        let exporter = InMemoryMetricExporter::default();
+        let provider =
+            SdkMeterProvider::builder().with_reader(PeriodicReader::builder(exporter.clone()).build()).build();
+        let meter = Meter::from(provider.meter("amaru"));
+
+        ConsensusMetrics::HeaderLifecycle {
+            outcome: "valid".to_string(),
+            slot_start_to_header_micros: Some(300_000),
+            block_fetch_wait_micros: None,
+            block_fetch_micros: None,
+            forward_micros: None,
+        }
+        .record_to_meter(&meter);
+        ConsensusMetrics::ForkSwitch { outcome: "valid".to_string(), duration_micros: 300_000 }.record_to_meter(&meter);
+        provider.force_flush().expect("flush metrics");
+
+        let exported = exporter.get_finished_metrics().expect("finished metrics");
+        for name in [
+            "amaru_consensus_slot_start_to_header_duration_microseconds",
+            "amaru_consensus_fork_switch_duration_microseconds",
+        ] {
+            let histogram = exported
+                .iter()
+                .flat_map(|resource| resource.scope_metrics())
+                .flat_map(|scope| scope.metrics())
+                .find(|metric| metric.name() == name)
+                .map(|metric| metric.data())
+                .and_then(|data| {
+                    if let AggregatedMetrics::U64(MetricData::Histogram(histogram)) = data {
+                        histogram.data_points().next()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| panic!("{name} histogram"));
+
+            let bounds: Vec<f64> = histogram.bounds().collect();
+            assert_eq!(bounds, DURATION_BOUNDARIES_MICROS.to_vec(), "{name}");
+
+            let counts: Vec<u64> = histogram.bucket_counts().collect();
+            let bucket = bounds.iter().position(|bound| *bound >= 300_000.0).expect("a bucket for 300 ms");
+            assert_eq!(bounds[bucket], 500_000.0, "{name}");
+            assert_eq!(counts[bucket], 1, "{name}");
+            assert_eq!(
+                counts.iter().sum::<u64>(),
+                1,
+                "{name}: nothing else recorded, in particular not the overflow bucket"
+            );
+        }
     }
 }

@@ -46,6 +46,10 @@ Other guiding principles:
 
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
 
+### Fixed
+
+- **amaru-metrics**: the `amaru_consensus_*_duration_microseconds` histograms have buckets from 0.5 ms to 30 s. They used the OpenTelemetry default boundaries (0 to 10,000), meant for milliseconds, so nearly every header and block timing fell in the overflow bucket and percentiles could not be computed.
+
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
  ### Added
