@@ -36,7 +36,7 @@ impl ConsensusParameters {
             global_parameters.randomness_stabilization_window(),
             global_parameters.slots_per_kes_period,
             global_parameters.max_kes_evolution as u64,
-            1f64 / global_parameters.active_slot_coeff_inverse as f64,
+            global_parameters.active_slot_coeff_inverse,
             era_history,
         )
     }
@@ -46,10 +46,10 @@ impl ConsensusParameters {
         randomness_stabilization_window: u64,
         slots_per_kes_period: u64,
         max_kes_evolution: u64,
-        active_slot_coeff: f64,
+        active_slot_coeff_inverse: u64,
         era_history: &EraHistory,
     ) -> ConsensusParameters {
-        let active_slot_coeff = &FixedDecimal::from((active_slot_coeff * 100.0) as u64) / &FixedDecimal::from(100u64);
+        let active_slot_coeff = FixedDecimal::one() / &FixedDecimal::from(active_slot_coeff_inverse);
 
         assert!(active_slot_coeff != FixedDecimal::ZERO, "active slot coefficient cannot be null");
 

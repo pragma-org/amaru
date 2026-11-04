@@ -188,7 +188,7 @@ fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusPar
         0,
         context.praos_slots_per_kes_period,
         context.praos_max_kes_evolution,
-        context.active_slot_coeff,
+        (1.0 / context.active_slot_coeff) as u64,
         NetworkName::Preprod.as_era_history().expect("missing network default EraHistory"),
     )
 }
