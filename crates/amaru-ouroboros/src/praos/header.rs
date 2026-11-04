@@ -307,8 +307,7 @@ fn meets_leader_threshold(
     let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
     let c = (FixedDecimal::one() - active_slot_coeff).ln();
     let x = (leader_relative_stake * &c).neg();
-    let ordering = x.exp_cmp(1000, 3, &recip_q);
-    match ordering.estimation {
+    match x.exp_cmp(&recip_q) {
         ExpOrdering::LT => true,
         ExpOrdering::GT | ExpOrdering::UNKNOWN => false,
     }
@@ -440,7 +439,7 @@ mod tests {
                 reciprocal_raw,
                 exponent_raw,
                 ordering,
-                iterations,
+                _iterations,
             ] = columns.as_slice()
             else {
                 panic!("malformed leadership row {count}: {row}");
@@ -466,12 +465,7 @@ mod tests {
             ] {
                 assert_eq!(actual, &from_raw(expected), "{name}, leadership row {count}: {row}");
             }
-            let comparison = x.exp_cmp(1000, 3, &q);
-            assert_eq!(
-                (comparison.estimation, comparison.iterations),
-                (expected_ordering, iterations.parse::<u64>().unwrap()),
-                "comparison, leadership row {count}: {row}"
-            );
+            assert_eq!(x.exp_cmp(&q), expected_ordering, "comparison, leadership row {count}: {row}");
             let expected =
                 if expected_eligible { Ok(()) } else { Err(AssertLeaderStakeError::InsufficientLeaderStake) };
             assert_eq!(
