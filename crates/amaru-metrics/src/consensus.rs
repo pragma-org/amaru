@@ -231,9 +231,11 @@ mod tests {
 
     use super::*;
 
-    /// A header seen 300 ms into its slot must land in the (250 ms, 500 ms] bucket, not in the overflow bucket.
+    /// A 300 ms duration must land in the (250 ms, 500 ms] bucket, not in the overflow bucket, for both histogram
+    /// builders. Both cases share one test because the histograms live in process-wide `OnceLock`s, bound to the
+    /// meter that first initialises them.
     #[test]
-    fn header_durations_land_in_their_own_bucket() {
+    fn duration_histograms_land_in_their_own_buckets() {
         let exporter = InMemoryMetricExporter::default();
         let provider =
             SdkMeterProvider::builder().with_reader(PeriodicReader::builder(exporter.clone()).build()).build();
@@ -247,31 +249,41 @@ mod tests {
             forward_micros: None,
         }
         .record_to_meter(&meter);
+        ConsensusMetrics::ForkSwitch { outcome: "valid".to_string(), duration_micros: 300_000 }.record_to_meter(&meter);
         provider.force_flush().expect("flush metrics");
 
         let exported = exporter.get_finished_metrics().expect("finished metrics");
-        let histogram = exported
-            .iter()
-            .flat_map(|resource| resource.scope_metrics())
-            .flat_map(|scope| scope.metrics())
-            .find(|metric| metric.name() == "amaru_consensus_slot_start_to_header_duration_microseconds")
-            .map(|metric| metric.data())
-            .and_then(|data| {
-                if let AggregatedMetrics::U64(MetricData::Histogram(histogram)) = data {
-                    histogram.data_points().next()
-                } else {
-                    None
-                }
-            })
-            .expect("slot start to header histogram");
+        for name in [
+            "amaru_consensus_slot_start_to_header_duration_microseconds",
+            "amaru_consensus_fork_switch_duration_microseconds",
+        ] {
+            let histogram = exported
+                .iter()
+                .flat_map(|resource| resource.scope_metrics())
+                .flat_map(|scope| scope.metrics())
+                .find(|metric| metric.name() == name)
+                .map(|metric| metric.data())
+                .and_then(|data| {
+                    if let AggregatedMetrics::U64(MetricData::Histogram(histogram)) = data {
+                        histogram.data_points().next()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| panic!("{name} histogram"));
 
-        let bounds: Vec<f64> = histogram.bounds().collect();
-        assert_eq!(bounds, DURATION_BOUNDARIES_MICROS.to_vec());
+            let bounds: Vec<f64> = histogram.bounds().collect();
+            assert_eq!(bounds, DURATION_BOUNDARIES_MICROS.to_vec(), "{name}");
 
-        let counts: Vec<u64> = histogram.bucket_counts().collect();
-        let bucket = bounds.iter().position(|bound| *bound >= 300_000.0).expect("a bucket for 300 ms");
-        assert_eq!(bounds[bucket], 500_000.0);
-        assert_eq!(counts[bucket], 1);
-        assert_eq!(counts.iter().sum::<u64>(), 1, "nothing else recorded, in particular not the overflow bucket");
+            let counts: Vec<u64> = histogram.bucket_counts().collect();
+            let bucket = bounds.iter().position(|bound| *bound >= 300_000.0).expect("a bucket for 300 ms");
+            assert_eq!(bounds[bucket], 500_000.0, "{name}");
+            assert_eq!(counts[bucket], 1, "{name}");
+            assert_eq!(
+                counts.iter().sum::<u64>(),
+                1,
+                "{name}: nothing else recorded, in particular not the overflow bucket"
+            );
+        }
     }
 }
