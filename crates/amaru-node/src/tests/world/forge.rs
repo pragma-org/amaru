@@ -226,7 +226,7 @@ fn ready_schedule(epoch: Epoch, slots: Range<Slot>) -> EpochSchedule {
         nonce,
         slots,
         FixedDecimal::one(),
-        FixedDecimal::one(),
+        &FixedDecimal::ZERO,
         &amaru_consensus::stages::forge_block::test_vrf_key(),
     )
 }

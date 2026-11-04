@@ -25,6 +25,7 @@ pub struct ConsensusParameters {
     slots_per_kes_period: u64,
     max_kes_evolution: u64,
     active_slot_coeff: SerializedFixedDecimal,
+    active_slot_coeff_ln_complement: SerializedFixedDecimal,
     era_history: EraHistory,
 }
 
@@ -49,11 +50,21 @@ impl ConsensusParameters {
         era_history: &EraHistory,
     ) -> ConsensusParameters {
         let active_slot_coeff = &FixedDecimal::from((active_slot_coeff * 100.0) as u64) / &FixedDecimal::from(100u64);
+
+        assert!(active_slot_coeff != FixedDecimal::ZERO, "active slot coefficient cannot be null");
+
+        let active_slot_coeff_ln_complement = if &active_slot_coeff >= FixedDecimal::one() {
+            FixedDecimal::ZERO
+        } else {
+            (FixedDecimal::one() - &active_slot_coeff).ln()
+        };
+
         Self {
             randomness_stabilization_window,
             slots_per_kes_period,
             max_kes_evolution,
             active_slot_coeff: SerializedFixedDecimal(active_slot_coeff),
+            active_slot_coeff_ln_complement: SerializedFixedDecimal(active_slot_coeff_ln_complement),
             era_history: era_history.clone(),
         }
     }
@@ -74,8 +85,12 @@ impl ConsensusParameters {
         self.max_kes_evolution
     }
 
-    pub fn active_slot_coeff(&self) -> FixedDecimal {
-        self.active_slot_coeff.0.clone()
+    pub fn active_slot_coeff(&self) -> &FixedDecimal {
+        &self.active_slot_coeff.0
+    }
+
+    pub fn active_slot_coeff_ln_complement(&self) -> &FixedDecimal {
+        &self.active_slot_coeff_ln_complement.0
     }
 }
 

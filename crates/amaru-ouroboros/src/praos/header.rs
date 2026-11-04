@@ -31,10 +31,6 @@ use thiserror::Error;
 use crate::{kes, vrf};
 
 /// The certified natural max value represents 2^256 in praos consensus
-///
-/// TODO: Ideally, we should replace the use of dashu  with num-bigint
-/// since it has become our weapon of choice within Amaru. Mixing maths libraries is
-/// a recipe for mistakes.
 #[expect(clippy::expect_used)]
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
     FixedDecimal::from_str("115792089237316195423570985008687907853269984665640564039457584007913129639936")
@@ -101,7 +97,6 @@ pub fn assert_all<'a>(
         (pool_summary.vrf, leader_relative_stake)
     };
 
-    let active_slot_coeff = consensus_parameters.active_slot_coeff();
     let slot_to_kes_period = consensus_parameters.slot_to_kes_period(absolute_slot);
     let max_kes_evolutions = consensus_parameters.max_kes_evolutions();
 
@@ -120,8 +115,9 @@ pub fn assert_all<'a>(
             Ok(())
         }),
         Box::new(move || {
+            let consensus_parameters = consensus_parameters.clone(); // Cheap Arc clone.
             AssertLeaderStakeError::new(
-                &active_slot_coeff,
+                consensus_parameters.active_slot_coeff_ln_complement(),
                 &leader_relative_stake,
                 &FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(header.vrf_output()).as_slice()),
             )?;
@@ -273,11 +269,11 @@ pub enum AssertLeaderStakeError {
 impl AssertLeaderStakeError {
     /// Asserts that the leader had enough stake to produce a block.
     pub fn new(
-        active_slot_coeff: &FixedDecimal,
+        active_slot_coeff_ln_complement: &FixedDecimal,
         leader_relative_stake: &FixedDecimal,
         certified_leader_vrf: &FixedDecimal,
     ) -> Result<(), Self> {
-        if meets_leader_threshold(active_slot_coeff, leader_relative_stake, certified_leader_vrf) {
+        if meets_leader_threshold(active_slot_coeff_ln_complement, leader_relative_stake, certified_leader_vrf) {
             Ok(())
         } else {
             Err(Self::InsufficientLeaderStake)
@@ -287,26 +283,30 @@ impl AssertLeaderStakeError {
 
 /// Praos leadership test over the raw VRF output of a slot, before the `Leader` tag is applied.
 pub(crate) fn is_leader(
-    active_slot_coeff: &FixedDecimal,
+    active_slot_coeff_ln_complement: &FixedDecimal,
     leader_relative_stake: &FixedDecimal,
     vrf_output: &[u8],
 ) -> bool {
     let certified = FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(vrf_output).as_slice());
-    meets_leader_threshold(active_slot_coeff, leader_relative_stake, &certified)
+    meets_leader_threshold(active_slot_coeff_ln_complement, leader_relative_stake, &certified)
 }
 
 fn meets_leader_threshold(
-    active_slot_coeff: &FixedDecimal,
+    active_slot_coeff_ln_complement: &FixedDecimal,
     leader_relative_stake: &FixedDecimal,
     certified_leader_vrf: &FixedDecimal,
 ) -> bool {
-    if active_slot_coeff >= FixedDecimal::one() {
+    // NOTE: All pools meets threshold when f >= 1
+    //
+    // If the active_slot_coeff is greater or equal to 1, the ln complement is undefined, which we
+    // represent as being zero. In this (degenerate) situation, all pools are considered meeting the
+    // threshold at every slot.
+    if active_slot_coeff_ln_complement == &FixedDecimal::ZERO {
         return true;
     }
     let denominator = CERTIFIED_NATURAL_MAX.deref() - certified_leader_vrf;
     let recip_q = CERTIFIED_NATURAL_MAX.deref() / &denominator;
-    let c = (FixedDecimal::one() - active_slot_coeff).ln();
-    let x = (leader_relative_stake * &c).neg();
+    let x = (leader_relative_stake * active_slot_coeff_ln_complement).neg();
     match x.exp_cmp(&recip_q) {
         ExpOrdering::LT => true,
         ExpOrdering::GT | ExpOrdering::UNKNOWN => false,
@@ -469,7 +469,7 @@ mod tests {
             let expected =
                 if expected_eligible { Ok(()) } else { Err(AssertLeaderStakeError::InsufficientLeaderStake) };
             assert_eq!(
-                AssertLeaderStakeError::new(&coeff, &sigma, &certified),
+                AssertLeaderStakeError::new(&c, &sigma, &certified),
                 expected,
                 "eligibility, leadership row {count}: {row}"
             );

@@ -27,14 +27,14 @@ use crate::vrf;
 pub struct LeaderParams<'a> {
     pub nonce: &'a Nonce,
     pub relative_stake: &'a FixedDecimal,
-    pub active_slot_coeff: &'a FixedDecimal,
+    pub active_slot_coeff_ln_complement: &'a FixedDecimal,
 }
 
 /// The certificate to forge with if `slot` is led under `params`.
 pub fn lead_slot(slot: Slot, params: &LeaderParams<'_>, vrf: &vrf::SecretKey) -> Option<VrfCert> {
     let proof = vrf.prove(&vrf::Input::new(slot, params.nonce));
     let output = Hash::<{ vrf::Proof::HASH_SIZE }>::from(&proof);
-    is_leader(params.active_slot_coeff, params.relative_stake, output.as_ref()).then(|| VrfCert {
+    is_leader(params.active_slot_coeff_ln_complement, params.relative_stake, output.as_ref()).then(|| VrfCert {
         output: Bytes::from(output.to_vec()),
         proof: FixedBytes::from(<[u8; vrf::Proof::SIZE]>::from(&proof)),
     })
@@ -63,8 +63,8 @@ mod tests {
     fn a_led_slot_passes_header_validation() {
         let nonce = Nonce::from([1u8; 32]);
         let stake = FixedDecimal::one();
-        let coeff = FixedDecimal::one();
-        let params = LeaderParams { nonce: &nonce, relative_stake: stake, active_slot_coeff: coeff };
+        let coeff = FixedDecimal::ZERO;
+        let params = LeaderParams { nonce: &nonce, relative_stake: stake, active_slot_coeff_ln_complement: &coeff };
         let slot = Slot::from(42);
 
         let cert = lead_slot(slot, &params, &secret()).unwrap();
@@ -72,7 +72,7 @@ mod tests {
         AssertVrfProofError::new(slot, &nonce, &vrf::PublicKey::from(&secret()), &cert).unwrap();
         let certified =
             FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(cert.output.as_ref()).as_slice());
-        AssertLeaderStakeError::new(coeff, stake, &certified).unwrap();
+        AssertLeaderStakeError::new(&coeff, stake, &certified).unwrap();
     }
 
     #[test]
@@ -80,7 +80,12 @@ mod tests {
         let nonce = Nonce::from([1u8; 32]);
         let stake = FixedDecimal::one() / &FixedDecimal::from(2u64);
         let coeff = FixedDecimal::one() / &FixedDecimal::from(20u64);
-        let params = LeaderParams { nonce: &nonce, relative_stake: &stake, active_slot_coeff: &coeff };
+        let coeff_ln_complement = (FixedDecimal::one() - &coeff).ln();
+        let params = LeaderParams {
+            nonce: &nonce,
+            relative_stake: &stake,
+            active_slot_coeff_ln_complement: &coeff_ln_complement,
+        };
         let secret = secret();
 
         // First winner/loser from slots 0..4096, classified by non-integral-1.0.0.0 and Pallas 99678214.
@@ -93,7 +98,7 @@ mod tests {
             FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(cert.output.as_ref()).as_slice());
         assert_eq!(certified, winning_natural);
         AssertVrfProofError::new(winning_slot, &nonce, &vrf::PublicKey::from(&secret), &cert).unwrap();
-        AssertLeaderStakeError::new(&coeff, &stake, &certified).unwrap();
+        AssertLeaderStakeError::new(&coeff_ln_complement, &stake, &certified).unwrap();
 
         let losing_slot = Slot::from(0);
         let losing_natural =
@@ -106,7 +111,7 @@ mod tests {
             FixedDecimal::from(vrf::Derivation::Leader.derive_tagged_vrf_output(output.as_ref()).as_slice());
         assert_eq!(certified, losing_natural);
         assert_eq!(
-            AssertLeaderStakeError::new(&coeff, &stake, &certified),
+            AssertLeaderStakeError::new(&coeff_ln_complement, &stake, &certified),
             Err(AssertLeaderStakeError::InsufficientLeaderStake)
         );
     }
@@ -116,7 +121,12 @@ mod tests {
         let nonce = Nonce::from([1u8; 32]);
         let stake = FixedDecimal::ZERO;
         let coeff = &FixedDecimal::from(1u64) / &FixedDecimal::from(20u64);
-        let params = LeaderParams { nonce: &nonce, relative_stake: &stake, active_slot_coeff: &coeff };
+        let coeff_ln_complement = (FixedDecimal::one() - &coeff).ln();
+        let params = LeaderParams {
+            nonce: &nonce,
+            relative_stake: &stake,
+            active_slot_coeff_ln_complement: &coeff_ln_complement,
+        };
 
         assert!(lead_slots(Slot::from(0)..Slot::from(200), &params, &secret()).is_empty());
     }
@@ -125,7 +135,8 @@ mod tests {
     fn full_coefficient_leads_every_slot_in_range() {
         let nonce = Nonce::from([1u8; 32]);
         let stake = FixedDecimal::one();
-        let params = LeaderParams { nonce: &nonce, relative_stake: stake, active_slot_coeff: stake };
+        let params =
+            LeaderParams { nonce: &nonce, relative_stake: stake, active_slot_coeff_ln_complement: &FixedDecimal::ZERO };
 
         let led = lead_slots(Slot::from(10)..Slot::from(15), &params, &secret());
 

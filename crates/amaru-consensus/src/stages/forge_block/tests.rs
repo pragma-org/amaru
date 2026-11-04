@@ -43,7 +43,7 @@ fn ready_schedule(epoch: Epoch, slots: Range<Slot>) -> Schedule {
     let always = FixedDecimal::one();
     let mut schedule = Schedule::default();
     schedule.request(epoch, nonce);
-    schedule.install(EpochSchedule::compute(epoch, nonce, slots, always, always, &vrf_key()));
+    schedule.install(EpochSchedule::compute(epoch, nonce, slots, always, &FixedDecimal::ZERO, &vrf_key()));
     schedule
 }
 

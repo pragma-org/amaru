@@ -43,7 +43,7 @@ static FIXED_DECIMAL_ONE: LazyLock<FixedDecimal> = LazyLock::new(|| FixedDecimal
 
 #[expect(clippy::expect_used)]
 static E: LazyLock<FixedDecimal> =
-    LazyLock::new(|| FixedDecimal(IBig::from_str("27182818284590452353602874043083282").expect("valid static value")));
+    LazyLock::new(|| FixedDecimal(IBig::from_str("27182818284590452353602874043083282").expect("infallible")));
 
 impl FixedDecimal {
     pub const ZERO: Self = Self(IBig::ZERO);

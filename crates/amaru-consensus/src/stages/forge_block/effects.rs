@@ -94,14 +94,13 @@ fn schedule_for(effect: &LeaderScheduleEffect, resources: &Resources) -> EpochSc
             return None;
         }
         let relative = &FixedDecimal::from(summary.stake) / &FixedDecimal::from(summary.active_stake);
-        let coefficient = parameters.active_slot_coeff();
         let vrf = vrf::SecretKey::from(&credentials.vrf_secret_bytes());
         Some(EpochSchedule::compute(
             effect.epoch,
             effect.nonce,
             effect.from..effect.until,
             &relative,
-            &coefficient,
+            parameters.active_slot_coeff_ln_complement(),
             &vrf,
         ))
     })() else {
