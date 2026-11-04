@@ -18,7 +18,7 @@ use amaru_kernel::{BlockHeight, GlobalParameters, Header, HeaderHash, NetworkPoi
 use amaru_observability::{AttachedSpan, NoParent, TraceContext};
 use amaru_ouroboros_traits::{
     ChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocksResult, NextBestChainHeader,
-    Nonces, SampleAncestorPointsResult, StoreError,
+    Nonces, ReadChainStore, SampleAncestorPointsResult, StoreError,
 };
 use amaru_pure_stage::{
     BoxFuture, DeserializerGuards, DurationDist, Effects, ExternalEffectAPI, Resources, SendData, Void,
@@ -156,6 +156,14 @@ impl StoreEffect {
 
     pub fn find_missing_blocks(start: HeaderHash, limit: usize) -> FindMissingBlocksEffect {
         FindMissingBlocksEffect::new(start, limit)
+    }
+
+    pub fn get_block_points_range(
+        from: NetworkPoint,
+        to: NetworkPoint,
+        request: RangeRequest,
+    ) -> GetBlockPointsRangeEffect {
+        GetBlockPointsRangeEffect::new(from, to, request)
     }
 }
 
@@ -319,6 +327,16 @@ impl<S> Store<S> {
     ) -> BoxFuture<'static, Result<MissingBlocksResult, StoreError>> {
         self.effects.external(StoreEffect::find_missing_blocks(start, limit))
     }
+
+    /// Return one page of the block points between `from` and `to` (see [`BlockPointsPage`]).
+    pub fn get_block_points_range(
+        &self,
+        from: NetworkPoint,
+        to: NetworkPoint,
+        request: RangeRequest,
+    ) -> BoxFuture<'static, BlockPointsPage> {
+        self.effects.external(StoreEffect::get_block_points_range(from, to, request))
+    }
 }
 
 // EXTERNAL EFFECTS DEFINITIONS
@@ -358,6 +376,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<FindIntersectPointEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SampleAncestorPointsEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindMissingBlocksEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<GetBlockPointsRangeEffect>().boxed(),
     ]
 }
 
@@ -1140,5 +1159,255 @@ impl ExternalEffectAPI for FindMissingBlocksEffect {
                 resources.get::<ResourceHeaderStore>().expect("FindMissingBlocksEffect requires a chain store").clone();
             store.find_missing_blocks(self.start, self.limit)
         })
+    }
+}
+
+/// A page of the block points of a range: in parent -> child order.
+///
+/// `next` is the first point that did not fit in the page, if any. Requesting the range again from
+/// `next` returns the following page, so a long range is read in constant memory.
+///
+/// `anchor` is the anchor that the range was read with. The requests for the following pages must use the same
+/// anchor, see [`RangeRequest::Next`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlockPointsPage {
+    pub points: Vec<Point>,
+    pub next: Option<Point>,
+    pub anchor: Point,
+}
+
+impl BlockPointsPage {
+    pub fn empty() -> Self {
+        Self { points: vec![], next: None, anchor: Point::Origin }
+    }
+}
+
+/// How to read one page of a range, and the maximum number of points in the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RangeRequest {
+    /// Read the first page of a range, and check the whole range from `from` to `to`: every block after the anchor
+    /// must be in the store and the points must not follow a fork that starts before the anchor.
+    /// The first page gives the anchor that was used, and the same anchor must be used for
+    /// subsequent requests with `Next`.
+    First(usize),
+
+    /// Read the next page of a range that was already checked by `First`, with the anchor that
+    /// `First` returned.
+    Next { page_size: usize, anchor: Point },
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GetBlockPointsRangeEffect {
+    from: NetworkPoint,
+    to: NetworkPoint,
+    request: RangeRequest,
+}
+
+impl GetBlockPointsRangeEffect {
+    pub fn new(from: NetworkPoint, to: NetworkPoint, request: RangeRequest) -> Self {
+        Self { from, to, request }
+    }
+}
+
+impl ExternalEffectAPI for GetBlockPointsRangeEffect {
+    type Response = BlockPointsPage;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let store = resources
+                .get::<ResourceHeaderStore>()
+                .expect("GetBlockPointsRangeEffect requires a chain store")
+                .clone();
+            // The range bounds are only known by slot and hash: a bound missing from the store gives an empty page.
+            match (store.load_point(&self.from.hash()), store.load_point(&self.to.hash())) {
+                (Some(from), Some(to)) => block_points_page(&store, &from, &to, self.request),
+                _ => BlockPointsPage::empty(),
+            }
+        })
+    }
+}
+
+/// Read one page of the range from `from` to `to`, both inclusive.
+fn block_points_page(
+    store: &(impl ReadChainStore + ?Sized),
+    from: &Point,
+    to: &Point,
+    request: RangeRequest,
+) -> BlockPointsPage {
+    match request {
+        RangeRequest::First(page_size) => {
+            let (anchor, points) = store.get_block_points_in_range_and_anchor(from, to);
+            collect_page(points, page_size, anchor)
+        }
+        RangeRequest::Next { page_size, anchor } => {
+            best_chain_page(store, from, to, page_size, anchor).unwrap_or_else(|| {
+                collect_page(store.get_block_points_in_range_with_anchor(from, to, &anchor), page_size, anchor)
+            })
+        }
+    }
+}
+
+/// Return a full page of `page_size` points up to the anchor, if there is one.
+///
+/// The range is stopped at the anchor, so the part of the chain after the anchor is not walked. That part is
+/// needed only by the last pages of a range.
+fn best_chain_page(
+    store: &(impl ReadChainStore + ?Sized),
+    from: &Point,
+    to: &Point,
+    page_size: usize,
+    anchor: Point,
+) -> Option<BlockPointsPage> {
+    if *from > anchor || *to <= anchor {
+        return None;
+    }
+    Some(collect_page(store.get_block_points_in_range_with_anchor(from, &anchor, &anchor), page_size, anchor))
+        .filter(|page| page.next.is_some())
+}
+
+fn collect_page(points: impl Iterator<Item = Point>, page_size: usize, anchor: Point) -> BlockPointsPage {
+    // one more point than the page size tells whether there is a next page
+    let mut points: Vec<Point> = points.take(page_size.saturating_add(1)).collect();
+    let next = if points.len() > page_size { points.pop() } else { None };
+    BlockPointsPage { points, next, anchor }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{
+        BlockHeight, EraHistory, IsHeader, any_headers_chain_with_root,
+        cardano::network_block::{EncodedTestBlock, make_encoded_chain},
+        utils::tests::run_strategy,
+    };
+    use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
+
+    use super::*;
+
+    fn make_chain(len: usize, root: Point) -> Vec<EncodedTestBlock> {
+        make_encoded_chain(run_strategy(any_headers_chain_with_root(len, root)), &EraHistory::default())
+    }
+
+    fn store_headers_and_blocks(store: &InMemoryChainStore, blocks: &[EncodedTestBlock]) {
+        for block in blocks {
+            store.store_header(&block.header).unwrap();
+            store.store_block(&block.header.hash(), &block.raw).unwrap();
+        }
+    }
+
+    /// A best chain of 10 blocks whose anchor is the block at index 3.
+    /// Only the blocks up to the anchor are stored: the blocks after the anchor are missing.
+    fn store_with_missing_blocks_after_anchor() -> (InMemoryChainStore, Vec<EncodedTestBlock>) {
+        let chain = make_chain(10, Point::new(NetworkPoint::Origin, BlockHeight::from(0)));
+        let store = InMemoryChainStore::new();
+        store.set_anchor_point(&chain[3].header.point()).unwrap();
+        for block in &chain {
+            store.store_header(&block.header).unwrap();
+            store.roll_forward_chain(&block.header.point()).unwrap();
+        }
+        for block in &chain[..=3] {
+            store.store_block(&block.header.hash(), &block.raw).unwrap();
+        }
+        (store, chain)
+    }
+
+    fn points(chain: &[EncodedTestBlock], range: std::ops::Range<usize>) -> Vec<Point> {
+        chain[range].iter().map(|block| block.header.point()).collect()
+    }
+
+    #[test]
+    fn the_first_page_refuses_a_range_with_missing_blocks_after_the_anchor() {
+        let (store, chain) = store_with_missing_blocks_after_anchor();
+
+        let page =
+            block_points_page(&store, &chain[0].header.point(), &chain[9].header.point(), RangeRequest::First(2));
+
+        assert_eq!((page.points, page.next), (vec![], None));
+    }
+
+    #[test]
+    fn the_first_page_gives_the_anchor_that_it_used() {
+        let (store, chain) = store_with_missing_blocks_after_anchor();
+
+        let page =
+            block_points_page(&store, &chain[0].header.point(), &chain[3].header.point(), RangeRequest::First(2));
+
+        assert_eq!(
+            page,
+            BlockPointsPage {
+                points: points(&chain, 0..2),
+                next: Some(chain[2].header.point()),
+                anchor: chain[3].header.point()
+            }
+        );
+    }
+
+    #[test]
+    fn a_next_page_does_not_read_the_part_after_the_anchor_when_it_ends_before_it() {
+        let (store, chain) = store_with_missing_blocks_after_anchor();
+        let anchor = chain[3].header.point();
+
+        let request = RangeRequest::Next { page_size: 2, anchor };
+        let page = block_points_page(&store, &chain[0].header.point(), &chain[9].header.point(), request);
+
+        assert_eq!(page, BlockPointsPage { points: points(&chain, 0..2), next: Some(chain[2].header.point()), anchor });
+    }
+
+    #[test]
+    fn a_next_page_that_reaches_the_anchor_reads_the_part_after_it() {
+        let (store, chain) = store_with_missing_blocks_after_anchor();
+
+        let request = RangeRequest::Next { page_size: 10, anchor: chain[3].header.point() };
+        let page = block_points_page(&store, &chain[0].header.point(), &chain[9].header.point(), request);
+
+        assert_eq!((page.points, page.next), (vec![], None));
+    }
+
+    #[test]
+    fn the_pages_of_a_range_keep_the_anchor_of_the_first_page_when_the_anchor_moves() {
+        let (store, chain) = store_with_missing_blocks_after_anchor();
+        store_headers_and_blocks(&store, &chain[4..]);
+        let (first, last) = (chain[0].header.point(), chain[9].header.point());
+
+        let mut page = block_points_page(&store, &first, &last, RangeRequest::First(3));
+        let mut pages = page.points.clone();
+        store.set_anchor_point(&chain[8].header.point()).unwrap();
+        while let Some(next) = page.next {
+            let request = RangeRequest::Next { page_size: 3, anchor: page.anchor };
+            page = block_points_page(&store, &next, &last, request);
+            assert_eq!(page.anchor, chain[3].header.point());
+            pages.extend(page.points.clone());
+        }
+
+        assert_eq!(pages, points(&chain, 0..10));
+    }
+
+    #[test]
+    fn the_pages_of_a_range_on_a_losing_branch_are_served_after_the_anchor_passes_its_fork_point() {
+        // c0 -> c1 -> c2 -> c3 -> c4 -> c5      the best chain, with the anchor at c2
+        //               \
+        //                -> b0 -> b1 -> b2     the range, from c2 to b2
+        let main = make_chain(6, Point::new(NetworkPoint::Origin, BlockHeight::from(0)));
+        let branch = make_chain(3, main[2].header.point());
+        let store = InMemoryChainStore::new();
+        store.set_anchor_point(&main[2].header.point()).unwrap();
+        store_headers_and_blocks(&store, &main);
+        for block in &main {
+            store.roll_forward_chain(&block.header.point()).unwrap();
+        }
+        store_headers_and_blocks(&store, &branch);
+        let (first, last) = (main[2].header.point(), branch[2].header.point());
+
+        let mut page = block_points_page(&store, &first, &last, RangeRequest::First(2));
+        let mut pages = page.points.clone();
+        store.set_anchor_point(&main[5].header.point()).unwrap();
+        while let Some(next) = page.next {
+            let request = RangeRequest::Next { page_size: 2, anchor: page.anchor };
+            page = block_points_page(&store, &next, &last, request);
+            pages.extend(page.points.clone());
+        }
+
+        let expected = [main[2].header.point()].into_iter().chain(points(&branch, 0..3)).collect::<Vec<_>>();
+        assert_eq!(pages, expected);
     }
 }

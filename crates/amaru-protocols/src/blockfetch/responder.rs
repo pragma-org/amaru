@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{IsHeader, NetworkPoint, NonEmptyVec, Peer, Point, RawBlock};
+use amaru_kernel::{NetworkPoint, Peer};
 use amaru_metrics::protocol::ServedBlockCountMetrics;
 use amaru_observability::{debug, error};
 use amaru_ouroboros::{ConnectionId, RemoteProtocol};
@@ -37,11 +37,14 @@ use crate::{
         Inputs, Internal, MuxClient, NETWORK_SEND_TIMEOUT, PROTO_N2N_BLOCK_FETCH, Pull, ToMux, WantNext, from_wire,
         ingress_limit,
     },
-    store_effects::Store,
+    store_effects::{BlockPointsPage, RangeRequest, Store},
 };
 
-/// Maximum number of blocks that can be streamed for a single request
-pub const MAX_FETCHED_BLOCKS: usize = 1000;
+/// Number of block points read from the store at a time while serving a range.
+///
+/// It bounds the memory used to serve a range, not the length of the range: a longer range is served
+/// page after page.
+const BLOCK_POINTS_PAGE_SIZE: usize = 1000;
 
 make_states!(pub Proto { Idle; Done });
 
@@ -57,114 +60,7 @@ on_receive!(Idle as ServerIdleIn {
 });
 on_receive!(Done as DoneIn {});
 
-/// Range of points to fetch, newest first, at least one point.
-#[derive(Debug, PartialEq, Eq, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PointsRange(NonEmptyVec<Point>);
-
 type Mail = Inputs<Void>;
-
-impl PointsRange {
-    /// Create a points range with a single point
-    pub fn singleton(first: Point) -> PointsRange {
-        PointsRange(NonEmptyVec::singleton(first))
-    }
-
-    /// Create a points range from a vector of points.
-    pub fn from_vec(vec: Vec<Point>) -> Option<PointsRange> {
-        NonEmptyVec::try_from(vec).ok().map(PointsRange)
-    }
-
-    #[cfg(test)]
-    pub fn points(&self) -> Vec<Point> {
-        self.0.to_vec()
-    }
-
-    /// Load the first available block in the current range (the block is expected to be found).
-    /// Each time we attempt to fetch a block we pop its point from the current_range.
-    async fn next_block(self, store: &Store) -> anyhow::Result<(RawBlock, Option<PointsRange>)> {
-        // points are stored from most recent to oldest, so we pop from the end
-        let (last, rest) = self.0.pop();
-        let last_hash = last.hash();
-        let stored_block =
-            store.load_block(&last_hash).await?.ok_or_else(|| anyhow::anyhow!("block {} was pruned", last_hash))?;
-        Ok((stored_block, rest.map(PointsRange)))
-    }
-
-    /// Return a points range:
-    ///  - Check that `from` <= `through`
-    ///  - Check that there is a valid path of block from `from` to `through` in the chain store.
-    ///  - Check that we don't return too many headers to avoid getting over the protocol limits.
-    ///  - Return None if any of the above checks fail and return the points range otherwise.
-    pub async fn request_range(
-        store: &Store,
-        from: NetworkPoint,
-        through: NetworkPoint,
-    ) -> anyhow::Result<Option<PointsRange>> {
-        // make sure that from <= through
-        if from > through {
-            debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
-            return Ok(None);
-        };
-
-        if from == through {
-            return if let Some(block) = store.load_block(&from.hash()).await? {
-                match block.decode_header() {
-                    Ok(header) if NetworkPoint::from(header.point()) == from => {
-                        Ok(Some(PointsRange::singleton(header.point())))
-                    }
-                    Err(_) => Ok(None),
-                    Ok(_) => Ok(None),
-                }
-            } else {
-                Ok(None)
-            };
-        }
-
-        let mut current_hash = through.hash();
-        let mut result = vec![];
-        loop {
-            if result.len() >= MAX_FETCHED_BLOCKS {
-                debug!(
-                    protocols::blockfetch::responder::RANGE_REFUSED,
-                    from,
-                    through,
-                    reason = "exceeds_max_blocks",
-                    max_blocks = MAX_FETCHED_BLOCKS
-                );
-                return Ok(None);
-            }
-            let Some(block) = store.load_block(&current_hash).await? else {
-                return Ok(None);
-            };
-            if let Ok(header) = block.decode_header() {
-                let point = header.point();
-                if result.is_empty() && NetworkPoint::from(point) != through {
-                    return Ok(None);
-                }
-                result.push(point);
-                // if we found the from point, we're done
-                if current_hash == from.hash() {
-                    if NetworkPoint::from(point) != from {
-                        return Ok(None);
-                    }
-                    break;
-                }
-                // if we reached a slot before 'from', abort
-                if header.slot() < from.slot_or_default() {
-                    return Ok(None);
-                }
-                if let Some(parent_hash) = header.parent_hash() {
-                    current_hash = parent_hash
-                } else {
-                    return Ok(None);
-                }
-            } else {
-                return Ok(None);
-            }
-        }
-        Ok(PointsRange::from_vec(result))
-    }
-}
 
 impl<T> IntoRoleCall<ToInitiator, T> for MuxClient
 where
@@ -223,39 +119,49 @@ async fn instance(inst: Instance, mail: Mail, eff: Effects<Mail>) -> Instance {
             Ok(ServerIdleIn::Pull(pull)) => idle.receive(&pull, eff).send(&mux, WantNext).await.finish().into(),
             Ok(ServerIdleIn::RequestRange(range)) => {
                 let store = Store::new(eff.clone());
-                match PointsRange::request_range(&store, range.from, range.through).await {
-                    Ok(Some(mut points)) => {
-                        let metrics_eff = eff.clone();
-                        let for_err = eff.clone();
-                        let metrics = Metrics::new(&metrics_eff);
-                        let (_, mut session) = idle.receive(&range, eff).call(&mux, StartBatch).await;
-                        loop {
-                            let (block, rest) = match points.next_block(&store).await {
-                                Ok(pair) => pair,
+                let (from, through) = (range.from, range.through);
+                let mut page = if from > through {
+                    debug!(protocols::blockfetch::responder::RANGE_REFUSED, from, through, reason = "inverted_range");
+                    BlockPointsPage::empty()
+                } else {
+                    store.get_block_points_range(from, through, RangeRequest::First(BLOCK_POINTS_PAGE_SIZE)).await
+                };
+                if page.points.is_empty() {
+                    let note = eff.clone();
+                    let (_, session) = idle.receive(&range, eff).call(&mux, NoBlocks).await;
+                    PeerTrack::new(&note).note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true).await;
+                    session.send(&mux, WantNext).await.finish().into()
+                } else {
+                    let metrics_eff = eff.clone();
+                    let for_err = eff.clone();
+                    let metrics = Metrics::new(&metrics_eff);
+                    let (_, mut session) = idle.receive(&range, eff).call(&mux, StartBatch).await;
+                    loop {
+                        for point in &page.points {
+                            let block = match store.load_block(&point.hash()).await {
+                                Ok(Some(block)) => block,
+                                Ok(None) => {
+                                    let err = anyhow::anyhow!("block {} was pruned", point.hash());
+                                    return invalid(peer, "Streaming", err, for_err).await;
+                                }
                                 Err(err) => return invalid(peer, "Streaming", err, for_err).await,
                             };
                             metrics.record(ServedBlockCountMetrics { count: 1 }.into()).await;
                             (_, session) = session.call(&mux, Block { body: block.to_vec() }).await;
-                            match rest {
-                                Some(next) => points = next,
-                                None => break,
-                            }
                         }
-                        let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
-                        PeerTrack::new(&metrics_eff)
-                            .note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true)
-                            .await;
-                        session.send(&mux, WantNext).await.finish().into()
+                        let Some(next) = page.next else { break };
+                        let request = RangeRequest::Next { page_size: BLOCK_POINTS_PAGE_SIZE, anchor: page.anchor };
+                        page = store.get_block_points_range(NetworkPoint::from(next), through, request).await;
+                        if page.points.is_empty() {
+                            let err = anyhow::anyhow!("the range ended before {next}");
+                            return invalid(peer, "Streaming", err, for_err).await;
+                        }
                     }
-                    Ok(None) => {
-                        let note = eff.clone();
-                        let (_, session) = idle.receive(&range, eff).call(&mux, NoBlocks).await;
-                        PeerTrack::new(&note)
-                            .note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true)
-                            .await;
-                        session.send(&mux, WantNext).await.finish().into()
-                    }
-                    Err(err) => return invalid(peer, idle.name(), err, eff).await,
+                    let (_, session) = session.discard_repeat().call(&mux, BatchDone).await;
+                    PeerTrack::new(&metrics_eff)
+                        .note_remote_protocol(peer, conn_id, RemoteProtocol::BlockFetch, true)
+                        .await;
+                    session.send(&mux, WantNext).await.finish().into()
                 }
             }
             Ok(ServerIdleIn::ClientDone(done)) => {
@@ -319,8 +225,7 @@ pub mod tests {
     use std::sync::{Arc, OnceLock};
 
     use amaru_kernel::{
-        BlockHeight, EraHistory, EraName, Header, IsHeader, NetworkPoint, NonEmptyBytes, Slot, any_headers_chain,
-        any_headers_chain_with_root,
+        BlockHeight, EraHistory, EraName, IsHeader, NetworkPoint, NonEmptyBytes, Point, any_headers_chain_with_root,
         cardano::network_block::{EncodedTestBlock, NetworkBlock, make_encoded_chain},
         cbor,
         utils::tests::run_strategy,
@@ -328,10 +233,9 @@ pub mod tests {
     use amaru_ouroboros_traits::{WriteChainStore, in_memory_chain_store::InMemoryChainStore};
     use amaru_pure_stage::{
         StageGraph,
-        simulation::{Run, SimulationBuilder, simulation_builder::run_test},
+        simulation::{Run, SimulationBuilder},
         typestate::{FmtPar, OnReceive, Session},
     };
-    use proptest::prelude::any;
     use tokio::runtime::{Builder, Runtime};
 
     use super::*;
@@ -390,165 +294,6 @@ pub mod tests {
         let bytes = hex::decode(as_hex).expect("valid hex");
         let network_block: NetworkBlock = minicbor::decode(&bytes).expect("a valid network block");
         assert_eq!(network_block.era_tag(), EraName::Conway);
-    }
-
-    #[test]
-    fn test_request_range_invalid_from_greater_than_through() {
-        let (store, chain) = make_store_with_chain(5);
-        let result = request_range(store, chain[3].header.point(), chain[1].header.point());
-        assert_eq!(result, None, "should return None when from > through");
-    }
-
-    #[test]
-    fn test_request_range_single_point_block_exists() {
-        let (store, chain) = make_store_with_chain(3);
-        store_blocks(store.clone(), &chain[1..2]);
-
-        let result = request_range(store, chain[1].header.point(), chain[1].header.point());
-        assert_eq!(result, Some(PointsRange::singleton(chain[1].header.point())));
-    }
-
-    #[test]
-    fn test_request_range_single_point_block_missing() {
-        let (store, chain) = make_store_with_chain(3);
-        let result = request_range(store, chain[1].header.point(), chain[1].header.point());
-        assert_eq!(result, None, "should return None when from == through but block doesn't exist");
-    }
-
-    #[test]
-    fn test_request_range_valid_chain() {
-        let (store, chain) = make_store_with_chain(5);
-        store_blocks(store.clone(), &chain);
-        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
-        assert_eq!(
-            result,
-            PointsRange::from_vec(vec![
-                chain[4].header.point(),
-                chain[3].header.point(),
-                chain[2].header.point(),
-                chain[1].header.point(),
-                chain[0].header.point(),
-            ])
-        );
-    }
-
-    #[test]
-    fn test_request_range_missing_block_in_chain() {
-        let (store, chain) = make_store_with_chain(5);
-
-        // Store blocks for all headers except one in the middle
-        store_blocks(store.clone(), &chain[..2]);
-        store_blocks(store.clone(), &chain[3..]);
-
-        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
-        assert_eq!(result, None, "should return None when a block is missing in the chain");
-    }
-
-    #[test]
-    fn test_request_range_missing_header_in_chain() {
-        let chain = make_encoded_chain(run_strategy(any_headers_chain(5)), &EraHistory::default());
-        let store = Arc::new(InMemoryChainStore::new());
-
-        store.set_anchor_point(&chain[0].header.point()).unwrap();
-
-        // Store only some headers (skip one in the middle)
-        for (i, block) in chain.iter().enumerate() {
-            if i != 2 {
-                store.store_header(&block.header).unwrap();
-                store.roll_forward_chain(&block.header.point()).unwrap();
-            }
-        }
-        store_blocks(store.clone(), &chain[..2]);
-        store_blocks(store.clone(), &chain[3..]);
-
-        let result = request_range(store, chain[0].header.point(), chain[4].header.point());
-        assert_eq!(result, None, "should return None when a header is missing in the chain");
-    }
-
-    #[test]
-    fn test_request_range_no_parent_hash_before_from() {
-        let genesis = NetworkPoint::Specific(Slot::from(10), run_strategy(any::<Header>()).hash());
-        let (store, chain) = make_store_with_chain_starting_from(5, genesis);
-
-        let result = request_range(
-            store,
-            NetworkPoint::Specific(Slot::from(2), run_strategy(any::<Header>()).hash()),
-            chain[3].header.point(),
-        );
-        assert_eq!(result, None, "should return None when we hit genesis before finding from");
-    }
-
-    #[test]
-    fn test_request_range_slot_before_from_abort() {
-        // Create a chain with 5 headers
-        let (store, chain) = make_store_with_chain(5);
-        store_blocks(store.clone(), &chain);
-
-        // Create a 'from' point that has a slot within the chain range but with a non-existent hash.
-        // When traversing backwards from 'through', we'll pass the slot of 'from' without finding it,
-        // and then hit a block with a slot before 'from', triggering the abort condition.
-        let from_slot = chain[2].header.slot();
-        let non_existent_hash = run_strategy(any::<Header>()).hash();
-        let from = NetworkPoint::Specific(from_slot, non_existent_hash);
-
-        let result = request_range(store, from, chain[4].header.point());
-        assert_eq!(result, None, "should return None when we reach a slot before 'from' without finding 'from'");
-    }
-
-    #[test]
-    fn test_request_range_exactly_max_blocks() {
-        // Create a chain longer than MAX_BLOCKS
-        let (store, chain) = make_store_with_chain(MAX_FETCHED_BLOCKS);
-        store_blocks(store.clone(), &chain);
-
-        let result = request_range(store, chain[0].header.point(), chain[MAX_FETCHED_BLOCKS - 1].header.point());
-
-        assert_eq!(result.unwrap().points().len(), MAX_FETCHED_BLOCKS);
-    }
-
-    #[test]
-    fn test_request_range_max_blocks_limit() {
-        // Create a chain longer than MAX_BLOCKS
-        let chain_length = MAX_FETCHED_BLOCKS + 1;
-        let (store, chain) = make_store_with_chain(chain_length);
-        store_blocks(store.clone(), &chain);
-
-        let result = request_range(store, chain[0].header.point(), chain[chain_length - 1].header.point());
-        assert_eq!(result, None, "should return None when the requested range exceeds MAX_BLOCKS limit");
-    }
-
-    #[test]
-    fn test_next_block_single_point() {
-        let (store, chain) = make_store_with_chain(3);
-        store_blocks(store.clone(), &chain);
-
-        let (block, remaining_range) = next_block(store, PointsRange::singleton(chain[1].header.point()));
-
-        // Should return the block for the single point
-        let network_block: NetworkBlock = block.try_into().unwrap();
-        assert_eq!(network_block.decode_header().unwrap().point(), chain[1].header.point());
-
-        // Should have no remaining range
-        assert_eq!(remaining_range, None);
-    }
-
-    #[test]
-    fn test_next_block_multiple_points() {
-        let (store, chain) = make_store_with_chain(5);
-        store_blocks(store.clone(), &chain);
-
-        let (block, remaining_range) = next_block(
-            store,
-            PointsRange::from_vec(vec![chain[2].header.point(), chain[1].header.point(), chain[0].header.point()])
-                .unwrap(),
-        );
-
-        // Should return the first block
-        let network_block: NetworkBlock = block.try_into().unwrap();
-        assert_eq!(network_block.decode_header().unwrap().point(), chain[0].header.point());
-
-        // Should have remaining points
-        assert_eq!(remaining_range, PointsRange::from_vec(vec![chain[2].header.point(), chain[1].header.point()]));
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -667,6 +412,57 @@ pub mod tests {
         assert!(matches!(running.get_state(&handler).unwrap().proto, Proto::Idle(_)));
     }
 
+    /// Run a `RequestRange` through the responder and return what it sent to the mux.
+    fn serve(store: Arc<InMemoryChainStore>, from: Point, through: Point) -> MuxLog {
+        let mut network = SimulationBuilder::default();
+        install_tracking(&mut network);
+        network.resources().put::<ResourceHeaderStore>(store);
+        let mux = network.stage("mux", mux_step);
+        let mux_ref = mux.sender();
+        let mux = network.wire_up(mux, MuxLog::default());
+        let handler_b = network.stage("bf", instance);
+        let handler = network.wire_up(
+            handler_b,
+            Instance::new(MuxClient::new(mux_ref, proto()), Peer::for_test(3001), ConnectionId::initial()),
+        );
+        network
+            .preload(
+                &handler,
+                [
+                    Inputs::Network(HandlerMessage::Registered(proto())),
+                    wire(RequestRange { from: from.into(), through: through.into() }),
+                ],
+            )
+            .unwrap();
+        let mut running = network.run(test_runtime());
+        running.run(Run::skip_wakeups()).assert_idle();
+        running.get_state(&mux).cloned().unwrap()
+    }
+
+    #[test]
+    fn a_range_longer_than_one_page_is_served_entirely() {
+        let length = 2 * BLOCK_POINTS_PAGE_SIZE + 1;
+        let (store, chain) = make_store_with_chain(length);
+        store_blocks(store.clone(), &chain);
+
+        let log = serve(store, chain[0].header.point(), chain[length - 1].header.point());
+
+        assert_eq!(log.sends.first().map(String::as_str), Some("StartBatch"));
+        assert_eq!(log.sends.iter().filter(|m| *m == "Block").count(), length);
+        assert_eq!(log.sends.last().map(String::as_str), Some("BatchDone"));
+        assert_eq!(log.sends.len(), length + 2);
+    }
+
+    #[test]
+    fn an_inverted_range_sends_no_blocks() {
+        let (store, chain) = make_store_with_chain(5);
+        store_blocks(store.clone(), &chain);
+
+        let log = serve(store, chain[3].header.point(), chain[1].header.point());
+
+        assert_eq!(log.sends, vec!["NoBlocks"]);
+    }
+
     #[test]
     fn close_idle_resets() {
         let mut network = SimulationBuilder::default();
@@ -734,60 +530,5 @@ pub mod tests {
         for block in blocks {
             store.store_block(&block.header.hash(), &block.raw).unwrap();
         }
-    }
-
-    /// Invoke the PointsRange::request_range method via a stage
-    fn request_range(
-        store: Arc<InMemoryChainStore>,
-        from: impl Into<NetworkPoint>,
-        through: impl Into<NetworkPoint>,
-    ) -> Option<PointsRange> {
-        let from = from.into();
-        let through = through.into();
-        match run_points_range_test(store, PointsRangeTestMsg::RequestRange { from, through }) {
-            PointsRangeTestResult::RequestRange(result) => result,
-            PointsRangeTestResult::NextBlock(_) => unreachable!(),
-        }
-    }
-
-    /// Invoke the PointsRange::next_block method via a stage
-    fn next_block(store: Arc<InMemoryChainStore>, range: PointsRange) -> (RawBlock, Option<PointsRange>) {
-        match run_points_range_test(store, PointsRangeTestMsg::NextBlock { range }) {
-            PointsRangeTestResult::NextBlock(result) => result,
-            PointsRangeTestResult::RequestRange(_) => unreachable!(),
-        }
-    }
-
-    /// Invoke the PointsRange methods via a stage
-    fn run_points_range_test(store: Arc<InMemoryChainStore>, msg: PointsRangeTestMsg) -> PointsRangeTestResult {
-        run_test(
-            |resources| {
-                resources.put::<ResourceHeaderStore>(store.clone());
-            },
-            msg,
-            |_state, msg, eff| async move {
-                match msg {
-                    PointsRangeTestMsg::RequestRange { from, through } => Some(PointsRangeTestResult::RequestRange(
-                        PointsRange::request_range(&Store::new(eff.clone()), from, through).await.unwrap(),
-                    )),
-                    PointsRangeTestMsg::NextBlock { range } => Some(PointsRangeTestResult::NextBlock(
-                        range.next_block(&Store::new(eff.clone())).await.unwrap(),
-                    )),
-                }
-            },
-        )
-        .unwrap()
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    enum PointsRangeTestMsg {
-        RequestRange { from: NetworkPoint, through: NetworkPoint },
-        NextBlock { range: PointsRange },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    enum PointsRangeTestResult {
-        RequestRange(Option<PointsRange>),
-        NextBlock((RawBlock, Option<PointsRange>)),
     }
 }

@@ -29,7 +29,7 @@ use amaru_pure_stage::{
     DeserializerGuards, Effects, StageRef, define_role, define_role_tag, make_states, on_receive, typestate::prelude::*,
 };
 
-use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch, responder::MAX_FETCHED_BLOCKS};
+use super::{BatchDone, Block, ClientDone, Message, NoBlocks, RequestRange, StartBatch};
 use crate::{
     blockfetch::BLOCKFETCH_AGENCY_TIMEOUT,
     mux::{Frame, HandlerMessage, MuxMessage, Sent},
@@ -43,6 +43,12 @@ pub const BLOCKFETCH_PIPELINE_N: NonZeroU8 = match NonZeroU8::new(2) {
     Some(n) => n,
     None => unreachable!(),
 };
+
+/// Maximum number of blocks that the initiator accepts in one batch. A peer that sends more blocks
+/// ends the session. The constant also sizes the network buffer for the requests in flight.
+///
+/// It does not limit the requests: the `fetch_blocks` stage chooses the length of each range.
+pub const MAX_FETCHED_BLOCKS: usize = 1000;
 
 pub const BLOCKFETCH_MAX_BLOCK_WIRE_BYTES: usize = 96 * 1024;
 
