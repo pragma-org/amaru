@@ -28,7 +28,7 @@ use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
 
 /// Environment variable controlling the interval between two OTLP metrics exports, in milliseconds.
-const OTEL_METRIC_EXPORT_INTERVAL: &str = "OTEL_METRIC_EXPORT_INTERVAL";
+pub const OTEL_METRIC_EXPORT_INTERVAL: &str = "OTEL_METRIC_EXPORT_INTERVAL";
 
 /// Amaru's metrics export interval when `OTEL_METRIC_EXPORT_INTERVAL` is not set or invalid (the SDK default is 60s).
 pub const DEFAULT_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(1000);

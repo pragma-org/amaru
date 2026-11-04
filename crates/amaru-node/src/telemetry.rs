@@ -61,8 +61,8 @@ mod open_telemetry;
 #[cfg(test)]
 pub(crate) use open_telemetry::NotingSpanProcessor;
 pub use open_telemetry::{
-    BuildOpenTelemetryProvidersError, CborSpanExporter, DEFAULT_METRIC_EXPORT_INTERVAL, OpenTelemetryProviders,
-    OtelSignal, OtelSignals, ShutdownOpenTelemetryProvidersError,
+    BuildOpenTelemetryProvidersError, CborSpanExporter, DEFAULT_METRIC_EXPORT_INTERVAL, OTEL_METRIC_EXPORT_INTERVAL,
+    OpenTelemetryProviders, OtelSignal, OtelSignals, ShutdownOpenTelemetryProvidersError,
 };
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
