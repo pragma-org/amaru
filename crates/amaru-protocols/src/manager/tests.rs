@@ -35,7 +35,7 @@ use super::{Manager, ManagerConfig, ManagerMessage, OutboundState, stage};
 use crate::{
     connection::ConnectionMessage,
     metrics_effects::{RecordMetricsEffect, ResourceMeter},
-    network_effects::{CloseEffect, ConnectEffect, ConnectError},
+    network_effects::{CloseEffect, ConnectEffect, ConnectError, ListenEffect},
     peer_tracking::{InMemoryPeerTracking, observed_at},
     protocol::Role,
 };
@@ -602,4 +602,16 @@ fn refused_and_duplicate_handshakes_are_not_counted() {
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
     assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(1, 0, 1)]);
+}
+
+#[test]
+fn connection_counts_start_at_zero_when_listening() {
+    let mut sim = harness();
+    virtual_children(&mut sim);
+    sim.running.override_external_effect::<ListenEffect>(1, |effect| OverrideResult::handled(Ok(effect.addr)));
+    let listen_addr = "127.0.0.1:3001".parse().expect("socket address");
+    sim.running.enqueue_msg(&sim.manager, [ManagerMessage::Listen(listen_addr)]);
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+
+    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(0, 0, 0)]);
 }

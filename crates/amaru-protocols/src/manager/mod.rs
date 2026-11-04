@@ -433,6 +433,8 @@ impl Manager {
             Ok(listen_addr) => {
                 info!(protocols::manager::listen::STARTED, listen_addr = listen_addr.to_string());
                 self.listen_port = Some(listen_addr.port());
+                // `Listen` is the manager's first message, so the gauges exist (at zero) before any connection does.
+                self.record_connection_counts(eff).await;
                 let accept_stage = eff.stage("accept", accept::stage).await;
                 let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                 let accept_stage =
@@ -730,8 +732,8 @@ impl Manager {
 
     /// Report the live connections as the connection manager gauges SPO tooling reads from cardano-node.
     ///
-    /// Called right after `connections`, which holds exactly the connections past their handshake, gains or loses
-    /// a connection, and before peer tracking records that change.
+    /// Called once the listener is up, and right after `connections`, which holds exactly the connections past their
+    /// handshake, gains or loses a connection (before peer tracking records that change).
     async fn record_connection_counts(&self, eff: &Effects<ManagerMessage>) {
         let mut counts =
             ConnectionManagerMetrics { inbound_connections: 0, outbound_connections: 0, unidirectional_connections: 0 };
