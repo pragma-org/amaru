@@ -27,3 +27,6 @@ amaru-deps.workspace = true
 
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
 opentelemetry.workspace = true
+
+[target.'cfg(not(target_arch="wasm32"))'.dev-dependencies]
+opentelemetry_sdk = { workspace = true, features = ["metrics", "testing"] }
