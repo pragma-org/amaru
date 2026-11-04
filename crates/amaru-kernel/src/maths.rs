@@ -13,13 +13,12 @@
 // limitations under the License.
 
 use std::{
-    fmt,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
     str::FromStr,
     sync::LazyLock,
 };
 
-use dashu_base::{Abs, DivRem, Sign};
+use dashu_base::{DivRem, ParseError, Sign};
 use dashu_int::{IBig, UBig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,8 +60,27 @@ impl FixedDecimal {
     }
 }
 
+impl serde::Serialize for FixedDecimal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+impl<'a> serde::Deserialize<'a> for FixedDecimal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        let s = String::deserialize(deserializer)?;
+        IBig::from_str(s.as_str()).map_err(serde::de::Error::custom).map(Self)
+    }
+}
+
 impl FromStr for FixedDecimal {
-    type Err = dashu_base::ParseError;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self::new(IBig::from_str(s)?))
@@ -238,36 +256,6 @@ impl DivAssign<&FixedDecimal> for FixedDecimal {
     fn div_assign(&mut self, rhs: &FixedDecimal) {
         let lhs = std::mem::replace(&mut self.0, IBig::ZERO);
         self.0 = (&Self(lhs) / rhs).0;
-    }
-}
-
-impl fmt::Display for FixedDecimal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (mut temp_q, mut temp_r) = (&self.0).div_rem(&*PRECISION);
-
-        let is_negative_q = temp_q < IBig::ZERO;
-        let is_negative_r = temp_r < IBig::ZERO;
-
-        if is_negative_q {
-            temp_q = temp_q.abs();
-        }
-        if is_negative_r {
-            temp_r = temp_r.abs();
-        }
-
-        let mut output = String::new();
-        if is_negative_q || is_negative_r {
-            output.push('-');
-        }
-        output.push_str(&temp_q.to_string());
-        output.push('.');
-        let fractional = temp_r.to_string();
-        if fractional.len() < WIDTH {
-            output.push_str(&"0".repeat(WIDTH - fractional.len()));
-        }
-        output.push_str(&fractional);
-
-        write!(f, "{output}")
     }
 }
 
@@ -458,6 +446,8 @@ fn scale_owned(value: IBig) -> IBig {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
+
     use super::*;
 
     fn raw(s: &str) -> FixedDecimal {
@@ -605,5 +595,21 @@ mod tests {
         let expected = &e3 * &e3;
 
         assert_eq!(e.ipow(6), expected);
+    }
+
+    proptest! {
+        #[test]
+        fn fixed_decimal_serialisation_roundtrip(negative in any::<bool>(), magnitude in any::<u128>()) {
+            let magnitude = IBig::from(magnitude);
+            let value = FixedDecimal::new(if negative { -magnitude } else { magnitude });
+            let serialized = serde_json::to_string(&value).unwrap();
+            prop_assert_eq!(serde_json::from_str(&serialized).map_err(|e| e.to_string()), Ok(value));
+        }
+
+        #[test]
+        fn fixed_decimal_from_str_interpret_as_ibig(negative in any::<bool>(), magnitude in any::<u128>()) {
+            let magnitude = if negative { -IBig::from(magnitude) } else { IBig::from(magnitude) };
+            prop_assert_eq!(FixedDecimal::from_str(&magnitude.to_string()), Ok(FixedDecimal::new(magnitude)));
+        }
     }
 }

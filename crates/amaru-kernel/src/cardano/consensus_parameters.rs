@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::str::FromStr;
-
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use crate::{EraHistory, GlobalParameters, KesPeriod, Slot, maths::FixedDecimal};
 
@@ -24,8 +22,8 @@ pub struct ConsensusParameters {
     randomness_stabilization_window: u64,
     slots_per_kes_period: u64,
     max_kes_evolution: u64,
-    active_slot_coeff: SerializedFixedDecimal,
-    active_slot_coeff_ln_complement: SerializedFixedDecimal,
+    active_slot_coeff: FixedDecimal,
+    active_slot_coeff_ln_complement: FixedDecimal,
     era_history: EraHistory,
 }
 
@@ -49,9 +47,9 @@ impl ConsensusParameters {
         active_slot_coeff_inverse: u64,
         era_history: &EraHistory,
     ) -> ConsensusParameters {
-        let active_slot_coeff = FixedDecimal::one() / &FixedDecimal::from(active_slot_coeff_inverse);
+        assert!(active_slot_coeff_inverse > 0, "active slot coefficient inverse cannot be null");
 
-        assert!(active_slot_coeff != FixedDecimal::ZERO, "active slot coefficient cannot be null");
+        let active_slot_coeff = FixedDecimal::one() / &FixedDecimal::from(active_slot_coeff_inverse);
 
         let active_slot_coeff_ln_complement = if &active_slot_coeff >= FixedDecimal::one() {
             FixedDecimal::ZERO
@@ -63,8 +61,8 @@ impl ConsensusParameters {
             randomness_stabilization_window,
             slots_per_kes_period,
             max_kes_evolution,
-            active_slot_coeff: SerializedFixedDecimal(active_slot_coeff),
-            active_slot_coeff_ln_complement: SerializedFixedDecimal(active_slot_coeff_ln_complement),
+            active_slot_coeff,
+            active_slot_coeff_ln_complement,
             era_history: era_history.clone(),
         }
     }
@@ -86,32 +84,10 @@ impl ConsensusParameters {
     }
 
     pub fn active_slot_coeff(&self) -> &FixedDecimal {
-        &self.active_slot_coeff.0
+        &self.active_slot_coeff
     }
 
     pub fn active_slot_coeff_ln_complement(&self) -> &FixedDecimal {
-        &self.active_slot_coeff_ln_complement.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct SerializedFixedDecimal(FixedDecimal);
-
-impl Serialize for SerializedFixedDecimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.0.to_string())
-    }
-}
-
-impl<'a> Deserialize<'a> for SerializedFixedDecimal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'a>,
-    {
-        let s = String::deserialize(deserializer)?;
-        FixedDecimal::from_str(&s).map(SerializedFixedDecimal).map_err(serde::de::Error::custom)
+        &self.active_slot_coeff_ln_complement
     }
 }

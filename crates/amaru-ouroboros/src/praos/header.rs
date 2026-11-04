@@ -413,6 +413,8 @@ impl AssertOperationalCertificateError {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use serde_json;
 
     use super::*;

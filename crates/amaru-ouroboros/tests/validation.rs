@@ -162,8 +162,6 @@ fn validate_header(
     era_history: &EraHistory,
     slot: Slot,
 ) -> Result<(), ValidationError> {
-    use rayon::prelude::*;
-
     let pool_id = header.pool_id();
     let last_opcert_sequence_number = context.operational_certificate_counters.get(&pool_id).copied();
     let consensus_parameters = Arc::new(consensus_parameters_from_context(context));
@@ -174,7 +172,7 @@ fn validate_header(
         .ok_or(ValidationError::UnknownPool)?;
 
     praos::header::assert_all(consensus_parameters, header, last_opcert_sequence_number, &pool_summary, &context.nonce)
-        .and_then(|assertions| assertions.into_par_iter().try_for_each(|assert| assert()))
+        .and_then(|assertions| assertions.into_iter().try_for_each(|assert| assert()))
         .map_err(|e| ValidationError::Assert(Box::new(e)))
 }
 
