@@ -14,9 +14,13 @@
 
 #![expect(clippy::wildcard_enum_match_arm)]
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use amaru_kernel::{NetworkMagic, PREPROD_ERA_HISTORY, Peer};
+use amaru_metrics::{
+    Meter, MetricsEvent,
+    protocol::{ConnectionManagerMetrics, ProtocolMetrics},
+};
 use amaru_ouroboros::{
     CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MiniProtocolUse, ObservedAt,
     PeerTrackingResource, RemoteInitiators,
@@ -30,6 +34,7 @@ use tokio::runtime::Runtime;
 use super::{Manager, ManagerConfig, ManagerMessage, OutboundState, stage};
 use crate::{
     connection::ConnectionMessage,
+    metrics_effects::{RecordMetricsEffect, ResourceMeter},
     network_effects::{CloseEffect, ConnectEffect, ConnectError},
     peer_tracking::{InMemoryPeerTracking, observed_at},
     protocol::Role,
@@ -44,6 +49,8 @@ struct Harness {
     extra: StageRef<ConnectionMessage>,
     extra_rx: amaru_pure_stage::Receiver<ConnectionMessage>,
     recorder: Arc<InMemoryPeerTracking>,
+    /// Every connection manager gauge update the manager recorded, in order.
+    connection_counts: Arc<Mutex<Vec<ConnectionManagerMetrics>>>,
     _guards: amaru_pure_stage::DeserializerGuards,
 }
 
@@ -56,11 +63,21 @@ fn harness_with(config: ManagerConfig) -> Harness {
         let mut guards = super::register_deserializers();
         guards.extend(crate::peer_tracking_effects::register_deserializers());
         guards.extend(crate::network_effects::register_deserializers());
+        guards.push(amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed());
         guards
     };
     let recorder = Arc::new(InMemoryPeerTracking::new());
+    let connection_counts: Arc<Mutex<Vec<ConnectionManagerMetrics>>> = Arc::default();
+    let mut meter = Meter::default();
+    let seen = connection_counts.clone();
+    meter.set_local_observer(Box::new(move |event| {
+        if let MetricsEvent::ProtocolMetrics(ProtocolMetrics::ConnectionManager(counts)) = event {
+            seen.lock().expect("connection counts").push(counts.clone());
+        }
+    }));
     let mut network = SimulationBuilder::default().with_mailbox_size(32);
     network.resources().put::<PeerTrackingResource>(recorder.clone());
+    network.resources().put::<ResourceMeter>(Arc::new(meter));
     let (connection, connection_rx) = network.output("connection", 8);
     let (extra, extra_rx) = network.output("extra-connection", 8);
     let manager = network.stage("manager", stage);
@@ -77,7 +94,18 @@ fn harness_with(config: ManagerConfig) -> Harness {
     let rt = Runtime::new().expect("runtime");
     let mut running = network.run(rt.handle());
     running.override_external_effect::<CloseEffect>(usize::MAX, |_| OverrideResult::handled(Ok(())));
-    Harness { _rt: rt, manager, running, connection, connection_rx, extra, extra_rx, recorder, _guards }
+    Harness {
+        _rt: rt,
+        manager,
+        running,
+        connection,
+        connection_rx,
+        extra,
+        extra_rx,
+        recorder,
+        connection_counts,
+        _guards,
+    }
 }
 
 fn handshake(
@@ -503,4 +531,75 @@ fn duplicate_loser_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
     assert!(sim.recorder.established().iter().any(|(record, _)| record.conn_id == renewed));
     assert!(sim.recorder.established().iter().all(|(record, _)| record.conn_id != loser));
     assert_eq!(sim.recorder.closed().len(), 1);
+}
+
+fn counts(inbound: u64, outbound: u64, unidirectional: u64) -> ConnectionManagerMetrics {
+    ConnectionManagerMetrics {
+        inbound_connections: inbound,
+        outbound_connections: outbound,
+        unidirectional_connections: unidirectional,
+    }
+}
+
+#[test]
+fn connection_counts_follow_live_connections() {
+    let mut sim = harness();
+    virtual_children(&mut sim);
+    let inbound_peer = Peer::for_test(4301);
+    let outbound_peer = Peer::for_test(4302);
+    let (inbound_id, outbound_id) = ids();
+    sim.running.enqueue_msg(
+        &sim.manager,
+        [
+            // Unidirectional inbound connection.
+            ManagerMessage::Accepted(inbound_peer, inbound_id),
+            handshake(inbound_peer, sim.connection.clone(), inbound_id, Role::Responder, false),
+            // Full-duplex outbound connection.
+            ManagerMessage::AddPeer(outbound_peer),
+            connection_ok(outbound_peer, 1, outbound_id),
+            ManagerMessage::HandshakeComplete {
+                peer: outbound_peer,
+                stage: sim.extra.clone(),
+                conn_id: outbound_id,
+                role: Role::Initiator,
+                full_duplex: true,
+                advertisable: true,
+                caller: StageRef::blackhole(),
+            },
+            // The remote side closes the inbound connection, then we drop the outbound peer.
+            ManagerMessage::ConnectionDied(inbound_peer, inbound_id, Role::Responder),
+            ManagerMessage::RemovePeer(outbound_peer),
+        ],
+    );
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+
+    assert_eq!(
+        *sim.connection_counts.lock().expect("connection counts"),
+        vec![counts(1, 0, 1), counts(1, 1, 1), counts(0, 1, 0), counts(0, 0, 0)]
+    );
+}
+
+#[test]
+fn refused_and_duplicate_handshakes_are_not_counted() {
+    let mut sim = harness_with(ManagerConfig::default().with_max_inbound(1));
+    virtual_children(&mut sim);
+    let first = Peer::for_test(4311);
+    let second = Peer::for_test(4312);
+    let conn_ids = id_n(3);
+    sim.running.enqueue_msg(
+        &sim.manager,
+        [
+            ManagerMessage::Accepted(first, conn_ids[0]),
+            ManagerMessage::Accepted(first, conn_ids[1]),
+            ManagerMessage::Accepted(second, conn_ids[2]),
+            handshake(first, sim.connection.clone(), conn_ids[0], Role::Responder, false),
+            // A second inbound connection from the same peer is terminated as a duplicate.
+            handshake(first, sim.extra.clone(), conn_ids[1], Role::Responder, false),
+            // The inbound cap of one is full, so this handshake is refused.
+            handshake(second, sim.extra.clone(), conn_ids[2], Role::Responder, false),
+        ],
+    );
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+
+    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(1, 0, 1)]);
 }
