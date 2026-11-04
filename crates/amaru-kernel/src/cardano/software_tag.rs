@@ -16,6 +16,8 @@
 
 use std::fmt;
 
+use time::{Date, Duration, Month, macros::date};
+
 /// Block producer identifier carried in the minor component of a header's `protocol_version`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoftwareTag {
@@ -240,48 +242,39 @@ impl ReleaseDay {
 
     pub const MAX: Self = Self(AmaruTag::RELEASE_DAY_MASK as u16);
 
-    const EPOCH: CalendarDate = CalendarDate { year: 2026, month: 1, day: 1 };
+    const EPOCH: Date = date!(2026 - 01 - 01);
 
     pub const fn from_version_patch(patch: &str) -> Result<Self, ReleaseDayError> {
-        let digits = patch.as_bytes();
-        if digits.len() == 1 && digits[0] == b'0' {
+        if matches!(patch.as_bytes(), b"0") {
             return Ok(Self::UNRELEASED);
         }
-        if digits.len() != 8 {
+
+        let Ok(yyyymmdd) = u32::from_str_radix(patch, 10) else {
+            return Err(ReleaseDayError::Malformed);
+        };
+
+        let (year, month, day) = (yyyymmdd / 10_000, (yyyymmdd / 100 % 100) as u8, (yyyymmdd % 100) as u8);
+        if patch.len() != 8 || month < 1 || month > 12 {
             return Err(ReleaseDayError::Malformed);
         }
-        let mut value: u32 = 0;
-        let mut i = 0;
-        while i < digits.len() {
-            if !digits[i].is_ascii_digit() {
-                return Err(ReleaseDayError::Malformed);
-            }
-            value = value * 10 + (digits[i] - b'0') as u32;
-            i += 1;
-        }
-        Self::from_date(CalendarDate {
-            year: (value / 10_000) as u16,
-            month: ((value / 100) % 100) as u8,
-            day: (value % 100) as u8,
-        })
+
+        let Ok(date) = Date::from_calendar_date(year as i32, Month::January.nth_next(month - 1), day) else {
+            return Err(ReleaseDayError::Malformed);
+        };
+
+        Self::from_date(date)
     }
 
-    pub const fn from_date(date: CalendarDate) -> Result<Self, ReleaseDayError> {
-        if !date.is_valid() {
-            return Err(ReleaseDayError::InvalidDate(date));
-        }
-        let days = date.days_from_civil() - Self::EPOCH.days_from_civil();
-        if days < 1 || days > Self::MAX.0 as i64 {
+    pub const fn from_date(date: Date) -> Result<Self, ReleaseDayError> {
+        let days = date.to_julian_day() - Self::EPOCH.to_julian_day();
+        if days < 1 || days > Self::MAX.0 as i32 {
             return Err(ReleaseDayError::OutOfRange(date));
         }
         Ok(Self(days as u16))
     }
 
-    pub const fn date(&self) -> Option<CalendarDate> {
-        if self.0 == 0 {
-            return None;
-        }
-        Some(CalendarDate::civil_from_days(Self::EPOCH.days_from_civil() + self.0 as i64))
+    pub fn date(&self) -> Option<Date> {
+        (self.0 != 0).then(|| Self::EPOCH + Duration::days(i64::from(self.0)))
     }
 
     pub const fn days(&self) -> u16 {
@@ -302,67 +295,8 @@ impl fmt::Display for ReleaseDay {
 pub enum ReleaseDayError {
     #[error("expected 0 or a YYYYMMDD day")]
     Malformed,
-    #[error("{0} is not a calendar date")]
-    InvalidDate(CalendarDate),
     #[error("{0} is outside the representable range, 2026-01-02 to 2070-11-09")]
-    OutOfRange(CalendarDate),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CalendarDate {
-    pub year: u16,
-    pub month: u8,
-    pub day: u8,
-}
-
-impl CalendarDate {
-    pub const fn is_valid(&self) -> bool {
-        self.month >= 1 && self.month <= 12 && self.day >= 1 && self.day <= self.days_in_month()
-    }
-
-    const fn days_in_month(&self) -> u8 {
-        match self.month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 if self.is_leap_year() => 29,
-            2 => 28,
-            _ => 0,
-        }
-    }
-
-    const fn is_leap_year(&self) -> bool {
-        self.year.is_multiple_of(4) && (!self.year.is_multiple_of(100) || self.year.is_multiple_of(400))
-    }
-
-    const fn days_from_civil(&self) -> i64 {
-        let y = self.year as i64 - if self.month <= 2 { 1 } else { 0 };
-        let m = self.month as i64;
-        let d = self.day as i64;
-        let era = y.div_euclid(400);
-        let yoe = y - era * 400;
-        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        era * 146097 + doe - 719468
-    }
-
-    const fn civil_from_days(days: i64) -> Self {
-        let z = days + 719468;
-        let era = z.div_euclid(146097);
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        Self { year: (if m <= 2 { y + 1 } else { y }) as u16, month: m as u8, day: d as u8 }
-    }
-}
-
-impl fmt::Display for CalendarDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
-    }
+    OutOfRange(Date),
 }
 
 #[cfg(test)]
@@ -371,18 +305,16 @@ mod tests {
 
     use super::*;
 
-    const fn date(year: u16, month: u8, day: u8) -> CalendarDate {
-        CalendarDate { year, month, day }
-    }
-
     #[test_case("0" => Ok(ReleaseDay::UNRELEASED); "unreleased")]
     #[test_case("20260611" => Ok(ReleaseDay(161)); "first release")]
     #[test_case("20260925" => Ok(ReleaseDay(267)); "later release")]
     #[test_case("20701109" => Ok(ReleaseDay::MAX); "last representable day")]
-    #[test_case("20701110" => Err(ReleaseDayError::OutOfRange(date(2070, 11, 10))); "past the last day")]
-    #[test_case("20260101" => Err(ReleaseDayError::OutOfRange(date(2026, 1, 1))); "epoch day would read as unreleased")]
-    #[test_case("20251231" => Err(ReleaseDayError::OutOfRange(date(2025, 12, 31))); "before the epoch")]
-    #[test_case("20260230" => Err(ReleaseDayError::InvalidDate(date(2026, 2, 30))); "no such day")]
+    #[test_case("20701110" => Err(ReleaseDayError::OutOfRange(date!(2070 - 11 - 10))); "past the last day")]
+    #[test_case("20260101" => Err(ReleaseDayError::OutOfRange(date!(2026 - 01 - 01))); "epoch day would read as unreleased")]
+    #[test_case("20251231" => Err(ReleaseDayError::OutOfRange(date!(2025 - 12 - 31))); "before the epoch")]
+    #[test_case("20260230" => Err(ReleaseDayError::Malformed); "no such day")]
+    #[test_case("20261301" => Err(ReleaseDayError::Malformed); "no such month")]
+    #[test_case("202606110" => Err(ReleaseDayError::Malformed); "too long")]
     #[test_case("2026061" => Err(ReleaseDayError::Malformed); "too short")]
     #[test_case("00" => Err(ReleaseDayError::Malformed); "zero padded")]
     #[test_case("2026-6-1" => Err(ReleaseDayError::Malformed); "not digits")]
@@ -391,10 +323,10 @@ mod tests {
     }
 
     #[test_case(0 => None; "unreleased")]
-    #[test_case(161 => Some(date(2026, 6, 11)); "first release")]
-    #[test_case(267 => Some(date(2026, 9, 25)); "later release")]
-    #[test_case(16383 => Some(date(2070, 11, 9)); "last representable day")]
-    fn release_day_to_date(days: u16) -> Option<CalendarDate> {
+    #[test_case(161 => Some(date!(2026 - 06 - 11)); "first release")]
+    #[test_case(267 => Some(date!(2026 - 09 - 25)); "later release")]
+    #[test_case(16383 => Some(date!(2070 - 11 - 09)); "last representable day")]
+    fn release_day_to_date(days: u16) -> Option<Date> {
         ReleaseDay(days).date()
     }
 
@@ -403,7 +335,6 @@ mod tests {
         for days in 1..=ReleaseDay::MAX.0 {
             let day = ReleaseDay(days);
             let date = day.date().unwrap();
-            assert!(date.is_valid(), "{date}");
             assert_eq!(ReleaseDay::from_date(date), Ok(day), "{date}");
         }
     }
