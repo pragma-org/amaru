@@ -70,6 +70,8 @@ pub fn decode_plutus_script<'a, const V: usize>(
 ///
 /// CONSTR/CASE terms, certain constants and certain builtins are rejected when the program version
 /// or protocol version combination disallows them.
+/// Program-version availability is checked at evaluation, so reference scripts can carry versions
+/// that are not yet executable.
 pub fn decode<'a, V>(
     arena: &'a Arena,
     bytes: &[u8],
@@ -87,14 +89,6 @@ where
     let machine_version = MachineVersion::new(major, minor, patch);
 
     let mut ctx = Ctx { arena, machine_version, protocol_version, plutus_version };
-
-    if !ctx.is_program_version_available() {
-        return Err(FlatDecodeError::ProgramVersionNotAvailable {
-            version: machine_version,
-            plutus_version,
-            protocol_version,
-        });
-    }
 
     let term = decode_term(&mut ctx, &mut decoder)?;
 
@@ -513,12 +507,12 @@ mod tests {
         }
     }
 
-    #[test_case::test_case(PlutusVersion::V1, PROTOCOL_VERSION_10 => matches Err(FlatDecodeError::ProgramVersionNotAvailable { .. }) ; "V1 1.1 before protocol 11")]
-    #[test_case::test_case(PlutusVersion::V2, PROTOCOL_VERSION_10 => matches Err(FlatDecodeError::ProgramVersionNotAvailable { .. }) ; "V2 1.1 before protocol 11")]
+    #[test_case::test_case(PlutusVersion::V1, PROTOCOL_VERSION_10 => matches Ok(_) ; "V1 1.1 before protocol 11")]
+    #[test_case::test_case(PlutusVersion::V2, PROTOCOL_VERSION_10 => matches Ok(_) ; "V2 1.1 before protocol 11")]
     #[test_case::test_case(PlutusVersion::V1, PROTOCOL_VERSION_11 => matches Ok(_) ; "V1 1.1 at protocol 11")]
     #[test_case::test_case(PlutusVersion::V2, PROTOCOL_VERSION_11 => matches Ok(_) ; "V2 1.1 at protocol 11")]
     #[test_case::test_case(PlutusVersion::V3, PROTOCOL_VERSION_10 => matches Ok(_) ; "V3 1.1 at protocol 10")]
-    fn program_version_availability_is_checked_during_flat_decoding(
+    fn unavailable_program_versions_can_be_decoded(
         plutus_version: PlutusVersion,
         protocol_version: amaru_kernel::ProtocolVersion,
     ) -> Result<(), FlatDecodeError> {

@@ -14,7 +14,7 @@
 
 use std::array::TryFromSliceError;
 
-use super::{ExBudget, value::Value};
+use super::{ExBudget, MachineVersion, value::Value};
 use crate::{
     binder::Eval,
     bls::BlsError,
@@ -30,6 +30,8 @@ pub enum MachineError<'a, V>
 where
     V: Eval<'a>,
 {
+    #[error("Program version {0:?} is not available for evaluation")]
+    UnavailableProgramVersion(MachineVersion),
     #[error("Explicit error term")]
     ExplicitErrorTerm,
     #[error("Non-function application")]

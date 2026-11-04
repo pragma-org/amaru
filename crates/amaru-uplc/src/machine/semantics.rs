@@ -17,6 +17,8 @@ use amaru_kernel::{
     protocol_version::{PROTOCOL_VERSION_9, PROTOCOL_VERSION_11},
 };
 
+use super::MachineVersion;
+
 /// Ledger builtin semantics variants. The semantic versioning is a little weird and are in-fact
 /// devided in two groups:
 ///
@@ -51,6 +53,15 @@ impl Semantics {
                     Self::C
                 }
             }
+        }
+    }
+
+    /// Whether a program version can be executed under these ledger semantics.
+    /// Deserialization alone does not require the version to be executable.
+    pub fn supports_program_version(&self, version: MachineVersion) -> bool {
+        match self {
+            Self::A | Self::B => version == MachineVersion::V1_0_0,
+            Self::C | Self::D | Self::E => matches!(version, MachineVersion::V1_0_0 | MachineVersion::V1_1_0),
         }
     }
 
