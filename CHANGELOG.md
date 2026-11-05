@@ -41,6 +41,9 @@ Other guiding principles:
 
 - **amaru**: `amaru node run` warns at startup when the operating system does not report the wall clock as NTP-synchronized, or when its error bound exceeds 500 ms. Linux and macOS only. ([#1369](https://github.com/pragma-org/amaru/issues/1369))
 - **amaru**: block forging now selects transactions from the mempool in insertion order. A transaction is skipped when it would exceed a block constraint (maximum body size, maximum execution units, or maximum reference script size). ([#1568](https://github.com/pragma-org/amaru/pull/1568))
+- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in [edr-040](engineering-decision-records/040-cip-0203-block-producer-identifer.md). [#1360][]
+- **amaru**: forged block headers identify Amaru and its release day in the protocol version minor, following CIP-0203 (producer id `65`, payload defined in `docs/cip-0203/README.md`). Pass `--software-tag-off` (or set `AMARU_SOFTWARE_TAG_OFF=true`) to emit the CIP-0203 opt-out value `255` instead. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or display the current tag this binary would forge blocks with. [#1360][]
 
 ### Changed
 
@@ -703,4 +706,5 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1360]: https://github.com/pragma-org/amaru/issues/1360
 [#1453]: https://github.com/pragma-org/amaru/issues/1453

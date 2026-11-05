@@ -77,8 +77,8 @@ pub enum InvalidBlockDetails {
         max: u64,
     },
     HeaderProtVerTooHigh {
-        header_major: u64,
-        max_major: u64,
+        header_major: u32,
+        max_major: u32,
     },
     RefScriptSizeTooBig {
         provided: u64,

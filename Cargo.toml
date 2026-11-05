@@ -106,6 +106,7 @@ tempfile = "3.27.0"
 test-case = "3.3.1"
 thiserror = "2.0.19"
 tikv-jemallocator = { version = "0.6.1" }
+time = { version = "0.3.55", default-features = false }
 tokio = { version = "1.53.0", features = ["sync"] }
 tokio-util = "0.7.18"
 toml = "1.1.3"

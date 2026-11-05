@@ -296,6 +296,8 @@ dependencies = [
  "syn 2.0.119",
  "syn 3.0.6",
  "thiserror 2.0.21",
+ "time",
+ "time-macros",
  "tokio",
  "tokio-util",
  "tower",
@@ -357,6 +359,7 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.21",
+ "time",
  "toml",
  "zeroize",
 ]
