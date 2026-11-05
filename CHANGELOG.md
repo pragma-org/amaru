@@ -50,6 +50,7 @@ Other guiding principles:
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
 - **amaru**: with OpenTelemetry enabled, metrics are now exported every second by default (previously every 60 seconds), including when running interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) to use a different interval. The generated environment files (`/etc/default/amaru`, `/etc/sysconfig/amaru`, `.env.example`) now list it.
 - **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
+- **amaru**: block forging is no longer restricted to test networks.
 
 ### Fixed
 
