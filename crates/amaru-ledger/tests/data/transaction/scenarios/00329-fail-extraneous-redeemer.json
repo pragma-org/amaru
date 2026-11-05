@@ -1,4 +1,7 @@
 {
+  "title": "extraneous redeemer",
+  "description": "A transaction carries a redeemer for a script purpose that is not present in the transaction.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "extraneous redeemer",
-  "description": "A transaction carries a redeemer for a script purpose that is not present in the transaction.",
   "initial_state": {
     "utxo": [
       {

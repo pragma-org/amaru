@@ -1,4 +1,7 @@
 {
+  "title": "ppview hashes mismatch",
+  "description": "A transaction whose script integrity hash does not match the protocol parameters and redeemers it carries.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "ppview hashes mismatch",
-  "description": "A transaction whose script integrity hash does not match the protocol parameters and redeemers it carries.",
   "initial_state": {
     "utxo": [
       {

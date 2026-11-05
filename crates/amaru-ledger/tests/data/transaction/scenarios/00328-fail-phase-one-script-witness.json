@@ -1,4 +1,7 @@
 {
+  "title": "phase one script witness",
+  "description": "A transaction contains a malformed script witness that must be rejected before phase two evaluation.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "phase one script witness",
-  "description": "A transaction contains a malformed script witness that must be rejected before phase two evaluation.",
   "initial_state": {
     "utxo": [
       {

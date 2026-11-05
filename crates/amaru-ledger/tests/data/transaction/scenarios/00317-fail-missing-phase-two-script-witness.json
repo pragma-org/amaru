@@ -1,4 +1,7 @@
 {
+  "title": "missing phase two script witness",
+  "description": "A transaction references a Plutus script input but does not provide the corresponding phase-two script witness.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "missing phase two script witness",
-  "description": "A transaction references a Plutus script input but does not provide the corresponding phase-two script witness.",
   "initial_state": {
     "utxo": [
       {

@@ -1,4 +1,7 @@
 {
+  "title": "redeemer with incorrect purpose",
+  "description": "A transaction places a redeemer under the wrong purpose, leaving the required spending redeemer missing.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "redeemer with incorrect purpose",
-  "description": "A transaction places a redeemer under the wrong purpose, leaving the required spending redeemer missing.",
   "initial_state": {
     "utxo": [
       {

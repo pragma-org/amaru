@@ -1,4 +1,7 @@
 {
+  "title": "ppview hash missing",
+  "description": "A transaction with Plutus witnesses but no script integrity hash.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "ppview hash missing",
-  "description": "A transaction with Plutus witnesses but no script integrity hash.",
   "initial_state": {
     "utxo": [
       {

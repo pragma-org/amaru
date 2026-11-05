@@ -1,4 +1,7 @@
 {
+  "title": "withdrawal script does not validate",
+  "description": "A withdrawal Plutus script evaluates unsuccessfully during phase two validation.",
+  "category": "scripts",
   "network": "preprod",
   "era_history": {
     "$ref": "common/era-history/preprod-conway.json"
@@ -6,9 +9,6 @@
   "protocol_parameters": {
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
-  "category": "scripts",
-  "title": "withdrawal script does not validate",
-  "description": "A withdrawal Plutus script evaluates unsuccessfully during phase two validation.",
   "initial_state": {
     "utxo": [
       {
