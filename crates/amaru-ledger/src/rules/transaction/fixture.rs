@@ -565,9 +565,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Fees(InvalidFees::Collateral(InvalidCollateral::NoCollateral)) => {
                 Predicate::NoCollateralInputs
             }
-            PhaseOneError::Metadata(_)
-            | PhaseOneError::Certificates(_)
-            | PhaseOneError::Scripts(_)
+            PhaseOneError::Certificates(_)
             | PhaseOneError::Proposals(_)
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")
