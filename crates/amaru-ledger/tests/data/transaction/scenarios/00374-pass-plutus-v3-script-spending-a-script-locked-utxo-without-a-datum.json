@@ -1,0 +1,34 @@
+{
+  "title": "plutus v3 script spending a script-locked utxo without a datum",
+  "description": "A transaction spending a plutus v3 script-locked UTxO without an inline datum or a datum hash.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582018f4f1dc2c16b2e041bc14e9e3ecd5550202d564b0dbabde611e2db9092b92c800",
+        "output": "82581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a00989680"
+      },
+      {
+        "input": "82582018f4f1dc2c16b2e041bc14e9e3ecd5550202d564b0dbabde611e2db9092b92c801",
+        "output": "8258390093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f1e760111aba8c48f249d58250062f5baf3d163350f2d3f55ec7b3971b009fdf42f637998c"
+      },
+      {
+        "input": "8258207ab40c247f9b9e571d39adbc77e02e7e881d7161b771eadd35054be3ade190ec00",
+        "output": "82581d70186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b41a000f311a"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d901028282582018f4f1dc2c16b2e041bc14e9e3ecd5550202d564b0dbabde611e2db9092b92c8018258207ab40c247f9b9e571d39adbc77e02e7e881d7161b771eadd35054be3ade190ec000dd901028182582018f4f1dc2c16b2e041bc14e9e3ecd5550202d564b0dbabde611e2db9092b92c80001818258390065cf5454f586d19c04689bcccbd17f1bc0a4ce904dc6aea476ca8ac4ea469737e96a17f0e4b7b734b31974afc0da00197bf0900edd009c1f1b009fdf42f64304fd021a0003c5a90b5820dda1d7cda5005d663db396e75040b591060cb986cfa9b6d1e877058d75c37024a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584050482d1b8f07fffa90480dba90174a02e656ddd34d2429a9b4147cd0e108f6dc5386ce009c5e2a4f6be97c55e5910612a6e7116079aa16f949799f373088180905a1820001820382000007d901028146450101002499f5f6",
+  "expected": "Pass"
+}
