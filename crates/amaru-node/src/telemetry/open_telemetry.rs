@@ -27,6 +27,28 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
 
+/// Environment variable controlling the interval between two OTLP metrics exports, in milliseconds.
+pub const OTEL_METRIC_EXPORT_INTERVAL: &str = "OTEL_METRIC_EXPORT_INTERVAL";
+
+/// Amaru's metrics export interval when `OTEL_METRIC_EXPORT_INTERVAL` is not set or invalid (the SDK default is 60s).
+pub const DEFAULT_METRIC_EXPORT_INTERVAL: Duration = Duration::from_millis(1000);
+
+/// Resolve the metrics export interval from an `OTEL_METRIC_EXPORT_INTERVAL` value in milliseconds.
+///
+/// Surrounding whitespace is ignored. Unset, empty, zero, or non-numeric values fall back to
+/// [`DEFAULT_METRIC_EXPORT_INTERVAL`] rather than the SDK's 60s default.
+#[expect(clippy::panic)]
+fn read_metric_export_interval() -> Duration {
+    std::env::var(OTEL_METRIC_EXPORT_INTERVAL)
+        .ok()
+        .as_deref()
+        .map(|value| value.trim().parse::<u64>())
+        .transpose()
+        .unwrap_or_else(|err| panic!("invalid {OTEL_METRIC_EXPORT_INTERVAL}: {err:?}"))
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_METRIC_EXPORT_INTERVAL)
+}
+
 /// Replaces a stock CBOR debug dump with the decoded attribute and keeps one value per key.
 #[derive(Debug)]
 pub struct CborSpanExporter<E> {
@@ -203,10 +225,10 @@ impl OpenTelemetryProviders {
                     .with_temporality(Temporality::default())
                     .build()
                     .map_err(BuildOpenTelemetryProvidersError::Metrics)?;
-                Ok(SdkMeterProvider::builder()
-                    .with_resource(resource)
-                    .with_reader(opentelemetry_sdk::metrics::PeriodicReader::builder(exporter).build())
-                    .build())
+                let interval = read_metric_export_interval();
+                let reader =
+                    opentelemetry_sdk::metrics::PeriodicReader::builder(exporter).with_interval(interval).build();
+                Ok(SdkMeterProvider::builder().with_resource(resource).with_reader(reader).build())
             })
             .transpose()?;
 
