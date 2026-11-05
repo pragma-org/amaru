@@ -1,0 +1,45 @@
+{
+  "title": "plutus v2 spend whose datum preimage is only inline on a reference input",
+  "description": "Spends an input locked by a PlutusV2 script with a datum hash, omitting the datum from the witness set while a reference input carries the same datum inline.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820c4e8a2d6b0f4c8e2a6d0b4f8c2e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e800",
+        "output": "a300581d7052c6af0c9b744b4eecce838538a52ceb155038b3de68e2bb2fa8fc37011a0098968002820058209e1199a988ba72ffd6e9c269cadb3b53b5f360ff99f112d9b2ee30c4d74ad88b"
+      },
+      {
+        "input": "825820e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e8a2d6b0f4c8e2a6d0b4f8c2e6a000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      },
+      {
+        "input": "825820a2d6b0f4c8e2a6d0b4f8c2e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e8a2d600",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e848003d8184a82024746010000222499"
+      },
+      {
+        "input": "8258201491b75f5519839274eb21ac230fa2aef56d9054be4b2f508e3a095c5b5ec32700",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480028201d81842182a"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d9010281825820c4e8a2d6b0f4c8e2a6d0b4f8c2e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e8000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00895440021a000f42400b5820e0c8c4fc53e33b522c5d38d3ddfd04416444a54c99e1f7294182962ca10582c70dd9010281825820e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e8a2d6b0f4c8e2a6d0b4f8c2e6a0000f0012d90102828258201491b75f5519839274eb21ac230fa2aef56d9054be4b2f508e3a095c5b5ec32700825820a2d6b0f4c8e2a6d0b4f8c2e6a0d4b8f2c6e0a4d8b2f6c0e4a8d2b6f0c4e8a2d600a200d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401d31830e8b0ba7574ee839efbf0abdc340155fbf9d9cb6a0c603125e306dc872399985bd3d6a603ef474d9651d9de3738f0427559d46b765be4cfd9e4dc3390705a18200008200821907d01a000f4240f5f6",
+  "expected": {
+    "predicate": "MissingRequiredDatums"
+  }
+}

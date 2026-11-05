@@ -435,6 +435,8 @@ normalizeUtxowFailure expectedHint utxowFailure = case utxowFailure of
         "MissingVerificationKeyWitnessesUTXOW"
     MissingScriptWitnessesUTXOW{} ->
         "MissingScriptWitnessesUTXOW"
+    MissingRequiredDatums{} ->
+        "MissingRequiredDatums"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->

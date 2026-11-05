@@ -66,6 +66,7 @@ Other guiding principles:
 - **amaru-plutus**: a transaction that runs a Plutus V1 script is now rejected when a reference input carries an inline datum. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
 - **amaru-ledger**: a governance proposal that sets the desired number of stake pools to zero is now rejected from protocol version 11, as the Cardano node does. It used to be accepted. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
 - **amaru-ledger**: a governance proposal that sets the cost of UTxO storage per byte to zero is now accepted at protocol version 9, the Conway bootstrap phase, as the Cardano node does. It used to be rejected. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a transaction spending a script-locked input by datum hash is rejected when that datum is missing from its witness set, even if a reference input carries the same datum inline.
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
