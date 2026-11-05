@@ -63,7 +63,7 @@ pub mod cbor {
         encode_indefinite_map, encode_variable_length_array, encode_variable_length_map, expect_tag, from_cbor,
         from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite,
         heterogeneous_map, heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys,
-        lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        is_map_len64, lazy, missing_field, shortest_head_len, tee, to_cbor, to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,

@@ -72,6 +72,20 @@ impl Ord for BigInt {
     }
 }
 
+/// The head of a positive bignum tag (2) in its 1-byte form.
+const POSITIVE_BIGNUM_HEAD: u8 = 0xc2;
+
+/// The head of a negative bignum tag (3) in its 1-byte form.
+const NEGATIVE_BIGNUM_HEAD: u8 = 0xc3;
+
+/// Whether the decoder is positioned on a bignum tag written as its 1-byte head.
+///
+/// The Haskell node only reads a bignum where cborg reports the exact bytes `c2` or `c3`. The same tags written
+/// with a longer head (`d8 02`, `db 00..02`, ...) are read as constructor tags instead, and rejected as such.
+pub(crate) fn is_bignum_tag(d: &cbor::Decoder<'_>) -> bool {
+    matches!(d.input().get(d.position()), Some(&(POSITIVE_BIGNUM_HEAD | NEGATIVE_BIGNUM_HEAD)))
+}
+
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BigInt {
     #[expect(clippy::wildcard_enum_match_arm)]
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
@@ -88,6 +102,9 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for BigInt {
             | cbor::data::Type::I64
             | cbor::data::Type::Int => Ok(Self::Int(d.decode_with(ctx)?)),
             cbor::data::Type::Tag => {
+                if !is_bignum_tag(d) {
+                    return Err(cbor::decode::Error::message("big int tag must be the 1-byte head 0xc2 or 0xc3"));
+                }
                 let tag = d.tag()?;
                 if tag == cbor::IanaTag::PosBignum.tag() {
                     Ok(Self::BigUInt(d.decode_with(ctx)?))
