@@ -1,14 +1,23 @@
+---
+type: architecture
+status: accepted
+---
+
 # Amaru block producer software tag
 
-This document is the payload specification for Amaru under [CIP-0203, Block Producer Identifier Registry](https://github.com/cardano-foundation/CIPs/pull/1276). It defines what Amaru writes into the minor component of the block header `protocol_version` when it forges a block, and how to read it back.
+## Context
+
+[CIP-0203](https://github.com/cardano-foundation/CIPs/pull/1276/) defines an optional software identifier tag that block producer can use in place of the protocol minor version in block header, to advertise their implementation. This allows tracking the shares of block producers across the network.
+
+This document captures the decision of adopting CIP-0203 as well as the payload specification for Amaru under CIP-0203.
+
+## Decision
+
+Amaru optionally writes an software tag following CIP-0203's specification into the minor component of the block header `protocol_version` when it forges a block.
 
 The identifier registered for Amaru is `65` under scheme `0`.
 
-An operator who does not want to disclose their software passes `--software-tag-off` to
-`amaru node run`, or sets `AMARU_SOFTWARE_TAG_OFF=true`. Amaru then writes the CIP-0203 opt-out
-value: a minor of `255`, with no payload.
-
-## Payload layout
+### Payload layout
 
 ```
  21 20 | 19                              6 | 5            0
@@ -24,7 +33,7 @@ value: a minor of `255`, with no payload.
 | `days`  | 19 - 6  | 14    | 0 - 16383  | Release day as days elapsed since 2026-01-01 (UTC), or `0` for an unreleased build. The last representable day is 2070-11-09. |
 | `flags` | 5 - 0   | 6     | 0 - 63     | Feature flags. None are assigned. |
 
-### Construction and extraction
+#### Construction and extraction
 
 ```
 payload = (ver << 20) | (days << 6) | flags
@@ -35,14 +44,14 @@ days    = (payload >> 6) & 0x3FFF
 flags   =  payload       & 0x3F
 ```
 
-### `ver`
+#### `ver`
 
 Amaru sets `ver` to `0`. Values `1`, `2` and `3` are reserved for later revisions of this
 document. A later revision may keep the layout of bits 19 - 0 or redefine them entirely, and
 must not change the meaning of `ver = 0`. A consumer must not interpret bits 19 - 0 when `ver`
 is a value it does not implement.
 
-### `days`
+#### `days`
 
 Every published Amaru release is versioned `MAJOR.MINOR.YYYYMMDD`, where the last component is
 the UTC day the release was cut. A release build sets `days` to the number of days from
@@ -52,11 +61,11 @@ Any other build has `0` as the last component of its version and sets `days` to 
 covers builds from source, builds of unmerged branches, and forks. No release was cut on
 2026-01-01, so `0` never names a release.
 
-### `flags`
+#### `flags`
 
 No flags are assigned. Amaru writes `0` in all six bits, and a consumer must ignore them.
 
-## Decoding
+### Decoding
 
 `amaru dev software-tag decode <VERSION>` performs these steps. `VERSION` is the header's
 protocol version (`11.4374593`), the minor alone (`4374593`), or the minor in hex
@@ -70,7 +79,7 @@ protocol version (`11.4374593`), the minor alone (`4374593`), or the minor in he
 5. Extract `days` as shown above, ignoring `flags`. If `days` is `0` the build is unreleased.
    Otherwise the release day is 2026-01-01 plus `days` days.
 
-## Test vectors
+### Test vectors
 
 | `minor` (decimal) | `minor` (hex) | `ver` | `days` | `flags` | Decoded |
 |-------------------|---------------|-------|--------|---------|---------|
@@ -81,3 +90,13 @@ protocol version (`11.4374593`), the minor alone (`4374593`), or the minor in he
 | 268419137         | `0x0FFFC041`  | 0     | 16383  | 0       | Release day 2070-11-09, the largest representable day. |
 | 255               | `0x000000FF`  |       |        |         | Operator opted out. Not attributable to Amaru. |
 | 1073741889        | `0x40000041`  |       |        |         | `scheme = 1`. A consumer of this document must not decode the remaining bits. |
+
+## Consequences
+
+- Amaru mark its produced block by default, with a distinct tag which
+  identifies both Amaru and its underlying release version.
+
+- An operator who does not want to disclose their software passes
+  `--software-tag-off` to `amaru node run`, or sets
+  `AMARU_SOFTWARE_TAG_OFF=true`. Amaru then writes the CIP-0203 opt-out value:
+  a minor of `255`, with no payload.
