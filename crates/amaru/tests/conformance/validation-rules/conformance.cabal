@@ -28,6 +28,7 @@ library
     , Command.ValidatePhaseOne.Error
     , Command.ValidatePhaseOne.Parse
     , Command.ValidatePhaseOne.Run
+    , Command.ValidateMaths
     , Data.Fixture.Common
     , Data.Fixture.EraHistory
     , Data.Fixture.Expected
@@ -61,6 +62,7 @@ library
     , directory
     , filepath
     , microlens
+    , non-integral
     , optparse-applicative
     , ouroboros-consensus
     , relude

@@ -66,10 +66,10 @@ impl EpochSchedule {
         nonce: Nonce,
         slots: Range<Slot>,
         relative_stake: &FixedDecimal,
-        active_slot_coeff: &FixedDecimal,
+        active_slot_coeff_ln_complement: &FixedDecimal,
         vrf: &vrf::SecretKey,
     ) -> Self {
-        let params = LeaderParams { nonce: &nonce, relative_stake, active_slot_coeff };
+        let params = LeaderParams { nonce: &nonce, relative_stake, active_slot_coeff_ln_complement };
         Self { epoch, nonce, slots: lead_slots(slots, &params, vrf) }
     }
 

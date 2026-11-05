@@ -94,14 +94,13 @@ fn schedule_for(effect: &LeaderScheduleEffect, resources: &Resources) -> EpochSc
             return None;
         }
         let relative = &FixedDecimal::from(summary.stake) / &FixedDecimal::from(summary.active_stake);
-        let coefficient = parameters.active_slot_coeff();
         let vrf = vrf::SecretKey::from(&credentials.vrf_secret_bytes());
         Some(EpochSchedule::compute(
             effect.epoch,
             effect.nonce,
             effect.from..effect.until,
             &relative,
-            &coefficient,
+            parameters.active_slot_coeff_ln_complement(),
             &vrf,
         ))
     })() else {
@@ -278,7 +277,7 @@ mod tests {
         let mut by_pool = BTreeMap::new();
         by_pool.insert(pool, PoolSummary { vrf: Hash::new([0u8; 32]), stake: 1, active_stake: 1 });
         let pools = PoolSummaries { by_epoch: BTreeMap::from([(Epoch::from(161), by_pool)]) };
-        let parameters = ConsensusParameters::create(1, 129_600, 62, 1.0, &PREPROD_ERA_HISTORY);
+        let parameters = ConsensusParameters::create(1, 129_600, 62, 1, &PREPROD_ERA_HISTORY);
         let resources = resources_with(Some(Arc::new(credentials)), parameters, pools);
         let effect = LeaderScheduleEffect::new(Epoch::from(163), nonce, pool, from, until);
         let schedule = schedule_for(&effect, &resources);

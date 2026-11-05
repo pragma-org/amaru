@@ -5,6 +5,7 @@ module Command
 import Relude
 
 import qualified Command.ValidatePhaseOne as ValidatePhaseOne
+import qualified Command.ValidateMaths as ValidateMaths
 import Options.Applicative
     ( Parser
     , ParserInfo
@@ -17,8 +18,9 @@ import Options.Applicative
     , progDesc
     )
 
-newtype Command
+data Command
     = ValidatePhaseOne ValidatePhaseOne.Options
+    | ValidateMaths ValidateMaths.Options
 
 runCommandLine :: IO ()
 runCommandLine = do
@@ -36,6 +38,8 @@ runCommand :: Command -> IO (Either Text ())
 runCommand = \case
     ValidatePhaseOne options ->
         first ValidatePhaseOne.renderError <$> runExceptT (ValidatePhaseOne.run options)
+    ValidateMaths options ->
+        runExceptT (ValidateMaths.run options)
 
 commandParserInfo :: ParserInfo Command
 commandParserInfo =
@@ -51,4 +55,10 @@ commandParser =
             ( info
                 (ValidatePhaseOne <$> ValidatePhaseOne.optionsParser)
                 (progDesc "Validate a transaction conformance fixture with the Haskell ledger rules")
+            )
+        <> command
+            "validate-maths"
+            ( info
+                (ValidateMaths <$> ValidateMaths.optionsParser)
+                (progDesc "Validate Cardano fixed-point and VRF leader-threshold vectors")
             )
