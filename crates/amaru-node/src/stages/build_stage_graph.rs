@@ -30,7 +30,7 @@ use amaru_observability::{TraceContext, amaru::consensus::node::INITIALIZE, debu
 use amaru_ouroboros::MempoolMsg;
 use amaru_protocols::{
     manager,
-    manager::{Manager, ManagerConfig, ManagerMessage},
+    manager::{Manager, ManagerConfig, ManagerMessage, inbound_hard_limit},
 };
 use amaru_pure_stage::{DEFAULT_MAILBOX_SIZE, Sender, StageGraph, StageRef};
 
@@ -86,7 +86,9 @@ pub fn build_stage_graph(
     let protocol_version = ProtocolVersion::new(opened.protocol_version.major(), u32::from(config.software_tag));
     let span = debug_span!(consensus::node::INITIALIZE);
     let trace_context: TraceContext<INITIALIZE> = (&span).into();
-    let peer_mailbox = peer_mailbox_size(config.target_upstream_peers, config.target_downstream_peers);
+    // The hard inbound limit is the most bearers that can be live at once.
+    let peer_mailbox =
+        peer_mailbox_size(config.target_upstream_peers, inbound_hard_limit(config.target_downstream_peers));
     let manager = stage_graph.stage_with_mailbox_size("manager", manager::stage, peer_mailbox);
     let peer_selection = stage_graph.stage_with_mailbox_size("peer_selection", peer_selection::stage, peer_mailbox);
     let peer_selection_ref = peer_selection.sender();

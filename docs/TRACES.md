@@ -3060,7 +3060,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `disconnecting` | `event` | debug, info | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `event` | info | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
 | `handshake_completed` | `event` | info | public | The handshake completed on a connection | peer, conn_id, role, full_duplex, advertisable |  |
-| `inbound_refused` | `event` | info | public | An inbound handshake was refused because the inbound cap is full | peer, conn_id |  |
+| `inbound_refused` | `event` | info | public | An inbound handshake was refused because the hard inbound limit is full | peer, conn_id |  |
+| `inbound_transient` | `event` | debug | public | An inbound handshake was kept only long enough to answer. The downstream soft limit is full. The bearer is initiator-only and closes after 150ms. | peer, conn_id |  |
 | `local_use_applied` | `event` | info | public | The connection finished converging to this local use | peer, conn_id, local_use |  |
 | `remove` | `span` |  | public | A peer was removed from the manager | peer |  |
 | `set_local_use` | `event` | info | public | A change of local use was requested on a connection | peer, conn_id, local_use |  |
@@ -3187,6 +3188,15 @@ For information on how to use and filter these traces, see [monitoring/README.md
 </details>
 
 <details><summary>event: `inbound_refused`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+
+</details>
+
+<details><summary>event: `inbound_transient`</summary>
 
 | field | type | required |
 | --- | --- | --- |
