@@ -59,16 +59,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dashu_int::IBig;
     use test_case::test_case;
 
     use super::*;
     use crate::{context::DefaultValidationContext, state::volatile::VolatileFragment};
 
-    #[test_case(true, None => matches Ok((1_000_000, -1_000_000)); "valid transaction donates")]
-    #[test_case(false, None => matches Ok((0, -1_000_000)); "invalid transaction only balances its donation")]
+    #[test_case(true, None; "valid transaction donates")]
+    #[test_case(false, None; "invalid transaction only balances its donation")]
     #[test_case(true, Some(1) => matches Err(InvalidTreasury::ValueMismatch { provided: 1, expected: 0 }); "valid transaction checks the treasury value")]
     #[test_case(false, Some(1) => matches Ok(_); "invalid transaction skips the treasury value")]
-    fn donation(is_valid: bool, treasury_value: Option<Lovelace>) -> Result<(Lovelace, i128), InvalidTreasury> {
+    fn donation(is_valid: bool, treasury_value: Option<Lovelace>) -> Result<(), InvalidTreasury> {
         let mut context = DefaultValidationContext::default();
 
         if is_valid {
@@ -77,7 +78,9 @@ mod tests {
             when_invalid(&mut context, Some(1_000_000));
         }
 
-        let balance = context.balance().coin();
-        Ok((VolatileFragment::from(context).donations, balance))
+        let balance = context.balance().coin().clone();
+        let donations = VolatileFragment::from(context).donations;
+        assert_eq!((donations, balance), (if is_valid { 1_000_000 } else { 0 }, IBig::from(-1_000_000)));
+        Ok(())
     }
 }

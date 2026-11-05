@@ -19,6 +19,8 @@ use std::{
     ops::{AddAssign, SubAssign},
 };
 
+use dashu_int::IBig;
+
 use crate::{
     AssetName, Assets, Hash, Lovelace, Multiasset, NonZeroInt, PositiveCoin, cbor,
     size::{CREDENTIAL, SCRIPT},
@@ -178,8 +180,8 @@ impl<'a> From<&'a Mint> for PlutusMint<'a> {
 /// Multiasset entires cannot be zero.
 #[derive(Default, Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct Balance {
-    coin: i128,
-    multiasset: BTreeMap<(Hash<{ SCRIPT }>, AssetName), i128>,
+    coin: IBig,
+    multiasset: BTreeMap<(Hash<{ SCRIPT }>, AssetName), IBig>,
 }
 
 impl Display for Balance {
@@ -206,40 +208,38 @@ impl Balance {
         Self::default()
     }
 
-    pub fn coin(&self) -> i128 {
-        self.coin
+    pub fn coin(&self) -> &IBig {
+        &self.coin
     }
 
     pub fn has_assets(&self) -> bool {
         !self.multiasset.is_empty()
     }
     pub fn is_zero(&self) -> bool {
-        self.coin == 0 && !self.has_assets()
+        self.coin == IBig::ZERO && !self.has_assets()
     }
 
     fn add_coin(&mut self, amount: u64) {
-        self.coin =
-            self.coin.checked_add(i128::from(amount)).unwrap_or_else(|| unreachable!("Lovelace accumulator overflow"));
+        self.coin += IBig::from(amount);
     }
 
     fn sub_coin(&mut self, amount: u64) {
-        self.coin =
-            self.coin.checked_sub(i128::from(amount)).unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
+        self.coin -= IBig::from(amount);
     }
 
     /// Apply a signed `delta` to the multi-asset entry at `key`. A delta of zero is a no-op; an
     /// entry that nets to zero is removed.
-    fn apply_delta(&mut self, key: (Hash<{ SCRIPT }>, AssetName), delta: i128) {
-        if delta == 0 {
+    fn apply_delta(&mut self, key: (Hash<{ SCRIPT }>, AssetName), delta: &IBig) {
+        if delta == &IBig::ZERO {
             return;
         }
         match self.multiasset.entry(key) {
             Entry::Vacant(v) => {
-                v.insert(delta);
+                v.insert(delta.clone());
             }
             Entry::Occupied(mut o) => {
-                let new = o.get().checked_add(delta).unwrap_or_else(|| unreachable!("multi-asset quantity overflow"));
-                if new == 0 {
+                let new = o.get() + delta;
+                if new == IBig::ZERO {
                     o.remove();
                 } else {
                     *o.get_mut() = new;
@@ -252,9 +252,9 @@ impl Balance {
 /// Accumulate another `Balance`. Multi-asset entries that net to zero are removed from the map.
 impl AddAssign<&Balance> for Balance {
     fn add_assign(&mut self, other: &Balance) {
-        self.coin = self.coin.checked_add(other.coin).unwrap_or_else(|| unreachable!("Lovelace accumulator overflow"));
+        self.coin += &other.coin;
         for (key, qty) in &other.multiasset {
-            self.apply_delta(*key, *qty);
+            self.apply_delta(*key, qty);
         }
     }
 }
@@ -262,10 +262,9 @@ impl AddAssign<&Balance> for Balance {
 /// Subtract another `Balance`. Multi-asset entries that net to zero are removed from the map.
 impl SubAssign<&Balance> for Balance {
     fn sub_assign(&mut self, other: &Balance) {
-        self.coin = self.coin.checked_sub(other.coin).unwrap_or_else(|| unreachable!("Lovelace accumulator underflow"));
+        self.coin -= &other.coin;
         for (key, qty) in &other.multiasset {
-            let neg = qty.checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
-            self.apply_delta(*key, neg);
+            self.apply_delta(*key, &-qty);
         }
     }
 }
@@ -278,7 +277,8 @@ impl AddAssign<&Value> for Balance {
         if let Some(ma) = multiasset {
             for (policy, assets) in ma.iter() {
                 for (name, qty) in assets.iter() {
-                    self.apply_delta((*policy, *name), positive_to_i128(qty));
+                    let quantity = IBig::from(u64::from(qty));
+                    self.apply_delta((*policy, *name), &quantity);
                 }
             }
         }
@@ -293,9 +293,8 @@ impl SubAssign<&Value> for Balance {
         if let Some(ma) = multiasset {
             for (policy, assets) in ma.iter() {
                 for (name, qty) in assets.iter() {
-                    let neg =
-                        positive_to_i128(qty).checked_neg().unwrap_or_else(|| unreachable!("cannot negate i128::MIN"));
-                    self.apply_delta((*policy, *name), neg);
+                    let quantity = -IBig::from(u64::from(qty));
+                    self.apply_delta((*policy, *name), &quantity);
                 }
             }
         }
@@ -308,7 +307,8 @@ impl AddAssign<&Mint> for Balance {
     fn add_assign(&mut self, mint: &Mint) {
         for (policy, assets) in mint.iter() {
             for (name, qty) in assets.iter() {
-                self.apply_delta((*policy, *name), i128::from(i64::from(qty)));
+                let quantity = IBig::from(i64::from(qty));
+                self.apply_delta((*policy, *name), &quantity);
             }
         }
     }
@@ -327,11 +327,6 @@ fn split_value(value: &Value) -> (u64, Option<&Multiasset<PositiveCoin>>) {
         Value::Coin(c) => (*c, None),
         Value::Multiasset(c, ma) => (*c, Some(ma)),
     }
-}
-
-fn positive_to_i128(qty: &PositiveCoin) -> i128 {
-    let raw: u64 = qty.into();
-    i128::from(raw)
 }
 
 #[cfg(test)]

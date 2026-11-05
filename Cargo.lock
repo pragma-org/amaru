@@ -389,6 +389,7 @@ dependencies = [
  "amaru-stores",
  "amaru-uplc",
  "anyhow",
+ "dashu-int",
  "divan",
  "hex",
  "itertools 0.15.0",
@@ -2379,6 +2380,7 @@ dependencies = [
  "num-modular",
  "num-order",
  "rustversion",
+ "serde",
  "static_assertions",
 ]
 

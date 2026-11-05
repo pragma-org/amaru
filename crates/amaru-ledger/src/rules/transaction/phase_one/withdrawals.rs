@@ -136,6 +136,7 @@ where
 #[cfg(test)]
 mod test {
     use amaru_kernel::{Credential, Hash, Network, RewardAccount};
+    use dashu_int::IBig;
     use test_case::test_case;
 
     use super::InvalidWithdrawals;
@@ -162,8 +163,8 @@ mod test {
     }
 
     #[test_case(true => matches Err(InvalidWithdrawals::AccountNotRegistered(_)); "valid transaction rejects it")]
-    #[test_case(false => matches Ok(1_000_000); "invalid transaction consumes it")]
-    fn withdrawal_from_an_unregistered_account(is_valid: bool) -> Result<i128, InvalidWithdrawals> {
+    #[test_case(false; "invalid transaction consumes it")]
+    fn withdrawal_from_an_unregistered_account(is_valid: bool) -> Result<(), InvalidWithdrawals> {
         let mut context = DefaultValidationContext::default();
 
         let account = RewardAccount::new(Network::Testnet, Credential::KeyHash(Hash::new([0; 28])));
@@ -175,6 +176,7 @@ mod test {
             super::when_invalid(&mut context, withdrawals, Network::Testnet)?;
         }
 
-        Ok(context.balance().coin())
+        assert_eq!(context.balance().coin(), &IBig::from(1_000_000));
+        Ok(())
     }
 }

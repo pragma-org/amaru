@@ -44,7 +44,7 @@ criterion = "0.8.2"
 crossterm = "0.29.0"
 ctor = "1.0.9"
 dashu-base = "0.4.1"
-dashu-int = "0.4.1"
+dashu-int = { version = "0.4.1", features = ["serde"] }
 malachite-base = "0.14.0"
 malachite-nz = "0.14.0"
 diff_json = "0.1.1"
