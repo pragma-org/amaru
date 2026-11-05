@@ -210,6 +210,9 @@ pub mod value_names {
     /// A blockchain point, formatted as slot.hash
     pub const POINT_OR_HASH: &str = "SLOT.HEADER_HASH or HEADER_HASH";
 
+    /// A protocol version, as a major and minor number.
+    pub const PROTOCOL_VERSION: &str = "MAJOR.MINOR";
+
     /// For S3-compatible regions, including Cloudflare R2's `auto` region.
     pub const S3_REGION: &str = "auto|REGION";
 

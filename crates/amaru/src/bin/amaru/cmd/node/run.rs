@@ -30,7 +30,8 @@ use amaru::{
     version,
 };
 use amaru_kernel::{
-    ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, SoftwareTag, utils::duration,
+    ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, ProtocolVersion, SoftwareTag,
+    utils::duration,
 };
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
@@ -134,6 +135,16 @@ pub struct Args {
         alias = "vrf-signing-key-file",
     )]
     operator_vrf: Option<PathBuf>,
+
+    /// Protocol version under which the operator key and certificate files are decoded.
+    #[arg(
+        long,
+        value_name = amaru::value_names::PROTOCOL_VERSION,
+        default_value_t = amaru_kernel::protocol_version::DEFAULT,
+        display_order = 0,
+        help_heading = "Block forging options",
+    )]
+    protocol_version: ProtocolVersion,
 
     /// Mark forged blocks as opted out of CIP-0203 producer identification, instead of naming
     /// Amaru and its release day.
@@ -639,7 +650,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         args.operator_kes.as_deref(),
         args.operator_vrf.as_deref(),
         args.operator_cert.as_deref(),
-        amaru_kernel::protocol_version::DEFAULT,
+        args.protocol_version,
     )?;
 
     let db_ledger = args.db_ledger.into_path_buf(network);
