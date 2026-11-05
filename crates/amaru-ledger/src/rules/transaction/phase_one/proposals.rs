@@ -319,7 +319,10 @@ fn ppu_well_formed(ppu: &ProtocolParamUpdate, version: ProtocolVersion) -> Resul
     reject_zero(ppu.governance_action_deposit, "governance_action_deposit")?;
     reject_zero(ppu.drep_deposit, "drep_deposit")?;
 
-    reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    // The ledger accepts a zero cost per byte during the Conway bootstrap phase, protocol version 9.
+    if version.major() != 9 {
+        reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    }
 
     // The ledger accepts a zero number of stake pools before protocol version 11.
     if version.major() >= 11 {
