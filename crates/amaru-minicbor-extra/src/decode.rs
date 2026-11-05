@@ -149,6 +149,18 @@ pub fn tee<'d, A>(
     Ok((a, &original_bytes[start..end]))
 }
 
+/// The head of a definite-length map whose length is written on 8 bytes.
+const MAP_LEN_64_HEAD: u8 = 0xbb;
+
+/// Whether the decoder is positioned on a definite-length map whose length is written on 8 bytes.
+///
+/// cborg reports such a head as `TypeMapLen64`, not `TypeMapLen`. Ledger decoders that choose between a map and a
+/// list encoding by peeking the token type, and only list `TypeMapLen`, read that map as a list and reject it.
+/// Use this only at those places: every other Haskell map decoder accepts an 8-byte length head.
+pub fn is_map_len64(d: &cbor::Decoder<'_>) -> bool {
+    d.input().get(d.position()) == Some(&MAP_LEN_64_HEAD)
+}
+
 // Array
 // ----------------------------------------------------------------------------
 
