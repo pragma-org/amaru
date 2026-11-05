@@ -28,7 +28,7 @@ use amaru_pure_stage::{Effect, simulation::SimulationRunning, trace_buffer::Trac
 
 use super::*;
 use crate::{
-    performance::{DialOutcome, PeerPerformance, PeerView, ResourcePerformance, ViewConnection},
+    performance::{DialOutcome, PeerPerformance, PeerView, ResourcePerformance, UninterestingMark, ViewConnection},
     stages::{
         peer_selection::test_setup::{SIM_INITIAL_CLOCK_SECS, TestPrep, setup, sim_t0, test_prep},
         test_utils::start_in_era,
@@ -196,7 +196,10 @@ fn connect_and_close_between_ticks_resolves_on_the_next_round() {
     peers.record_connection_closed(gone, conn_id, CloseReason::BearerEnded, at);
     let view = peers.query_peer_view(0).expect("establish and close move the generation");
     assert!(view.connections.is_empty(), "the bearer is already gone");
-    assert_eq!(view.closes.get(&gone).copied(), Some(DialOutcome::Closed { at, reason: CloseReason::BearerEnded }));
+    assert_eq!(
+        view.closes.get(&gone).copied(),
+        Some(DialOutcome::Closed { at, reason: CloseReason::BearerEnded, conn_id, uninteresting: false })
+    );
 
     let mut prep = test_prep(&["2.2.2.2:2"]);
     prep.state.target_upstream_peers = 1;
@@ -213,6 +216,74 @@ fn connect_and_close_between_ticks_resolves_on_the_next_round() {
     assert!(!state.dial_holdoff.contains_key(&PeerCandidate::from(gone)), "a close is not a connect failure");
     assert_eq!(manager_sends(&running), vec![ManagerMessage::AddPeer(next)]);
     assert!(matches!(state.outbound_peers.get(&next), Some(OutboundIntent::Dialing { .. })));
+}
+
+#[test]
+fn an_uninteresting_close_while_dialing_holds_the_name_and_dials_another() {
+    let gone = TestPrep::peer("1.1.1.1:1");
+    let next = TestPrep::peer("2.2.2.2:2");
+    let host = PeerCandidate::host("relay.example".parse().unwrap(), 4201);
+    let at = ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
+    let conn_id = ConnectionId::initial();
+    let mut closes = BTreeMap::new();
+    closes.insert(gone, DialOutcome::Closed { at, reason: CloseReason::BearerEnded, conn_id, uninteresting: true });
+    let view = PeerView {
+        generation: 1,
+        connections: Vec::new(),
+        connect_failures: BTreeMap::new(),
+        closes,
+        uninteresting: Vec::new(),
+    };
+
+    let mut prep = test_prep(&["1.1.1.1:1", "2.2.2.2:2"]);
+    prep.state.target_upstream_peers = 1;
+    prep.state
+        .outbound_peers
+        .insert(gone, OutboundIntent::Dialing { since: sim_t0(), candidate: PeerCandidate::from(gone) });
+    prep.state.bound.insert(host.clone(), gone);
+    far_deadlines(&mut prep.state);
+    prep.scripted_view = Some(view);
+
+    let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    let state = ps_state(&running);
+    assert!(!state.outbound_peers.contains_key(&gone));
+    assert!(!state.bound.contains_key(&host), "the hostname is unbound after the close");
+    assert_eq!(state.dial_holdoff.get(&PeerCandidate::from(gone)).copied(), Some(sim_t0() + UNINTERESTING_RETRY));
+    assert_eq!(state.dial_holdoff.get(&host).copied(), Some(sim_t0() + UNINTERESTING_RETRY));
+    assert_eq!(manager_sends(&running), vec![ManagerMessage::AddPeer(next)]);
+}
+
+#[test]
+fn a_close_while_dialing_honours_a_rollback_mark_still_in_the_view() {
+    let peer = TestPrep::peer("1.1.1.1:1");
+    let at = ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
+    let conn_id = ConnectionId::initial();
+    let mut closes = BTreeMap::new();
+    closes.insert(peer, DialOutcome::Closed { at, reason: CloseReason::BearerEnded, conn_id, uninteresting: false });
+    let view = PeerView {
+        generation: 1,
+        connections: Vec::new(),
+        connect_failures: BTreeMap::new(),
+        closes,
+        uninteresting: vec![UninterestingMark { peer, conn_id, after_rollback: true }],
+    };
+
+    let mut prep = test_prep(&["1.1.1.1:1"]);
+    prep.state.target_upstream_peers = 1;
+    prep.state
+        .outbound_peers
+        .insert(peer, OutboundIntent::Dialing { since: sim_t0(), candidate: PeerCandidate::from(peer) });
+    far_deadlines(&mut prep.state);
+    prep.scripted_view = Some(view);
+
+    let (running, _guards, _logs) = setup(&prep, PeerSelectionMsg::Tick);
+    let state = ps_state(&running);
+    assert!(state.outbound_peers.is_empty());
+    assert_eq!(
+        state.dial_holdoff.get(&PeerCandidate::from(peer)).copied(),
+        Some(sim_t0() + UNINTERESTING_RETRY_AFTER_ROLLBACK)
+    );
+    assert!(manager_sends(&running).is_empty());
 }
 
 #[test]
@@ -608,7 +679,15 @@ fn a_repeated_close_leaves_the_refill_dial_in_flight() {
     let peer = TestPrep::peer("1.1.1.1:1");
     let at = ObservedAt::new(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let mut closes = BTreeMap::new();
-    closes.insert(peer, DialOutcome::Closed { at, reason: CloseReason::BearerEnded });
+    closes.insert(
+        peer,
+        DialOutcome::Closed {
+            at,
+            reason: CloseReason::BearerEnded,
+            conn_id: ConnectionId::initial(),
+            uninteresting: false,
+        },
+    );
     let view = PeerView {
         generation: 1,
         connections: Vec::new(),

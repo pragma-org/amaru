@@ -118,7 +118,7 @@ pub use peers::{
     PEER_RECORD_RETENTION, PeerMix, PeerMixParseError, PeerPerformance, PeerScores, PeerShareFlags, PeerSnapshot,
     PeerSource, PeerView, SHARE_MALUS_THRESHOLD, SHARE_POLICY_MAX, SHARE_REQUEST_WINDOW, SHARED_PEERS_CAP,
     SelectOutboundParams, SelectPeersParams, SelectUsing, ShareRequestRecord, SharedIngestResult, SourceCounts,
-    UninterestingMark, ViewConnection, malus_at,
+    UNINTERESTING_IMPULSE, UninterestingMark, ViewConnection, malus_at,
 };
 use spans::HeaderSpanBook;
 #[doc(hidden)]
