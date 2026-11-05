@@ -48,10 +48,28 @@ impl<'d, C: HasProtocolVersion, T: for<'a> cbor::Decode<'a, C>> cbor::Decode<'d,
         }
 
         let bytes = decode_bytes_v12(d, ctx)?;
-        let data = cbor::Decoder::new(&bytes).decode_with(ctx).map_err(|e| {
+        let data = cbor::from_cbor_no_leftovers_with(&bytes, ctx).map_err(|e| {
             cbor::decode::Error::message(format!("failed to decode serialised {}: {e}", std::any::type_name::<T>()))
         })?;
 
         Ok(Self(data))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::PROTOCOL_VERSION_10;
+
+    /// The tagged bytes must hold exactly one CBOR value, as the Haskell node decodes them with `decodeFullDecoder`.
+    #[test_case(&[0xd8, 0x18, 0x41, 0x01] => true ; "one value")]
+    #[test_case(&[0xd8, 0x18, 0x42, 0x01, 0x00] => false ; "trailing value")]
+    #[test_case(&[0xd8, 0x18, 0x42, 0x01, 0xff] => false ; "trailing break")]
+    #[test_case(&[0xd8, 0x18, 0x42, 0x01, 0x01] => false ; "second value")]
+    fn decodes_exactly_one_value(bytes: &[u8]) -> bool {
+        let mut version = PROTOCOL_VERSION_10;
+        cbor::from_cbor_no_leftovers_with::<_, SerialisedAsCbor<u8>>(bytes, &mut version).is_ok()
     }
 }
