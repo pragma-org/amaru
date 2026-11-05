@@ -15,9 +15,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
-    ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
-    RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
+    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, PROTOCOL_VERSION_9,
+    PROTOCOL_VERSION_11, Proposal, ProposalId, ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters,
+    ProtocolVersion, RedeemerTag, RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
@@ -320,12 +320,12 @@ fn ppu_well_formed(ppu: &ProtocolParamUpdate, version: ProtocolVersion) -> Resul
     reject_zero(ppu.drep_deposit, "drep_deposit")?;
 
     // The ledger accepts a zero cost per byte during the Conway bootstrap phase, protocol version 9.
-    if version.major() != 9 {
+    if version != PROTOCOL_VERSION_9 {
         reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
     }
 
     // The ledger accepts a zero number of stake pools before protocol version 11.
-    if version.major() >= 11 {
+    if version >= PROTOCOL_VERSION_11 {
         reject_zero(ppu.desired_number_of_stake_pools, "desired_number_of_stake_pools")?;
     }
 
