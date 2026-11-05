@@ -81,8 +81,8 @@ pub enum ManagerMessage {
         role: Role,
         full_duplex: bool,
         advertisable: bool,
-        /// Completed after the establish write is applied. `true` when this bearer was kept.
-        caller: StageRef<bool>,
+        /// Completed after the admission decision. The connection terminates on [`HandshakeAdmission::Refused`].
+        caller: StageRef<HandshakeAdmission>,
     },
     /// Ask a live connection to converge toward this local use.
     SetLocalUse { peer: Peer, conn_id: ConnectionId, local_use: MiniProtocolUse },
@@ -112,11 +112,9 @@ impl ManagerMessage {
 
 /// The manager stage is responsible for managing the connections to the peers.
 ///
-/// It is important to keep in mind that inbound connections are controlled by the peer
-/// and that the peer may bind the socket to a specific port before connecting. If this
-/// manager listens on multiple IP addresses, then it is possible for the same peer to
-/// open multiple inbound connections from the same remote SocketAddr, hence the same
-/// [`Peer`]. These connections are distinguished by their [`ConnectionId`].
+/// Inbound connections are opened by the peer. The remote socket address is the [`Peer`].
+/// One listener cannot have two live sockets from that address, so a new inbound replaces
+/// the bearer still recorded for it.
 ///
 /// Outbound connections are controlled and to a given peer only one may be initiated at
 /// a time. The [`Peer`] we connect to may also show up as inbound, therefore we need to
@@ -127,11 +125,12 @@ impl ManagerMessage {
 /// All connections are held in `Manager::connections` indexed by [`ConnectionId`].
 /// For each peer we keep track of the outbound state (which is `None` in case no
 /// outbound connection has been requested) and up to one inbound connection.
-/// If a second connection comes in from the same peer, this new connection will be
-/// terminated (the handshake will be run, sending [`crate::protocol_messages::handshake::RefuseReason::Refused`]).
+/// A new inbound from the same remote address closes that connection id. A later handshake
+/// or death for the old id is ignored.
 ///
-/// An inbound connection is accepted when this peer has no inbound bearer yet and the inbound
-/// cap is not full. A handshake past the cap is refused: nothing is written, and the bearer is
+/// `max_inbound` is a soft limit: that many bearers are kept. At least one more, and up to
+/// 30% more, complete the handshake as initiator-only responders and are disconnected after
+/// 150ms. A handshake past that hard limit is refused: nothing is written, and the bearer is
 /// disconnected. When a connection dies, there are no retries.
 ///
 /// An outbound connection is initiated by sending `ManagerMessage::AddPeer`. The manager makes
@@ -151,7 +150,7 @@ impl ManagerMessage {
 /// that is still outstanding. A success for an attempt that was dropped closes that socket and
 /// does not start a connection stage.
 ///
-/// A second handshake for a peer that already has a bearer in that direction does not write
+/// A second outbound handshake for a peer that already has an outbound bearer does not write
 /// another bearer. When that extra bearer later dies, including after the outbound slot has
 /// moved on, the manager does not record a connect failure. The remaining bearer stays.
 ///
@@ -192,17 +191,35 @@ enum OutboundState {
     },
 }
 
+/// How an inbound handshake was classified when the socket was accepted.
+///
+/// The class is fixed then, because the handshake version data has to match it.
+/// In-flight durable and transient bearers occupy a slot so the next accept sees them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum InboundAdmission {
+    /// Under the soft limit. The handshake may offer full duplex.
+    Durable,
+    /// Soft limit reached, hard limit not. The handshake offers initiator-only mode.
+    Transient,
+    /// Hard limit reached. The handshake runs, then the bearer is refused.
+    /// It does not occupy a slot.
+    OverHard,
+}
+
 /// A socket whose connection stage is running and has not finished handshake.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PendingConn {
     peer: Peer,
     stage: StageRef<ConnectionMessage>,
     direction: ConnectionDirection,
+    admission: Option<InboundAdmission>,
 }
 
 #[derive(Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct PeerState {
     outbound: OutboundState,
+    // TODO: multi-listener support needs more than `Option<ConnectionId>`. The same remote
+    // SocketAddr can then be connected to more than one local listen address.
     inbound: Option<ConnectionId>,
 }
 
@@ -212,6 +229,8 @@ struct Connection {
     stage: StageRef<ConnectionMessage>,
     direction: ConnectionDirection,
     full_duplex: bool,
+    /// Admitted above the soft inbound limit. Peer tracking was never told about it.
+    transient: bool,
 }
 
 impl Manager {
@@ -261,7 +280,11 @@ pub struct ManagerConfig {
     ///
     /// Defaults to [`VersionNumber::CURRENT`] (V15). Tests pin V14 to check fallback.
     pub max_n2n_version: VersionNumber,
-    /// Live inbound bearers accepted at handshake. Further inbound handshakes are refused.
+    /// Soft limit on live inbound bearers.
+    ///
+    /// Bearers up to this count are kept. A further 30%, and at least one more, may answer
+    /// as initiator-only responders for [`TRANSIENT_INBOUND_TTL`], then are disconnected.
+    /// Handshakes past the hard limit are refused.
     pub max_inbound: usize,
     /// Delay after the maintenance group starts before the first share request.
     pub share_request_initial_delay: Duration,
@@ -271,8 +294,33 @@ pub struct ManagerConfig {
     pub share_request_amount: u8,
 }
 
-/// Default inbound cap. The node sets this from its downstream peer target.
-pub const DEFAULT_MAX_INBOUND: usize = 10;
+/// Default inbound soft limit. The node sets this from its downstream peer target.
+pub const DEFAULT_MAX_INBOUND: usize = 100;
+
+/// How long a bearer admitted above the soft inbound limit may answer before it is closed.
+pub const TRANSIENT_INBOUND_TTL: Duration = Duration::from_millis(150);
+
+/// Hard inbound limit for a soft limit.
+///
+/// Thirty percent above `soft`, and always at least `soft + 1`. `0` allows one short-lived bearer.
+pub fn inbound_hard_limit(soft: usize) -> usize {
+    let bumped = soft.saturating_mul(13) / 10;
+    bumped.max(soft.saturating_add(1))
+}
+
+/// What the manager told the connection to do with a finished handshake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HandshakeAdmission {
+    /// Do not keep this bearer. The connection terminates without mini-protocols.
+    Refused,
+    /// Keep the bearer and run the usual initiator and responder split.
+    Accepted,
+    /// Above the soft inbound limit. Run responder mini-protocols only.
+    ///
+    /// The handshake already offered initiator-only mode. The manager disconnects the bearer
+    /// after [`TRANSIENT_INBOUND_TTL`].
+    Transient,
+}
 
 impl ManagerConfig {
     pub fn with_reconnect_delay(mut self, reconnect_delay: Duration) -> Self {
@@ -422,7 +470,7 @@ impl Manager {
             state.outbound = OutboundState::Scheduled { attempt, conn_id: Some(conn_id) };
         }
         info!(protocols::manager::peer::CONNECTED, peer, conn_id = conn_id.as_u64());
-        self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Outbound).await;
+        self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Outbound, None).await;
     }
 
     async fn listen(&mut self, listen_addr: SocketAddr, eff: &Effects<ManagerMessage>) {
@@ -449,12 +497,68 @@ impl Manager {
     }
 
     async fn accepted(&mut self, peer: Peer, conn_id: ConnectionId, eff: &Effects<ManagerMessage>) {
-        // Remember the id before the stage runs. Duplicate detection (at most one inbound per peer)
-        // happens after handshake; extras are terminated then. The handshake itself always runs.
+        // Remember the id before the stage runs. The class is fixed here so the handshake can
+        // offer initiator-only mode. The handshake itself always runs; a bearer past the hard
+        // limit is terminated once it completes.
         if self.outstanding(conn_id) {
             return;
         }
-        self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Inbound).await;
+        self.supersede_inbound(peer, eff).await;
+        let admission = self.classify_inbound();
+        self.start_connection_stage(eff, peer, conn_id, ConnectionDirection::Inbound, Some(admission)).await;
+    }
+
+    /// Close the inbound bearer recorded for this remote address.
+    ///
+    /// The slot is cleared here. The stage's later [`ManagerMessage::ConnectionDied`] finds no
+    /// map entry and leaves the bearer that replaced it alone.
+    async fn supersede_inbound(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
+        let pending_ids: Vec<ConnectionId> = self
+            .pending
+            .iter()
+            .filter(|(_, pending)| pending.peer == peer && pending.direction == ConnectionDirection::Inbound)
+            .map(|(id, _)| *id)
+            .collect();
+        for conn_id in pending_ids {
+            let Some(pending) = self.pending.remove(&conn_id) else { continue };
+            info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction = "inbound");
+            close_connection(eff, &peer, conn_id).await;
+            eff.send(&pending.stage, ConnectionMessage::Disconnect).await;
+        }
+        let Some(conn_id) = self.peers.get(&peer).and_then(|state| state.inbound) else { return };
+        self.clear_inbound_slot(peer);
+        self.disconnect_live(peer, conn_id, "inbound", eff).await;
+    }
+
+    /// Drop the inbound slot. Remove the peer when it has no outbound state either.
+    fn clear_inbound_slot(&mut self, peer: Peer) {
+        let Some(state) = self.peers.get_mut(&peer) else { return };
+        state.inbound = None;
+        if state.outbound == OutboundState::None {
+            self.peers.remove(&peer);
+        }
+    }
+
+    /// Inbound bearers that already hold a slot, plus in-flight handshakes that will hold one.
+    fn reserved_inbound(&self) -> usize {
+        let established = self.peers.values().filter(|state| state.inbound.is_some()).count();
+        let pending = self.pending.values().filter(|pending| {
+            matches!(pending.admission, Some(InboundAdmission::Durable | InboundAdmission::Transient))
+        });
+        established + pending.count()
+    }
+
+    /// Classify this accept. The previous inbound from this remote address has already been closed.
+    fn classify_inbound(&self) -> InboundAdmission {
+        let occupied = self.reserved_inbound();
+        let soft = self.config.max_inbound;
+        if occupied >= inbound_hard_limit(soft) {
+            InboundAdmission::OverHard
+        } else if occupied >= soft {
+            InboundAdmission::Transient
+        } else {
+            InboundAdmission::Durable
+        }
     }
 
     /// Start a stage to handle the connection lifecycle.
@@ -466,12 +570,14 @@ impl Manager {
         peer: Peer,
         conn_id: ConnectionId,
         direction: ConnectionDirection,
+        admission: Option<InboundAdmission>,
     ) {
         let connection = eff.stage(format!("{conn_id}-{peer}"), connection::stage).await;
         let role = match direction {
             ConnectionDirection::Inbound => Role::Responder,
             ConnectionDirection::Outbound => Role::Initiator,
         };
+        let initiator_only = matches!(admission, Some(InboundAdmission::Transient));
         let connection = eff.supervise(connection, ManagerMessage::ConnectionDied(peer, conn_id, role));
         let connection = eff
             .wire_up(
@@ -480,6 +586,7 @@ impl Manager {
                     peer,
                     conn_id,
                     role,
+                    initiator_only,
                     self.config,
                     self.magic,
                     self.chain_sync.clone(),
@@ -490,7 +597,7 @@ impl Manager {
                 ),
             )
             .await;
-        self.pending.insert(conn_id, PendingConn { peer, stage: connection.clone(), direction });
+        self.pending.insert(conn_id, PendingConn { peer, stage: connection.clone(), direction, admission });
         eff.send(&connection, ConnectionMessage::Initialize).await;
     }
 
@@ -507,21 +614,22 @@ impl Manager {
         role: Role,
         full_duplex: bool,
         advertisable: bool,
-        caller: StageRef<bool>,
+        caller: StageRef<HandshakeAdmission>,
         eff: &Effects<ManagerMessage>,
     ) {
         let Some(pending) = self.pending.remove(&conn_id) else {
             self.ignore_unknown(peer, conn_id);
-            eff.send(&caller, false).await;
+            eff.send(&caller, HandshakeAdmission::Refused).await;
             return;
         };
         if pending.peer != peer || pending.direction != direction_of(role) {
             self.pending.insert(conn_id, pending);
             self.ignore_unknown(peer, conn_id);
-            eff.send(&caller, false).await;
+            eff.send(&caller, HandshakeAdmission::Refused).await;
             return;
         }
         let direction = pending.direction;
+        let admission = pending.admission;
         info!(
             protocols::manager::peer::HANDSHAKE_COMPLETED,
             peer,
@@ -530,11 +638,7 @@ impl Manager {
             full_duplex,
             advertisable
         );
-        let inbound_live = self.peers.values().filter(|state| state.inbound.is_some()).count();
-        let over_cap = direction == ConnectionDirection::Inbound
-            && self.peers.get(&peer).is_none_or(|state| state.inbound.is_none())
-            && inbound_live >= self.config.max_inbound;
-        if over_cap {
+        if direction == ConnectionDirection::Inbound && matches!(admission, Some(InboundAdmission::OverHard)) {
             info!(protocols::manager::peer::INBOUND_REFUSED, peer, conn_id = conn_id.as_u64());
             let empty = self
                 .peers
@@ -544,20 +648,28 @@ impl Manager {
                 self.peers.remove(&peer);
             }
             self.refuse_handshake(peer, conn_id, pending.stage, stage, eff).await;
-            eff.send(&caller, false).await;
+            eff.send(&caller, HandshakeAdmission::Refused).await;
             return;
         }
         let accept_this = self.take_direction_slot(peer, conn_id, direction);
-        if accept_this {
-            // Outbound handshake records Diffusion on the bearer, so a later fetch sees it.
-            self.connections.insert(conn_id, Connection { stage, direction, full_duplex, peer });
-            record_established(eff, peer, conn_id, direction, full_duplex, advertisable).await;
-            eff.send(&caller, true).await;
-        } else {
+        if !accept_this {
             info!(protocols::manager::peer::DUPLICATE_TERMINATED, peer, conn_id = conn_id.as_u64());
             self.refuse_handshake(peer, conn_id, pending.stage, stage, eff).await;
-            eff.send(&caller, false).await;
+            eff.send(&caller, HandshakeAdmission::Refused).await;
+            return;
         }
+        let transient = matches!(admission, Some(InboundAdmission::Transient));
+        self.connections.insert(conn_id, Connection { stage, direction, full_duplex, peer, transient });
+        if transient {
+            // The bearer answers, then the timer drops it. It is not a downstream peer.
+            debug!(protocols::manager::peer::INBOUND_TRANSIENT, peer, conn_id = conn_id.as_u64());
+            eff.schedule_after(ManagerMessage::Disconnect(peer, conn_id), TRANSIENT_INBOUND_TTL).await;
+            eff.send(&caller, HandshakeAdmission::Transient).await;
+            return;
+        }
+        // Outbound handshake records Diffusion on the bearer, so a later fetch sees it.
+        record_established(eff, peer, conn_id, direction, full_duplex, advertisable).await;
+        eff.send(&caller, HandshakeAdmission::Accepted).await;
     }
 
     /// Claim the one slot for this direction. A slot already held by another id is not taken.
@@ -639,7 +751,10 @@ impl Manager {
         let Some(connection) = self.connections.remove(&conn_id) else { return };
         info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction);
         close_connection(eff, &peer, conn_id).await;
-        record_closed(eff, peer, conn_id, CloseReason::LocalDisconnect).await;
+        // A grace bearer was never established, so there is no peer-tracking row to close.
+        if !connection.transient {
+            record_closed(eff, peer, conn_id, CloseReason::LocalDisconnect).await;
+        }
         eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
     }
 
@@ -721,7 +836,10 @@ impl Manager {
             self.peers.remove(&peer);
         }
         info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome);
-        record_closed(eff, peer, conn_id, CloseReason::BearerEnded).await;
+        // A grace bearer was never established, so there is no peer-tracking row to close.
+        if !connection.transient {
+            record_closed(eff, peer, conn_id, CloseReason::BearerEnded).await;
+        }
     }
 
     fn ignore_unknown(&self, peer: Peer, conn_id: ConnectionId) {
@@ -937,6 +1055,7 @@ pub fn register_deserializers() -> DeserializerGuards {
     let mut guards = vec![
         register_data_deserializer::<Manager>().boxed(),
         register_data_deserializer::<ManagerMessage>().boxed(),
+        register_data_deserializer::<HandshakeAdmission>().boxed(),
         register_data_deserializer::<Instant>().boxed(),
     ];
     guards.extend(connector::register_deserializers());

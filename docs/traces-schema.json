@@ -8935,10 +8935,35 @@
       "name": "inbound_refused",
       "kind": "event",
       "target": "amaru::protocols::manager::peer",
-      "description": "An inbound handshake was refused because the inbound cap is full",
+      "description": "An inbound handshake was refused because the hard inbound limit is full",
       "public": true,
       "levels": [
         "info"
+      ]
+    },
+    "amaru::protocols::manager::peer::INBOUND_TRANSIENT": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "peer",
+        "conn_id"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "inbound_transient",
+      "kind": "event",
+      "target": "amaru::protocols::manager::peer",
+      "description": "An inbound handshake was kept only long enough to answer. The downstream soft limit is full. The bearer is initiator-only and closes after 150ms.",
+      "public": true,
+      "levels": [
+        "debug"
       ]
     },
     "amaru::protocols::manager::peer::LOCAL_USE_APPLIED": {

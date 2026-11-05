@@ -26,7 +26,7 @@ use crate::{
     },
     handshake,
     keepalive::{self, register_keepalive},
-    manager::{ManagerConfig, ManagerMessage},
+    manager::{HandshakeAdmission, ManagerConfig, ManagerMessage},
     mux::{self, MuxMessage},
     network_effects::{Network, NetworkOps},
     peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator, register_peer_sharing_responder},
@@ -59,6 +59,7 @@ impl Connection {
         peer: Peer,
         conn_id: ConnectionId,
         role: Role,
+        initiator_only: bool,
         config: ManagerConfig,
         magic: NetworkMagic,
         pipeline: StageRef<ChainSyncInitiatorMsg>,
@@ -72,6 +73,7 @@ impl Connection {
                 peer,
                 conn_id,
                 role,
+                initiator_only,
                 config,
                 magic,
                 pipeline,
@@ -90,6 +92,7 @@ struct Params {
     peer: Peer,
     conn_id: ConnectionId,
     role: Role,
+    initiator_only: bool,
     magic: NetworkMagic,
     config: ManagerConfig,
     pipeline: StageRef<ChainSyncInitiatorMsg>,
@@ -350,13 +353,13 @@ fn early_mini_protocol_buffers(advertisable: bool) -> Vec<(ProtocolId<Erased>, u
 }
 
 async fn do_initialize(
-    Params { conn_id, role, magic, peer, config, .. }: &Params,
+    Params { conn_id, role, magic, peer, config, initiator_only, .. }: &Params,
     eff: Effects<ConnectionMessage>,
 ) -> State {
     let peer = *peer;
-    // Same flags as the version table below. A responder always serves; an initiator serves
-    // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
-    let initiator_only = false;
+    // A responder always serves; an initiator serves when it advertises full duplex.
+    // Those are the protocols the mux may hold before `Register`.
+    let initiator_only = *initiator_only;
     let advertisable = true;
     let muxer = eff.stage_with_mailbox_size("mux", mux::stage, mux::MUX_MAILBOX_SIZE).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
@@ -438,7 +441,7 @@ async fn do_handshake(
 
     // Responders stay unregistered until the worker has the bearer row, so the first
     // remote opener is not dropped as an unknown connection.
-    let recorded = eff
+    let admission = eff
         .call(manager, HANDSHAKE_RECORD_TIMEOUT, move |caller| ManagerMessage::HandshakeComplete {
             peer,
             stage,
@@ -449,17 +452,18 @@ async fn do_handshake(
             caller,
         })
         .await;
-    // `None` is the call timing out. `Some(false)` is the manager refusing the bearer
-    // (unknown id, mismatch, inbound cap, or a duplicate). Either way this stage will not
-    // get another handshake result, so the socket must close.
-    if recorded != Some(true) {
-        eff.terminate().await;
-    }
+    let transient = match admission {
+        Some(HandshakeAdmission::Accepted) => false,
+        Some(HandshakeAdmission::Transient) => true,
+        Some(HandshakeAdmission::Refused) | None => eff.terminate().await,
+    };
 
     eff.send(&muxer, mux::MuxMessage::SetSduTimeout(mux::SDU_TIMEOUT_ESTABLISHED)).await;
 
     let local_use = local_use_for_role(role);
-    let run_initiators = role == Role::Initiator || full_duplex;
+    // A transient inbound already offered initiator-only mode. Do not open initiators
+    // even when the peer's own version data was full duplex: the agreed record ORs the flag.
+    let run_initiators = !transient && (role == Role::Initiator || full_duplex);
     let run_responders = role == Role::Responder || full_duplex;
     let mut established = Established {
         desired_use: local_use,
@@ -783,6 +787,7 @@ pub fn register_deserializers() -> DeserializerGuards {
         register_data_deserializer::<(ConnectionId, StageRef<mux::MuxMessage>, Role)>().boxed(),
         register_data_deserializer::<Connection>().boxed(),
         register_data_deserializer::<ConnectionMessage>().boxed(),
+        register_data_deserializer::<HandshakeAdmission>().boxed(),
     ]
 }
 
@@ -923,6 +928,44 @@ mod tests {
         assert_eq!(*mailbox_size, mux::MUX_MAILBOX_SIZE);
     }
 
+    #[test]
+    fn transient_inbound_offers_initiator_only() {
+        let mut network = SimulationBuilder::default();
+        let connection = network.stage("connection", stage);
+        let connection = network.wire_up(
+            connection,
+            Connection::new(
+                Peer::for_test(3009),
+                ConnectionId::initial(),
+                Role::Responder,
+                true,
+                ManagerConfig::default(),
+                NetworkMagic::PREPROD,
+                StageRef::blackhole(),
+                Arc::new(PREPROD_ERA_HISTORY.clone()),
+                StageRef::blackhole(),
+                StageRef::blackhole(),
+                None,
+            ),
+        );
+        let rt = Runtime::new().unwrap();
+        let mut running = network.run(rt.handle());
+        running.breakpoint(
+            "handshake-wire",
+            |eff| matches!(eff, Effect::WireStage { name, .. } if name.as_str().starts_with("handshake")),
+        );
+        running.enqueue_msg(&connection, [ConnectionMessage::Initialize]);
+        running.run(Run::default()).assert_breakpoint("handshake-wire");
+        let hit = running.breakpoint_effect();
+        let Effect::WireStage { initial_state, .. } = hit.effect() else {
+            panic!("expected the handshake stage to be wired");
+        };
+        let (_state, responder) = initial_state
+            .cast_ref::<(crate::handshake::State, crate::handshake::HandshakeResponder)>()
+            .expect("handshake responder state");
+        assert!(responder.offers_initiator_only());
+    }
+
     /// An established duplex bearer promoted to maintenance starts keep-alive and, when the
     /// peer is advertisable, the peer-sharing initiator. That holds for an inbound bearer as
     /// well as an outbound one. Block-fetch and tx-submission stay off until diffusion.
@@ -985,6 +1028,7 @@ mod tests {
                 peer: Peer::for_test(3009),
                 conn_id: ConnectionId::initial(),
                 role,
+                initiator_only: false,
                 config: ManagerConfig::default(),
                 magic: NetworkMagic::PREPROD,
                 pipeline: StageRef::blackhole(),
@@ -1022,6 +1066,7 @@ mod tests {
                 peer: Peer::for_test(3009),
                 conn_id: ConnectionId::initial(),
                 role: Role::Initiator,
+                initiator_only: false,
                 config: ManagerConfig::default(),
                 magic: NetworkMagic::PREPROD,
                 pipeline: StageRef::blackhole(),

@@ -2430,9 +2430,16 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                     }
-                    /// An inbound handshake was refused because the inbound cap is full
+                    /// An inbound handshake was refused because the hard inbound limit is full
                     public event INBOUND_REFUSED {
                         levels: info
+                        required peer: %amaru_kernel::Peer
+                        required conn_id: u64
+                    }
+                    /// An inbound handshake was kept only long enough to answer.
+                    /// The downstream soft limit is full. The bearer is initiator-only and closes after 150ms.
+                    public event INBOUND_TRANSIENT {
+                        levels: debug
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                     }

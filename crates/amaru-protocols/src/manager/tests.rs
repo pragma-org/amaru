@@ -23,7 +23,7 @@ use amaru_ouroboros::{
 };
 use amaru_pure_stage::{
     StageGraph, StageRef,
-    simulation::{Run, SimulationBuilder, running::OverrideResult},
+    simulation::{Externals, Run, SimulationBuilder, TimeAdvance, running::OverrideResult},
 };
 use tokio::runtime::Runtime;
 
@@ -189,7 +189,7 @@ fn inbound_handshake_starts_at_no_local_use() {
 }
 
 #[test]
-fn duplicate_handshake_writes_nothing_and_disconnects_the_extra() {
+fn a_new_inbound_replaces_the_handshake_still_in_flight() {
     let mut sim = harness();
     virtual_children(&mut sim);
     let peer = Peer::for_test(4103);
@@ -206,11 +206,12 @@ fn duplicate_handshake_writes_nothing_and_disconnects_the_extra() {
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
     assert_eq!(sim.recorder.established().len(), 1);
-    assert_eq!(sim.recorder.established()[0].0.conn_id, conn_id);
-    assert!(sim.recorder.closed().is_empty());
+    assert_eq!(sim.recorder.established()[0].0.conn_id, extra_id);
+    assert!(sim.recorder.closed().is_empty(), "the replaced handshake was never established");
     assert!(sim.connection_rx.drain().next().is_none());
-    let extra: Vec<_> = sim.extra_rx.drain().collect();
-    assert_eq!(extra, vec![ConnectionMessage::Disconnect]);
+    assert!(sim.extra_rx.drain().next().is_none());
+    let state = sim.running.get_state(&sim.manager).expect("manager idle");
+    assert_eq!(state.peers[&peer].inbound, Some(extra_id));
 }
 
 #[test]
@@ -327,26 +328,32 @@ fn rejected_outbound_duplicate_death_does_not_fail_the_live_connection() {
 }
 
 #[test]
-fn inbound_handshake_is_refused_once_the_cap_is_full() {
+fn inbound_handshake_is_refused_past_the_hard_limit() {
     let mut sim = harness_with(ManagerConfig::default().with_max_inbound(1));
     let first = Peer::for_test(4201);
-    let second = Peer::for_test(4202);
-    let (live, extra_id) = ids();
+    let grace = Peer::for_test(4202);
+    let refused = Peer::for_test(4203);
+    let ids = id_n(3);
+    let (live, grace_id, refused_id) = (ids[0], ids[1], ids[2]);
     virtual_children(&mut sim);
     sim.running.enqueue_msg(
         &sim.manager,
         [
             ManagerMessage::Accepted(first, live),
-            ManagerMessage::Accepted(second, extra_id),
+            ManagerMessage::Accepted(grace, grace_id),
+            ManagerMessage::Accepted(refused, refused_id),
             handshake(first, sim.connection.clone(), live, Role::Responder, false),
-            handshake(second, sim.extra.clone(), extra_id, Role::Responder, false),
+            handshake(grace, StageRef::blackhole(), grace_id, Role::Responder, false),
+            handshake(refused, sim.extra.clone(), refused_id, Role::Responder, false),
         ],
     );
+    // The grace bearer's disconnect is scheduled; skipping wakeups delivers it to the blackhole.
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
     assert_eq!(sim.recorder.established().len(), 1);
     assert_eq!(sim.recorder.established()[0].0.conn_id, live);
     assert_eq!(sim.recorder.established()[0].0.peer, first);
+    assert!(sim.recorder.established().iter().all(|(record, _)| record.peer != grace));
     assert!(sim.recorder.closed().is_empty());
     assert!(sim.connection_rx.drain().next().is_none());
     let extra: Vec<_> = sim.extra_rx.drain().collect();
@@ -448,15 +455,15 @@ fn a_dropped_socket_death_does_not_fail_the_next_dial() {
     assert_eq!(sim.recorder.established()[0].0.conn_id, new_id);
 }
 
-/// A handshake that lost the duplicate check dies after the outbound slot has moved.
-/// The inbound bearer still holds the peer. That death is not a failed dial of the new attempt.
+/// A replaced inbound dies after the outbound slot has moved.
+/// That death is not a failed dial, and it does not drop the inbound that replaced it.
 #[test]
-fn duplicate_loser_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
+fn replaced_inbound_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
     let mut sim = harness();
     virtual_children(&mut sim);
     let peer = Peer::for_test(4303);
     let ids = id_n(4);
-    let (inbound, live, loser, renewed) = (ids[0], ids[1], ids[2], ids[3]);
+    let (inbound, live, replaced_by, renewed) = (ids[0], ids[1], ids[2], ids[3]);
     let live_stage = StageRef::named_for_tests("live");
     let renewed_stage = StageRef::named_for_tests("renewed");
 
@@ -468,26 +475,28 @@ fn duplicate_loser_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
             ManagerMessage::AddPeer(peer),
             connection_ok(peer, 1, live),
             handshake(peer, live_stage, live, Role::Initiator, true),
-            ManagerMessage::Accepted(peer, loser),
-            handshake(peer, sim.extra.clone(), loser, Role::Responder, false),
+            ManagerMessage::Accepted(peer, replaced_by),
+            handshake(peer, sim.extra.clone(), replaced_by, Role::Responder, false),
             ManagerMessage::ConnectionDied(peer, live, Role::Initiator),
             ManagerMessage::AddPeer(peer),
-            ManagerMessage::ConnectionDied(peer, loser, Role::Initiator),
+            ManagerMessage::ConnectionDied(peer, inbound, Role::Responder),
         ],
     );
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
-    let extra: Vec<_> = sim.extra_rx.drain().collect();
-    assert_eq!(extra, vec![ConnectionMessage::Disconnect]);
-    assert!(sim.connection_rx.drain().next().is_none());
+    assert!(sim.extra_rx.drain().next().is_none(), "the replacement stays connected");
+    let replaced: Vec<_> = sim.connection_rx.drain().collect();
+    assert_eq!(replaced, vec![ConnectionMessage::Disconnect]);
     assert!(sim.recorder.connect_failures().is_empty());
-    assert_eq!(sim.recorder.closed().len(), 1);
-    assert_eq!(sim.recorder.closed()[0].1, live);
-    assert_eq!(sim.recorder.closed()[0].2, CloseReason::BearerEnded);
-    assert!(sim.recorder.established().iter().all(|(record, _)| record.conn_id != loser));
+    let at = observed_at(sim.running.now());
+    assert_eq!(
+        sim.recorder.closed(),
+        vec![(peer, inbound, CloseReason::LocalDisconnect, at), (peer, live, CloseReason::BearerEnded, at),]
+    );
+    assert!(sim.recorder.established().iter().any(|(record, _)| record.conn_id == replaced_by));
 
     let state = sim.running.get_state(&sim.manager).expect("manager idle");
-    assert_eq!(state.peers[&peer].inbound, Some(inbound));
+    assert_eq!(state.peers[&peer].inbound, Some(replaced_by));
     match &state.peers[&peer].outbound {
         OutboundState::Scheduled { attempt: 2, conn_id: None } => {}
         other => panic!("new attempt was touched: {other:?}"),
@@ -501,6 +510,96 @@ fn duplicate_loser_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
 
     assert!(sim.recorder.connect_failures().is_empty());
     assert!(sim.recorder.established().iter().any(|(record, _)| record.conn_id == renewed));
-    assert!(sim.recorder.established().iter().all(|(record, _)| record.conn_id != loser));
+    assert!(sim.recorder.established().iter().any(|(record, _)| record.conn_id == replaced_by));
+    assert_eq!(sim.recorder.closed().len(), 2);
+    let state = sim.running.get_state(&sim.manager).expect("manager idle");
+    assert_eq!(state.peers[&peer].inbound, Some(replaced_by));
+}
+
+#[test]
+fn inbound_hard_limit_is_thirty_percent_and_at_least_one_extra() {
+    assert_eq!(super::inbound_hard_limit(0), 1);
+    assert_eq!(super::inbound_hard_limit(1), 2);
+    assert_eq!(super::inbound_hard_limit(3), 4);
+    assert_eq!(super::inbound_hard_limit(4), 5);
+    assert_eq!(super::inbound_hard_limit(10), 13);
+    assert_eq!(super::inbound_hard_limit(50), 65);
+    assert_eq!(super::inbound_hard_limit(100), 130);
+}
+
+/// Soft limit 10 keeps ten peers. The next three answer without being recorded, then close.
+/// The fourteenth handshake is refused. A slot freed by a kept peer can be recorded again.
+#[test]
+fn inbound_between_soft_and_hard_answers_briefly_then_closes() {
+    let mut sim = harness_with(ManagerConfig::default().with_max_inbound(10));
+    virtual_children(&mut sim);
+    let ids = id_n(15);
+    let durable: Vec<_> = (0..10).map(|i| (Peer::for_test(6000 + i as u16), ids[i])).collect();
+    let transient: Vec<_> = (0..3).map(|i| (Peer::for_test(6100 + i as u16), ids[10 + i])).collect();
+    let refused = (Peer::for_test(6200), ids[13]);
+    let renewed = (Peer::for_test(6201), ids[14]);
+
+    let mut setup = Vec::new();
+    for (peer, conn_id) in &durable {
+        setup.push(ManagerMessage::Accepted(*peer, *conn_id));
+    }
+    for (peer, conn_id) in &durable {
+        setup.push(handshake(*peer, StageRef::blackhole(), *conn_id, Role::Responder, false));
+    }
+    sim.running.enqueue_msg(&sim.manager, setup);
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+    assert_eq!(sim.recorder.established().len(), 10);
+
+    let mut overflow = vec![
+        ManagerMessage::Accepted(transient[0].0, transient[0].1),
+        ManagerMessage::Accepted(transient[1].0, transient[1].1),
+        ManagerMessage::Accepted(transient[2].0, transient[2].1),
+        ManagerMessage::Accepted(refused.0, refused.1),
+    ];
+    for (peer, conn_id) in &transient {
+        overflow.push(handshake(*peer, sim.connection.clone(), *conn_id, Role::Responder, false));
+    }
+    overflow.push(handshake(refused.0, sim.extra.clone(), refused.1, Role::Responder, false));
+    sim.running.enqueue_msg(&sim.manager, overflow);
+
+    let started = sim.running.now();
+    sim.running
+        .run(Run { time: TimeAdvance::StopAtWakeup, externals: Externals::Resolve })
+        .assert_sleeping_until(started + super::TRANSIENT_INBOUND_TTL);
+    assert_eq!(sim.recorder.established().len(), 10, "grace bearers are not downstream peers");
+    assert!(sim.connection_rx.drain().next().is_none(), "the grace window has not elapsed");
+    let refused_msgs: Vec<_> = sim.extra_rx.drain().collect();
+    assert_eq!(refused_msgs, vec![ConnectionMessage::Disconnect]);
+
+    assert!(sim.running.skip_to_next_wakeup(None));
+    sim.running.run(Run { time: TimeAdvance::StopAtWakeup, externals: Externals::Resolve }).assert_idle();
+    let closed: Vec<_> = sim.connection_rx.drain().collect();
+    assert_eq!(closed.len(), 3, "each grace bearer is disconnected");
+    assert!(closed.iter().all(|msg| matches!(msg, ConnectionMessage::Disconnect)));
+    assert!(sim.recorder.closed().is_empty());
+
+    sim.running.enqueue_msg(
+        &sim.manager,
+        transient.iter().map(|(peer, conn_id)| ManagerMessage::ConnectionDied(*peer, *conn_id, Role::Responder)),
+    );
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+    assert_eq!(sim.recorder.established().len(), 10);
+    assert!(sim.recorder.closed().is_empty(), "a grace bearer was never established");
+
+    // The ten kept peers still fill the soft limit. Free one so the next inbound is kept.
+    sim.running
+        .enqueue_msg(&sim.manager, [ManagerMessage::ConnectionDied(durable[0].0, durable[0].1, Role::Responder)]);
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
     assert_eq!(sim.recorder.closed().len(), 1);
+
+    sim.running.enqueue_msg(
+        &sim.manager,
+        [
+            ManagerMessage::Accepted(renewed.0, renewed.1),
+            handshake(renewed.0, StageRef::blackhole(), renewed.1, Role::Responder, false),
+        ],
+    );
+    sim.running.run(Run::skip_and_resolve()).assert_idle();
+    assert_eq!(sim.recorder.established().len(), 11);
+    assert!(sim.recorder.established().iter().any(|(record, _)| record.conn_id == renewed.1));
 }

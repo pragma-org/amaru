@@ -59,6 +59,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
             Peer::for_test(3005),
             conn_id,
             Role::Initiator,
+            false,
             ManagerConfig::default(),
             NetworkMagic::for_testing(),
             StageRef::blackhole(),

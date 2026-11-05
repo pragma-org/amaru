@@ -48,6 +48,13 @@ pub struct HandshakeResponder {
 }
 
 impl HandshakeResponder {
+    /// Whether every offered version sets initiator-only diffusion mode.
+    #[cfg(test)]
+    pub(crate) fn offers_initiator_only(&self) -> bool {
+        !self.our_versions.values.is_empty()
+            && self.our_versions.values.values().all(|data| data.initiator_only_diffusion_mode())
+    }
+
     pub fn new(
         muxer: StageRef<MuxMessage>,
         connection: StageRef<HandshakeResult>,
