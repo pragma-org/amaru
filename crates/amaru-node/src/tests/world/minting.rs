@@ -793,6 +793,9 @@ fn assert_no_forge_failures(seed: u64, logs: &[Vec<LogRecord>]) {
     }
 }
 
+/// Check overall and per-node density against the active slot coefficient.
+/// Reported densities need not match across nodes, even at the same tip: a fork switch
+/// can shorten a node's volatile window without restoring blocks already made immutable.
 fn assert_density(seed: u64, blocks: u64, span: u64, anchor_height: u64, security_param: u64, logs: &[Vec<LogRecord>]) {
     let active = 1.0 / ACTIVE_SLOT_COEFF_INVERSE;
     let ratio = blocks as f64 / span as f64;
@@ -812,9 +815,7 @@ fn assert_density(seed: u64, blocks: u64, span: u64, anchor_height: u64, securit
     let band_lo = (blocks_in_window / longest) / active;
     let band_hi = (blocks_in_window / shortest) / active;
     let floor = anchor_height + security_param;
-    let mut latest = Vec::new();
     for (index, records) in logs.iter().enumerate() {
-        let mut samples = Vec::new();
         for record in events(records, "tip.update") {
             let Some(height) = field_u64(record, "block_height") else {
                 continue;
@@ -829,22 +830,7 @@ fn assert_density(seed: u64, blocks: u64, span: u64, anchor_height: u64, securit
                 (band_lo..=band_hi).contains(&scaled),
                 "k-window {scaled} not in [{band_lo}, {band_hi}] seed={seed:#x} node={index} height={height}"
             );
-            samples.push((height, density));
         }
-        if let Some(sample) = samples.last().copied() {
-            latest.push(sample);
-        }
-    }
-    // Debounce means the latest sample on each node can be a different block.
-    // The same height is the same window, so those densities match.
-    if let Some(&(height, _)) = latest.iter().max_by_key(|(height, _)| height) {
-        let agreed: Vec<f64> =
-            latest.iter().filter(|(sample_height, _)| *sample_height == height).map(|(_, density)| *density).collect();
-        let first = agreed[0];
-        assert!(
-            agreed.iter().all(|density| (density - first).abs() <= 1e-9),
-            "density at height {height}: {agreed:?} seed={seed:#x}"
-        );
     }
 }
 
