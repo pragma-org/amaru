@@ -286,13 +286,10 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::decode::Decode<'b, C> for PlutusData
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         match d.datatype()? {
             cbor::data::Type::Tag => {
-                let mut probe = d.probe();
-                let tag = probe.tag()?;
-
-                if tag == cbor::IanaTag::PosBignum.tag() || tag == cbor::IanaTag::NegBignum.tag() {
+                if is_bignum_tag(d) {
                     Ok(Self::BigInt(d.decode_with(ctx)?))
                 } else {
-                    match tag.as_u64() {
+                    match d.probe().tag()?.as_u64() {
                         (121..=127) | (1280..=1400) | 102 => Ok(Self::Constr(d.decode_with(ctx)?)),
                         _ => Err(cbor::decode::Error::message("unknown tag for plutus data tag")),
                     }
@@ -771,6 +768,18 @@ mod tests {
         #[test_case([vec![0xc3], chunked(&[64, 1])].concat() => matches Ok(PlutusDataTree::BigInt(BigInt::BigNInt(_))))]
         #[test_case([vec![0xc3], chunked(&[1, 65])].concat() => matches Err(_))]
         fn decode_bounded_bytes_limit(bytes: Vec<u8>) -> Result<PlutusDataTree, cbor::decode::Error> {
+            cbor::from_cbor_no_leftovers(&bytes).map(|plutus_data: MemoizedPlutusData| plutus_data.data.into_inner())
+        }
+
+        #[test_case(vec![0xc2, 0x41, 0x01] => matches Ok(PlutusDataTree::BigInt(BigInt::BigUInt(_))))]
+        #[test_case(vec![0xc3, 0x41, 0x00] => matches Ok(PlutusDataTree::BigInt(BigInt::BigNInt(_))))]
+        #[test_case(vec![0xd8, 0x02, 0x41, 0x01] => matches Err(_))]
+        #[test_case(vec![0xd8, 0x03, 0x41, 0x00] => matches Err(_))]
+        #[test_case(vec![0xdb, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x41, 0x01] => matches Err(_))]
+        #[test_case(vec![0xdb, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x41, 0x00] => matches Err(_))]
+        #[test_case(vec![0xd9, 0x00, 0x79, 0x80] => matches Ok(PlutusDataTree::Constr(_)))]
+        #[test_case(vec![0xdb, 0, 0, 0, 0, 0, 0, 0, 0x79, 0x80] => matches Ok(PlutusDataTree::Constr(_)))]
+        fn decode_bignum_tag_head(bytes: Vec<u8>) -> Result<PlutusDataTree, cbor::decode::Error> {
             cbor::from_cbor_no_leftovers(&bytes).map(|plutus_data: MemoizedPlutusData| plutus_data.data.into_inner())
         }
 
