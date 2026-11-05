@@ -17,7 +17,7 @@ use amaru_kernel::PlutusVersion;
 use crate::{
     arena::Arena,
     binder::Eval,
-    machine::{CostModel, EvalResult, ExBudget, Machine, MachineVersion},
+    machine::{CostModel, EvalResult, ExBudget, Machine, MachineError, MachineVersion},
     term::Term,
 };
 
@@ -46,9 +46,15 @@ where
     V: Eval<'a>,
 {
     /// Evaluate a program for the given `CostModel` and budget.
+    /// Reject unavailable program versions before running any term or spending budget.
     pub fn eval(&'a self, arena: &'a Arena, cost_model: CostModel, budget: ExBudget) -> EvalResult<'a, V> {
+        let version_available = cost_model.semantics.supports_program_version(self.version);
         let mut machine = Machine::new(arena, budget, cost_model);
-        let value = machine.run(self.term);
+        let value = if version_available {
+            machine.run(self.term)
+        } else {
+            Err(MachineError::UnavailableProgramVersion(self.version))
+        };
         let info = machine.info();
         EvalResult::new(value, info, arena)
     }

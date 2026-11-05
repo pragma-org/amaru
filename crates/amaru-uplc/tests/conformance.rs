@@ -26,7 +26,7 @@ use amaru_uplc::{
     arena::Arena,
     binder::DeBruijn,
     flat,
-    flat::{FlatDecodeError, FlatEncodeError},
+    flat::FlatEncodeError,
     machine::{CostModel, ExBudget, MachineError},
     syn::parse_program,
 };
@@ -125,20 +125,6 @@ fn run_conformance(
             protocol_version,
         ) {
             Ok((program_flat, _)) => Some(Some(program_flat)),
-            Err(FlatDecodeError::ProgramVersionNotAvailable { .. }) => {
-                report(
-                    test_name,
-                    title,
-                    group,
-                    &plutus_version.to_string(),
-                    &protocol_version.to_string(),
-                    PARSE_ERROR,
-                    None,
-                );
-                assert_eq!(expected_output_text.trim(), PARSE_ERROR, "expected a parse/decode error marker");
-                assert_eq!(expected_budget.trim(), PARSE_ERROR, "expected a parse/decode error marker");
-                return;
-            }
             Err(_) if flat::encode(program).is_err_and(|e| matches!(e, FlatEncodeError::BlsElementNotSupported)) => {
                 None
             }
@@ -165,12 +151,18 @@ fn run_conformance(
     let term = match result.into_term() {
         Ok(term) => term,
         Err(error) => {
-            let actual =
-                if matches!(error, MachineError::OutOfExError(_)) { OUT_OF_BUDGET } else { EVALUATION_FAILURE };
+            // Haskell reports unavailable versions as ScriptDecodeError when preparing evaluation, after deserialization.
+            let actual = if matches!(error, MachineError::UnavailableProgramVersion(_)) {
+                PARSE_ERROR
+            } else if matches!(error, MachineError::OutOfExError(_)) {
+                OUT_OF_BUDGET
+            } else {
+                EVALUATION_FAILURE
+            };
             report(test_name, title, group, &plutus_version.to_string(), &protocol_version.to_string(), actual, None);
             assert!(
-                expected_output_text.trim() == EVALUATION_FAILURE
-                    || (actual == OUT_OF_BUDGET && expected_output_text.trim() == OUT_OF_BUDGET),
+                expected_output_text.trim() == actual
+                    || (actual == OUT_OF_BUDGET && expected_output_text.trim() == EVALUATION_FAILURE),
                 "expected failure but got {expected_output_text}"
             );
             if expected_output_flat.is_none() {

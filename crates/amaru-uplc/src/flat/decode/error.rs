@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{PlutusVersion, ProtocolVersion};
 use thiserror::Error;
-
-use crate::machine::MachineVersion;
 
 #[derive(Error, Debug)]
 pub enum FlatDecodeError {
@@ -53,14 +50,6 @@ pub enum FlatDecodeError {
     BuiltinNotAvailable(u8, String),
     #[error("Term {1} (tag {0}) is not available before UPLC version 1.1.0")]
     TermNotAvailable(u8, &'static str),
-    #[error(
-        "Program version {version:?} is not available for {plutus_version:?} at protocol version {protocol_version:?}"
-    )]
-    ProgramVersionNotAvailable {
-        version: MachineVersion,
-        plutus_version: PlutusVersion,
-        protocol_version: ProtocolVersion,
-    },
     #[error("Constructor with {0} fields exceeds the maximum of {1} for this protocol version")]
     ConstructorTooWide(usize, usize),
     #[error("Constant type header of {0} tags exceeds the maximum of {1} for this protocol version")]
