@@ -42,18 +42,6 @@ use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
-/// Everything that can go wrong while evaluating a transaction's scripts. Not all of it is a
-/// phase-two failure: [`TransactionInvalid`](crate::rules::block::TransactionInvalid) is where
-/// each variant is assigned a validation phase.
-#[derive(Debug, Error)]
-pub enum ScriptEvaluationError {
-    #[error("script preparation failed: {0}")]
-    Preparation(#[from] PreparationError),
-
-    #[error("validation tag mismatch: {0}")]
-    ValidationTagMismatch(#[from] TagMismatch),
-}
-
 #[derive(Debug, Error)]
 pub enum PreparationError {
     #[error("missing input: {0}")]
@@ -115,10 +103,9 @@ where
     amaru_uplc::flat::encode(program).map(hex::encode).unwrap_or_default()
 }
 
-fn verdict(
-    is_valid: bool,
+fn collect_failures(
     script_results: Vec<Result<ScriptOutcome, PreparationError>>,
-) -> Result<(), ScriptEvaluationError> {
+) -> Result<Vec<UplcMachineError>, PreparationError> {
     let mut failures = Vec::new();
 
     for result in script_results {
@@ -128,11 +115,7 @@ fn verdict(
         }
     }
 
-    match (is_valid, failures.is_empty()) {
-        (true, true) | (false, false) => Ok(()),
-        (true, false) => Err(TagMismatch::FailedUnexpectedly(failures).into()),
-        (false, true) => Err(TagMismatch::PassedUnexpectedly.into()),
-    }
+    Ok(failures)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -143,17 +126,16 @@ pub fn execute<C>(
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
     pointer: TransactionPointer,
-    is_valid: bool,
     transaction_body: &TransactionBody,
     transaction_witness_set: &WitnessSet,
-) -> Result<(), ScriptEvaluationError>
+) -> Result<Vec<UplcMachineError>, PreparationError>
 where
     C: UtxoSlice + fmt::Debug,
 {
     use amaru_observability::amaru::ledger::rules::PHASE_TWO;
 
     if transaction_witness_set.redeemer.is_none() {
-        return verdict(is_valid, Vec::new());
+        return Ok(Vec::new());
     }
 
     let span = debug_span!(ledger::rules::PHASE_TWO);
@@ -206,7 +188,7 @@ where
             .collect::<Vec<_>>();
 
         if !non_disjoint_inputs.is_empty() {
-            return Err(PreparationError::NonDisjointRefInputs { intersection: non_disjoint_inputs }.into());
+            return Err(PreparationError::NonDisjointRefInputs { intersection: non_disjoint_inputs });
         }
     }
 
@@ -343,7 +325,7 @@ where
         })
         .collect::<Vec<_>>();
 
-    verdict(is_valid, script_results)
+    collect_failures(script_results)
 }
 
 #[cfg(test)]
@@ -406,17 +388,18 @@ mod tests {
             ..protocol_parameters.clone()
         };
 
-        super::execute(
+        let failures = super::execute(
             &mut context,
             &ARENA_POOL,
             &protocol_parameters,
             network.as_era_history().expect("missing network defaults"),
             network.as_global_parameters().expect("missing network defaults"),
             default_pointer(&transaction),
-            transaction.is_expected_valid,
             &transaction.body,
             &transaction.witnesses,
         )?;
+
+        assert_eq!(failures.is_empty(), transaction.is_expected_valid, "unexpected script outcome: {failures:?}");
 
         Ok(())
     }

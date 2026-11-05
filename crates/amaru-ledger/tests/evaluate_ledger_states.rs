@@ -27,13 +27,13 @@ pub mod tests {
         Credential, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, NetworkName,
         PROTOCOL_VERSION_10, Point, PoolId, PoolParams, ProposalId, ProposalSlim,
         ProposalState as NewEpochProposalState, ProtocolParameters, Slot, Transaction, TransactionInput,
-        TransactionPointer, WitnessSet, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
+        TransactionPointer, cbor, cbor as minicbor, utils::cbor::SerialisedAsArray,
     };
     use amaru_ledger::{
         self,
         context::{AccountState, DefaultValidationContext, ProposalStateSlim},
         epoch_transition::GovernanceActivity,
-        rules::transaction,
+        rules::block::{TransactionInvalid, validate_transaction},
         snapshot,
     };
     use amaru_uplc::arena_pool::ArenaPool;
@@ -329,12 +329,6 @@ pub mod tests {
 
             let tx: Transaction = cbor::decode(tx_bytes.as_slice())?;
 
-            let tx_size = tx.len();
-
-            let tx_witness_set: WitnessSet = tx.witnesses.into_inner();
-
-            let tx_auxiliary_data = tx.auxiliary_data.as_ref();
-
             let pointer = TransactionPointer {
                 slot: slot.into(),
                 // Using the loop index here is conterintuitive but ensures that tx pointers will be distinct even if
@@ -343,35 +337,21 @@ pub mod tests {
             };
 
             // Run the transaction against the imported ledger state
-            let result = transaction::phase_one::execute(
+            let result = validate_transaction(
                 &mut validation_context,
                 &arena_pool,
                 NetworkName::Preprod,
                 &protocol_parameters,
                 era_history,
+                global_parameters,
                 governance_activity,
                 decoded.constitution.guardrail_script,
                 pointer,
-                tx.is_expected_valid,
-                tx.body.clone(),
-                &tx_witness_set,
-                tx_auxiliary_data,
-                tx_size,
+                tx.tx_ref(),
             )
-            .map_err(|e| e.to_string())
-            .and_then(|_consumed_inputs| {
-                transaction::phase_two::execute(
-                    &mut validation_context,
-                    &arena_pool,
-                    &protocol_parameters,
-                    era_history,
-                    global_parameters,
-                    pointer,
-                    tx.is_expected_valid,
-                    &tx.body,
-                    &tx_witness_set,
-                )
-                .map_err(|e| e.to_string())
+            .map_err(|e| match e {
+                TransactionInvalid::PhaseOne(e) => e.to_string(),
+                TransactionInvalid::PhaseTwo(e) => format!("validation tag mismatch: {e}"),
             });
 
             match result {

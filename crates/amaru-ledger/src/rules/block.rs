@@ -14,7 +14,7 @@
 
 use std::{
     fmt::{self, Display},
-    ops::{ControlFlow, Deref, FromResidual, Residual, Try},
+    ops::{ControlFlow, FromResidual, Residual, Try},
     process::{ExitCode, Termination},
 };
 
@@ -29,11 +29,7 @@ use thiserror::Error;
 use crate::{
     context::ValidationContext,
     epoch_transition::GovernanceActivity,
-    rules::transaction::{
-        self,
-        phase_one::PhaseOneError,
-        phase_two::{ScriptEvaluationError, TagMismatch},
-    },
+    rules::transaction::{Environment, Execute, phase_one::PhaseOneError, phase_two::TagMismatch},
 };
 
 pub mod body_size;
@@ -52,16 +48,6 @@ pub enum TransactionInvalid {
     PhaseTwo(TagMismatch),
 }
 
-impl From<ScriptEvaluationError> for TransactionInvalid {
-    fn from(err: ScriptEvaluationError) -> Self {
-        match err {
-            ScriptEvaluationError::Preparation(err) => {
-                TransactionInvalid::PhaseOne(PhaseOneError::ScriptPreparation(err))
-            }
-            ScriptEvaluationError::ValidationTagMismatch(err) => TransactionInvalid::PhaseTwo(err),
-        }
-    }
-}
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
     BlockSizeMismatch {
@@ -307,35 +293,16 @@ pub fn validate_transaction<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
-    let consumed_inputs = transaction::phase_one::execute(
-        context,
+    let environment = Environment {
         arena_pool,
         network,
-        protocol_params,
+        protocol_parameters: protocol_params,
         era_history,
+        global_parameters,
         governance_activity,
         guardrail_script,
         pointer,
-        transaction.is_expected_valid,
-        transaction.body.clone(),
-        transaction.witnesses.deref(),
-        transaction.auxiliary_data,
-        transaction.len(),
-    )?;
+    };
 
-    transaction::phase_two::execute(
-        context,
-        arena_pool,
-        protocol_params,
-        era_history,
-        global_parameters,
-        pointer,
-        transaction.is_expected_valid,
-        transaction.body,
-        transaction.witnesses.deref(),
-    )?;
-
-    consumed_inputs.into_iter().for_each(|input| context.consume(input));
-
-    Ok(())
+    transaction.execute(context, &environment)
 }
