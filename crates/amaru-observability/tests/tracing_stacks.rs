@@ -17,8 +17,8 @@
 //! These tests emit one shared nested-span fixture and assert the encoding
 //! documented in EDR-033. They compose the same layers the product binary uses:
 //!
-//! - console: [`console_field_formatter`] + [`CborConsoleEventFormat`]
-//! - JSON: [`CborJsonSpanLayer`] + [`CborJsonEventFormat`]
+//! - console: [`console_layer`]
+//! - JSON: [`CborJsonSpanLayer`] + [`json_layer`]
 //! - OTEL: `tracing-opentelemetry` + [`CborTraceArrayLayer`] + [`CborOtelLogBridge`]
 //! - TUI: [`TelemetryCaptureLayer`]
 
@@ -28,8 +28,8 @@ use std::{
 };
 
 use amaru_observability::{
-    CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
-    CborTraceArrayLayer, FieldValue, TelemetryCaptureLayer, TelemetryRecord, console_field_formatter, encode_cbor,
+    CborJsonSpanLayer, CborOtelLogBridge, CborTraceArrayLayer, FieldValue, TelemetryCaptureLayer, TelemetryRecord,
+    console_layer, encode_cbor, json_layer,
 };
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::{
@@ -109,25 +109,13 @@ impl<'a> MakeWriter<'a> for CaptureWriter {
 }
 
 fn console_subscriber(writer: CaptureWriter) -> impl Subscriber + Send + Sync {
-    tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .with_writer(writer)
-            .with_ansi(false)
-            .fmt_fields(console_field_formatter())
-            .with_span_events(FmtSpan::CLOSE)
-            .event_format(CborConsoleEventFormat::new().with_ansi(false))
-            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
-    )
+    tracing_subscriber::registry()
+        .with(console_layer(writer, false, FmtSpan::CLOSE).with_filter(tracing_subscriber::filter::LevelFilter::INFO))
 }
 
 fn json_subscriber(writer: CaptureWriter) -> impl Subscriber + Send + Sync {
     tracing_subscriber::registry().with(CborJsonSpanLayer::new()).with(
-        tracing_subscriber::fmt::layer()
-            .with_writer(writer)
-            .with_span_events(FmtSpan::ENTER | FmtSpan::EXIT)
-            .event_format(CborJsonEventFormat::new())
-            .fmt_fields(CborJsonFields::new())
-            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+        json_layer(writer, FmtSpan::ENTER | FmtSpan::EXIT).with_filter(tracing_subscriber::filter::LevelFilter::INFO),
     )
 }
 
