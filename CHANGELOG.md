@@ -61,6 +61,7 @@ Other guiding principles:
 - **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
 - **amaru-ledger**: accept valid reference scripts whose UPLC version is not yet executable under the current protocol, while retaining version checks during execution. But, reject unavailable Plutus version upon deserialising.
 - **amaru-protocols**: the connection manager reports `cardano_node_metrics_connectionManager_inboundConns_int`, `_outboundConns_int` and `_unidirectionalConns_int`. The gauges were defined but never recorded, so dashboards and tools such as gLiveView could not show how many peers a node is connected to.
+- **amaru-consensus**: block producers report `cardano_node_metrics_remainingKESPeriods_int`, `cardano_node_metrics_operationalCertificateStartKESPeriod_int` and `cardano_node_metrics_operationalCertificateExpiryKESPeriod_int` from their operational certificate and the wall-clock KES period, as cardano-node does. The ledger used to report `maxKESEvolutions` minus the absolute KES period, which read 0 on every public network. Nodes without forging credentials no longer export these metrics. ([#1561](https://github.com/pragma-org/amaru/issues/1561))
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 

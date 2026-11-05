@@ -30,14 +30,14 @@ use super::{
     ForgeBlock, ForgeData, FreezeWatch,
     calc::{
         FORGE_LEAD_OFFSET, ForgeWindow, MissedSlotReason, choose_parent, decide_freeze, forge_window,
-        format_utc_timestamp, freeze_depth, instant_for_relative, lead_fire_at, ocert_miss, parent_to_extend,
-        schedule_settled, wait_until_onset,
+        format_utc_timestamp, freeze_depth, instant_for_relative, kes_metrics, lead_fire_at, ocert_miss,
+        parent_to_extend, schedule_settled, wait_until_onset,
     },
     effects::{LeaderScheduleEffect, SignHeaderEffect, SignHeaderError, TakeForForgeEffect, TakeForForgeError},
     schedule::{EpochSchedule, Schedule as Schedules},
 };
 use crate::{
-    effects::{ConsensusMode, QueryConsensusModeEffect, ValidateHeaderEffect},
+    effects::{ConsensusMode, Metrics, MetricsOps, QueryConsensusModeEffect, ValidateHeaderEffect},
     performance::{OpenHeaderForwardEffect, Performance},
     stages::select_chain::SelectChainMsg,
 };
@@ -205,6 +205,10 @@ async fn handle_adopted_tip(
     state.adopted_tip = tip.tip;
     state.adopted_parent = tip.parent;
     let (now, session) = idle.receive(&tip, eff.clone()).clock().await;
+    // The KES metrics depend on the forging key, so they are recorded here rather than by the ledger.
+    if let Some(metrics) = kes_metrics(&state.consensus_parameters, &state.issuer, now) {
+        Metrics::new(&eff).record(metrics.into()).await;
+    }
 
     let mut to_schedule: BTreeSet<Epoch> = BTreeSet::new();
     if state.adopted_tip != Point::Origin

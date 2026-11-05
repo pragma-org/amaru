@@ -154,7 +154,6 @@
     "cardano_node_metrics_density_real",
     "cardano_node_metrics_epoch_int",
     "cardano_node_metrics_mempoolBytes_int",
-    "cardano_node_metrics_remainingKESPeriods_int",
     "cardano_node_metrics_slotInEpoch_int",
     "cardano_node_metrics_slotNum_int",
     "cardano_node_metrics_tipBlock",

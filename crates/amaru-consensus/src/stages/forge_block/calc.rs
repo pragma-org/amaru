@@ -17,7 +17,9 @@
 
 use std::time::{Duration, SystemTime};
 
-use amaru_kernel::{BlockHeight, Epoch, KesPeriodError, Point, Slot};
+use amaru_kernel::{BlockHeight, ConsensusParameters, Epoch, KesPeriodError, Point, Slot};
+use amaru_metrics::KesMetrics;
+use amaru_ouroboros_traits::IssuerFields;
 use amaru_pure_stage::Instant;
 
 /// Forging starts this long before slot onset, so the block can diffuse as the slot begins.
@@ -218,6 +220,18 @@ pub(super) fn wait_until_onset(onset: Instant, now: Instant) -> Option<Duration>
 pub(super) fn instant_for_relative(now: Instant, relative: Duration) -> Instant {
     let elapsed = now.duration_since_global_epoch();
     if relative >= elapsed { now + (relative - elapsed) } else { now - (elapsed - relative) }
+}
+
+/// KES state of the forging key at `now`, the way cardano-node reports it on every slot: from the
+/// wall-clock KES period, so it is right while the node is still catching up. `None` when `now` is
+/// beyond what the era history can place in a slot.
+pub(super) fn kes_metrics(parameters: &ConsensusParameters, issuer: &IssuerFields, now: Instant) -> Option<KesMetrics> {
+    let slot = parameters.era_history().relative_time_to_slot(now.duration_since_global_epoch()).ok()?;
+    Some(KesMetrics::new(
+        u64::from(parameters.slot_to_kes_period(slot)),
+        u64::from(issuer.operational_cert.operational_cert_kes_period),
+        parameters.max_kes_evolutions(),
+    ))
 }
 
 /// UTC civil time, `YYYY-MM-DDTHH:MM:SS.ffffffZ`, matching the log envelope's timestamp.
@@ -473,5 +487,44 @@ mod tests {
         assert_eq!(at.duration_since_global_epoch(), Duration::from_secs(15));
         let past = instant_for_relative(now, Duration::from_secs(4));
         assert_eq!(past.duration_since_global_epoch(), Duration::from_secs(4));
+    }
+
+    fn preprod_issuer(start: KesPeriod) -> (ConsensusParameters, IssuerFields) {
+        use amaru_kernel::{PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS};
+        use amaru_ouroboros_traits::ForgingCredentials;
+
+        let parameters = ConsensusParameters::new(PREPROD_GLOBAL_PARAMETERS.clone(), &PREPROD_ERA_HISTORY);
+        let credentials = super::super::TestCredentials::for_test_keys(start, parameters.max_kes_evolutions());
+        (parameters, credentials.issuer_fields())
+    }
+
+    /// Wall-clock instant at the onset of `slot`.
+    fn at_slot(parameters: &ConsensusParameters, slot: Slot) -> Instant {
+        let relative = parameters.era_history().slot_to_relative_time_unchecked_horizon(slot).unwrap();
+        Instant::at_offset(Duration::ZERO, relative)
+    }
+
+    #[test]
+    fn kes_metrics_follow_the_wall_clock_kes_period() {
+        // A preprod Shelley-era slot; KES periods last 129 600 slots there.
+        let lead = slot(110_000_000);
+        let (parameters, issuer) = preprod_issuer(KesPeriod::from(840));
+        let current = u64::from(parameters.slot_to_kes_period(lead));
+        assert_eq!(current, 848);
+
+        let metrics = kes_metrics(&parameters, &issuer, at_slot(&parameters, lead)).unwrap();
+        assert_eq!(metrics, KesMetrics::new(848, 840, 62));
+        assert_eq!(metrics.operational_certificate_expiry_kes_period, 902);
+        assert_eq!(metrics.remaining_kes_periods, 54);
+    }
+
+    #[test]
+    fn kes_metrics_count_down_as_wall_clock_kes_periods_pass() {
+        // Only `now` goes in, never the adopted tip, so a node that is still syncing reports the same.
+        let (parameters, issuer) = preprod_issuer(KesPeriod::from(840));
+        let now = at_slot(&parameters, slot(110_000_000));
+        let later = at_slot(&parameters, slot(110_000_000 + 2 * 129_600));
+        assert_eq!(kes_metrics(&parameters, &issuer, now).unwrap().remaining_kes_periods, 54);
+        assert_eq!(kes_metrics(&parameters, &issuer, later).unwrap().remaining_kes_periods, 52);
     }
 }
