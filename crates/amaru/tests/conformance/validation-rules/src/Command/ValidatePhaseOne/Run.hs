@@ -528,6 +528,8 @@ normalizeGovCertFailure = \case
         "DRepAlreadyRegistered"
     ConwayDRepNotRegistered{} ->
         "DRepNotRegistered"
+    ConwayDRepIncorrectDeposit{} ->
+        "IncorrectDepositDRep"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
     ConwayCommitteeHasPreviouslyResigned{} ->
