@@ -100,8 +100,7 @@ pub struct Args {
 
     /// KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
     ///
-    /// Together with `--operator-vrf` and `--operator-cert`, the node forges
-    /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
+    /// Together with `--operator-vrf` and `--operator-cert`, the node forges blocks.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
