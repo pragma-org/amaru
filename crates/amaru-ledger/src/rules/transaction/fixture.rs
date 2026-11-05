@@ -21,6 +21,7 @@ use amaru_kernel::{
     size::SCRIPT,
     utils::serde::{RefOrInline, deserialize_utxo, hex_to_bytes},
 };
+use amaru_plutus::to_plutus_data::{PlutusDataError, UnsupportedFeature};
 use serde::Deserialize;
 
 use crate::{
@@ -373,8 +374,8 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::InvalidWitnessesUTXOW
             }
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::MissingRequiredKeysOrRoots {
-                                                      ..
-                                                  }) => Predicate::MissingVerificationKeyWitnessesUTXOW,
+                ..
+            }) => Predicate::MissingVerificationKeyWitnessesUTXOW,
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
             PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
                 Predicate::ConwayWdrlNotDelegatedToDRep
@@ -483,22 +484,20 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
             }
-            PhaseOneError::ScriptPreparation(PreparationError::ScriptContextState(ref error)) => {
-                let message = error.to_string();
-                if message.contains("proposal procedures unsupported") {
-                    Predicate::ProposalProceduresFieldNotSupported
-                } else if message.contains("voting procedures unsupported") {
-                    Predicate::VotingProceduresFieldNotSupported
-                } else if message.contains("current treasury value unsupported") {
-                    Predicate::CurrentTreasuryFieldNotSupported
-                } else if message.contains("treasury donation unsupported") {
-                    Predicate::TreasuryDonationFieldNotSupported
-                } else if message.contains("inline datums unsupported") {
-                    Predicate::InlineDatumsNotSupported
-                } else {
-                    unreachable!("no predicate mapping yet for {err}")
-                }
-            }
+            PhaseOneError::ScriptPreparation(PreparationError::ScriptContextState(ref error)) => match error {
+                PlutusDataError::UnsupportedVersion { feature, .. } => match feature {
+                    UnsupportedFeature::ProposalProcedures => Predicate::ProposalProceduresFieldNotSupported,
+                    UnsupportedFeature::VotingProcedures => Predicate::VotingProceduresFieldNotSupported,
+                    UnsupportedFeature::CurrentTreasuryValue => Predicate::CurrentTreasuryFieldNotSupported,
+                    UnsupportedFeature::TreasuryDonation => Predicate::TreasuryDonationFieldNotSupported,
+                    UnsupportedFeature::InlineDatums => Predicate::InlineDatumsNotSupported,
+                    UnsupportedFeature::VotingPurpose
+                    | UnsupportedFeature::ProposingPurpose
+                    | UnsupportedFeature::ByronAddressInOutputReference
+                    | UnsupportedFeature::IllegalCertificate(_) => unreachable!("no predicate mapping yet for {err}"),
+                },
+                PlutusDataError::Custom(_) => unreachable!("no predicate mapping yet for {err}"),
+            },
             PhaseOneError::ScriptPreparation(
                 PreparationError::MissingInput(_)
                 | PreparationError::TransactionTranslation(_)

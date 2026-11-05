@@ -307,7 +307,7 @@ mod tests {
             fixture.point,
             tx.tx_ref(),
         )
-            .map_err(Predicate::from);
+        .map_err(Predicate::from);
 
         (fixture.expected, result, ctx)
     }
@@ -329,5 +329,4 @@ mod tests {
     fn selection_skips_fixtures_without_a_category() {
         assert!(!is_selected(Some("scripts"), None));
     }
-
 }

@@ -19,13 +19,6 @@
 # the guardrails check, leaving less of the shared context mutated than the value preservation of a
 # later transaction was recorded against.
 "conway/fail-utxos-failing-native-script-govpolicy/0" = "Expected success, got failure: invalid transaction scripts: missing required scripts: missing [a9640757d14b3a27786d9a90e30b3a001151cb98ab01c02d1f35a000]"
-"conway/fail-utxos-fails-when-using-inline-datums-for-plutusv1/0" = "Expected failure, got success"
-"conway/fail-utxos-proposalprocedures-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-proposalprocedures-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-treasurydonation-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-treasurydonation-v2/0" = "Expected failure, got success"
-"conway/fail-utxos-votingprocedures-v1/0" = "Expected failure, got success"
-"conway/fail-utxos-votingprocedures-v2/0" = "Expected failure, got success"
 "conway/pass-deleg-delegate-retire-and-re-register-pool/0" = "Expected success, got failure: invalid certificates: pool retirement epoch out of range: epoch 901, must satisfy 44 < epoch <= 62"
 "conway/pass-deleg-deregistering-returns-the-deposit/0" = "Expected success, got failure: invalid withdrawals: attempted to withdraw a different amount than the full account balance: balance 0 withdrawal: 3"
 "conway/pass-gov-fails-for-empty-withdrawals/0" = "Expected success, got failure: invalid transaction verification key witness: missing required signatures for keys or roots: [5e7d655d8036173ee03b3548d5b7b023f21366eabc4045653d4c3efd]"

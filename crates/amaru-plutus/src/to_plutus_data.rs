@@ -23,19 +23,51 @@ use thiserror::Error;
 
 use crate::{constr, script_context::IsPrePlutusVersion3};
 
+/// Something a Plutus language version cannot represent in its script context.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum UnsupportedFeature {
+    #[error("voting procedures unsupported")]
+    VotingProcedures,
+
+    #[error("proposal procedures unsupported")]
+    ProposalProcedures,
+
+    #[error("current treasury value unsupported")]
+    CurrentTreasuryValue,
+
+    #[error("treasury donation unsupported")]
+    TreasuryDonation,
+
+    #[error("inline datums unsupported")]
+    InlineDatums,
+
+    #[error("voting purpose unsupported")]
+    VotingPurpose,
+
+    #[error("proposing purpose unsupported")]
+    ProposingPurpose,
+
+    #[error("byron address included in OutputReference")]
+    ByronAddressInOutputReference,
+
+    /// The certificate, rendered with its `Debug` output, has no Plutus V1 or V2 representation.
+    #[error("illegal certificate type: {0}")]
+    IllegalCertificate(String),
+}
+
 /// Represents an error that occured during serialization to `PlutusData`.
 #[derive(Debug, Error)]
 pub enum PlutusDataError {
-    #[error("unsupported for Plutus V{version}: {message}")]
-    UnsupportedVersion { message: String, version: u8 },
+    #[error("unsupported for Plutus V{version}: {feature}")]
+    UnsupportedVersion { feature: UnsupportedFeature, version: u8 },
 
     #[error("{0}")]
     Custom(String),
 }
 
 impl PlutusDataError {
-    pub fn unsupported_version(message: impl Into<String>, version: u8) -> Self {
-        Self::UnsupportedVersion { message: message.into(), version }
+    pub fn unsupported_version(feature: UnsupportedFeature, version: u8) -> Self {
+        Self::UnsupportedVersion { feature, version }
     }
 }
 

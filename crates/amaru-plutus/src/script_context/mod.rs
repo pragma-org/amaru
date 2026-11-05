@@ -25,7 +25,7 @@ pub trait IsPrePlutusVersion3 {}
 impl IsPrePlutusVersion3 for PlutusVersion<1> {}
 impl IsPrePlutusVersion3 for PlutusVersion<2> {}
 
-use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData};
+use crate::{IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, UnsupportedFeature};
 
 /// Extension trait providing serialization of a [`ScriptContext`] to the argument
 /// list passed to a Plutus validator.
@@ -44,19 +44,19 @@ pub trait ToScriptArgs {
 
 fn reject_conway_fields_for_pre_v3(tx_info: &TxInfo<'_>, version: u8) -> Result<(), PlutusDataError> {
     if !tx_info.votes.0.is_empty() {
-        return Err(PlutusDataError::unsupported_version("voting procedures unsupported", version));
+        return Err(PlutusDataError::unsupported_version(UnsupportedFeature::VotingProcedures, version));
     }
 
     if !tx_info.proposal_procedures.is_empty() {
-        return Err(PlutusDataError::unsupported_version("proposal procedures unsupported", version));
+        return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ProposalProcedures, version));
     }
 
     if tx_info.current_treasury_amount.is_some() {
-        return Err(PlutusDataError::unsupported_version("current treasury value unsupported", version));
+        return Err(PlutusDataError::unsupported_version(UnsupportedFeature::CurrentTreasuryValue, version));
     }
 
     if tx_info.treasury_donation.is_some_and(|amount| amount > 0) {
-        return Err(PlutusDataError::unsupported_version("treasury donation unsupported", version));
+        return Err(PlutusDataError::unsupported_version(UnsupportedFeature::TreasuryDonation, version));
     }
 
     Ok(())
