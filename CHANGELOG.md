@@ -62,6 +62,10 @@ Other guiding principles:
 - **amaru-ledger**: accept valid reference scripts whose UPLC version is not yet executable under the current protocol, while retaining version checks during execution. But, reject unavailable Plutus version upon deserialising.
 - **amaru-protocols**: the connection manager reports `cardano_node_metrics_connectionManager_inboundConns_int`, `_outboundConns_int` and `_unidirectionalConns_int`. The gauges were defined but never recorded, so dashboards and tools such as gLiveView could not show how many peers a node is connected to.
 - **amaru-consensus**: block producers report `cardano_node_metrics_remainingKESPeriods_int`, `cardano_node_metrics_operationalCertificateStartKESPeriod_int` and `cardano_node_metrics_operationalCertificateExpiryKESPeriod_int` from their operational certificate and the wall-clock KES period, as cardano-node does. The ledger used to report `maxKESEvolutions` minus the absolute KES period, which read 0 on every public network. Nodes without forging credentials no longer export these metrics. ([#1561](https://github.com/pragma-org/amaru/issues/1561))
+- **amaru-plutus**: a transaction that runs a Plutus script is now rejected when an input, a reference input or an output is at a Byron address. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-plutus**: a transaction that runs a Plutus V1 script is now rejected when a reference input carries an inline datum. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a governance proposal that sets the desired number of stake pools to zero is now rejected from protocol version 11, as the Cardano node does. It used to be accepted. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a governance proposal that sets the cost of UTxO storage per byte to zero is now accepted at protocol version 9, the Conway bootstrap phase, as the Cardano node does. It used to be rejected. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
