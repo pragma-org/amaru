@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, fs::File, io::BufReader, sync::Arc};
 
 use amaru_kernel::{
     ConsensusParameters, Epoch, EraHistory, Header, IsHeader, NetworkName, Nonce, PoolId, Slot, cbor, ed25519,
-    hash::Hash,
+    hash::Hash, maths::FixedDecimal,
 };
 use amaru_ouroboros::{praos, praos::header::AssertHeaderError};
 use amaru_ouroboros_traits::{PoolSummaries, has_stake_distribution::mock_ledger_state::MockLedgerState};
@@ -182,11 +182,11 @@ fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
 
 #[allow(clippy::expect_used)]
 fn consensus_parameters_from_context(context: &GeneratorContext) -> ConsensusParameters {
-    ConsensusParameters::create(
+    ConsensusParameters::create_from_active_slot_coeff(
         0,
         context.praos_slots_per_kes_period,
         context.praos_max_kes_evolution,
-        (1.0 / context.active_slot_coeff) as u64,
+        FixedDecimal::from(context.active_slot_coeff),
         NetworkName::Preprod.as_era_history().expect("missing network default EraHistory"),
     )
 }

@@ -48,9 +48,23 @@ impl ConsensusParameters {
         era_history: &EraHistory,
     ) -> ConsensusParameters {
         assert!(active_slot_coeff_inverse > 0, "active slot coefficient inverse cannot be null");
-
         let active_slot_coeff = FixedDecimal::one() / &FixedDecimal::from(active_slot_coeff_inverse);
+        Self::create_from_active_slot_coeff(
+            randomness_stabilization_window,
+            slots_per_kes_period,
+            max_kes_evolution,
+            active_slot_coeff,
+            era_history,
+        )
+    }
 
+    pub fn create_from_active_slot_coeff(
+        randomness_stabilization_window: u64,
+        slots_per_kes_period: u64,
+        max_kes_evolution: u64,
+        active_slot_coeff: FixedDecimal,
+        era_history: &EraHistory,
+    ) -> ConsensusParameters {
         let active_slot_coeff_ln_complement = if &active_slot_coeff >= FixedDecimal::one() {
             FixedDecimal::ZERO
         } else {

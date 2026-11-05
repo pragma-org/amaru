@@ -99,6 +99,14 @@ impl From<u64> for FixedDecimal {
     }
 }
 
+impl From<f64> for FixedDecimal {
+    fn from(f: f64) -> Self {
+        let trunc = IBig::from(f.trunc() as i64);
+        let fract = IBig::from((f.fract() * 10.0_f64.powi(f64::DIGITS as i32)) as i64);
+        Self::new(trunc) + Self(fract * IBig::from(10).pow(WIDTH - f64::DIGITS as usize))
+    }
+}
+
 impl From<&[u8]> for FixedDecimal {
     fn from(n: &[u8]) -> Self {
         Self::from(UBig::from_be_bytes(n))
@@ -447,6 +455,7 @@ fn scale_owned(value: IBig) -> IBig {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
+    use test_case::test_case;
 
     use super::*;
 
@@ -595,6 +604,20 @@ mod tests {
         let expected = &e3 * &e3;
 
         assert_eq!(e.ipow(6), expected);
+    }
+
+    #[test_case(1.0, FixedDecimal::from(1))]
+    #[test_case(0.99,FixedDecimal::from(99) / FixedDecimal::from(100))]
+    #[test_case(0.2, FixedDecimal::from(2) / FixedDecimal::from(10))]
+    #[test_case(0.123456789, FixedDecimal::from(123456789) / FixedDecimal::from(1e9 as u64))]
+    #[test_case(-14.42, (FixedDecimal::from(1442) / FixedDecimal::from(100)).neg())]
+    fn from_f64(f: f64, expected: FixedDecimal) {
+        let eps = FixedDecimal::from(1) / FixedDecimal::from(1e15);
+        let mut delta = FixedDecimal::from(f) - expected;
+        if delta < FixedDecimal::ZERO {
+            delta = delta.neg();
+        }
+        assert!(delta <= eps);
     }
 
     proptest! {
