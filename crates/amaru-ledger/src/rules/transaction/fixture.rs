@@ -44,6 +44,8 @@ use crate::{
 
 #[derive(Deserialize)]
 pub(super) struct Fixture {
+    #[serde(default)]
+    pub(super) category: Option<String>,
     pub(super) network: NetworkName,
     pub(super) era_history: RefOrInline<EraHistory>,
     pub(super) protocol_parameters: RefOrInline<ProtocolParameters>,
@@ -371,8 +373,8 @@ impl From<PhaseOneError> for Predicate {
                 Predicate::InvalidWitnessesUTXOW
             }
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::MissingRequiredKeysOrRoots {
-                ..
-            }) => Predicate::MissingVerificationKeyWitnessesUTXOW,
+                                                      ..
+                                                  }) => Predicate::MissingVerificationKeyWitnessesUTXOW,
             PhaseOneError::Withdrawals(InvalidWithdrawals::NetworkMismatch { .. }) => Predicate::WrongNetworkWithdrawal,
             PhaseOneError::Withdrawals(InvalidWithdrawals::MissingAccountDRepDelegation(_)) => {
                 Predicate::ConwayWdrlNotDelegatedToDRep

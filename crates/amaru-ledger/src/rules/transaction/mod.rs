@@ -190,6 +190,23 @@ mod tests {
             .expect("write ledger conformance report");
     }
 
+    /// Environment variable listing the fixture categories to run, separated by commas.
+    const CATEGORIES_VARIABLE: &str = "AMARU_LEDGER_CONFORMANCE_CATEGORIES";
+
+    fn is_selected(selection: Option<&str>, category: Option<&str>) -> bool {
+        match (selection, category) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(selection), Some(category)) => selection.split(',').any(|selected| selected.trim() == category),
+        }
+    }
+
+    fn category_is_selected(category: Option<&str>) -> bool {
+        static SELECTION: OnceLock<Option<String>> = OnceLock::new();
+        let selection = SELECTION.get_or_init(|| std::env::var(CATEGORIES_VARIABLE).ok());
+        is_selected(selection.as_deref(), category)
+    }
+
     fn predicate_name(predicate: &Predicate) -> String {
         json::to_value(predicate)
             .expect("serialize ledger conformance predicate")
@@ -211,6 +228,10 @@ mod tests {
 
     fn run_conformance(fixture_path: &str) {
         let fixture = load(fixture_path);
+
+        if !category_is_selected(fixture.category.as_deref()) {
+            return;
+        }
 
         let decoded = cbor::decode::<Transaction>(&fixture.transaction);
 
@@ -290,4 +311,23 @@ mod tests {
 
         (fixture.expected, result, ctx)
     }
+
+    #[test]
+    fn selection_is_open_when_no_category_is_requested() {
+        assert!(is_selected(None, Some("scripts")));
+        assert!(is_selected(None, None));
+    }
+
+    #[test]
+    fn selection_matches_any_listed_category() {
+        assert!(is_selected(Some("certificates, scripts"), Some("scripts")));
+        assert!(is_selected(Some("governance proposals"), Some("governance proposals")));
+        assert!(!is_selected(Some("certificates"), Some("scripts")));
+    }
+
+    #[test]
+    fn selection_skips_fixtures_without_a_category() {
+        assert!(!is_selected(Some("scripts"), None));
+    }
+
 }

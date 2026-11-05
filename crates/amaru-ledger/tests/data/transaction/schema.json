@@ -16,6 +16,10 @@
   "properties": {
     "title": { "type": "string" },
     "description": { "type": "string" },
+    "category": {
+      "type": "string",
+      "description": "Optional. Names the group of rules the fixture exercises, such as certificates or scripts. Informational."
+    },
     "network": {
       "type": "string",
       "pattern": "^(mainnet|preprod|preview|testnet_[0-9]+)$"
