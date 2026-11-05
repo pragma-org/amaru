@@ -16,6 +16,7 @@ use amaru_kernel::{
     Lovelace, MemoizedTransactionOutput, ProtocolParameters, TransactionInput, WitnessSet, cardano::value::Balance,
     minimum_fee,
 };
+use dashu_int::IBig;
 
 use crate::{
     context::{BalanceSlice, PotsSliceMut},
@@ -36,7 +37,7 @@ pub enum InvalidCollateral {
     #[error("a collateral input is locked at a script address: {0}")]
     LockedAtScriptAddress(TransactionInput),
     #[error("effective collateral value (={effective}) is insufficient; at least {required} is required")]
-    InsufficientBalance { effective: Lovelace, required: u128 },
+    InsufficientBalance { effective: Lovelace, required: IBig },
     #[error("declared collateral (={declared}) does not equal effective collateral (={effective})")]
     DeclaredCollateralMismatch { effective: Lovelace, declared: Lovelace },
     #[error("No collateral was provided, but collateral is required")]
@@ -146,16 +147,16 @@ fn validate_collateral(
     // In order for a collateral balance to be valid it must:
     //    - have no multiassets and
     //    - have a nonnegative coin value
-    if effective_collateral.coin() < 0 || effective_collateral.has_assets() {
+    if effective_collateral.coin() < &IBig::ZERO || effective_collateral.has_assets() {
         return Err(InvalidCollateral::ValueNotConserved(effective_collateral));
     }
 
-    let required = u128::from(fee) * u128::from(pp.collateral_percentage);
+    let required = IBig::from(fee) * pp.collateral_percentage;
     let effective = Lovelace::try_from(effective_collateral.coin())
         .unwrap_or_else(|_| unreachable!("collateral exceeds the total supply"));
 
-    if u128::from(effective) * 100 < required {
-        return Err(InvalidCollateral::InsufficientBalance { effective, required: required.div_ceil(100) });
+    if IBig::from(effective) * 100 < required {
+        return Err(InvalidCollateral::InsufficientBalance { effective, required: (required + 99) / 100 });
     }
 
     if let Some(declared) = declared_collateral
