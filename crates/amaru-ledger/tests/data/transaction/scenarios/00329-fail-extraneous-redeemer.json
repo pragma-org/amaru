@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail extraneous redeemer",
+  "title": "extraneous redeemer",
   "description": "A transaction carries a redeemer for a script purpose that is not present in the transaction.",
   "initial_state": {
     "utxo": [

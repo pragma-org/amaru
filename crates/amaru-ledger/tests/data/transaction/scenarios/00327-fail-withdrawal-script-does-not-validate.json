@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail withdrawal script does not validate",
+  "title": "withdrawal script does not validate",
   "description": "A withdrawal Plutus script evaluates unsuccessfully during phase two validation.",
   "initial_state": {
     "utxo": [

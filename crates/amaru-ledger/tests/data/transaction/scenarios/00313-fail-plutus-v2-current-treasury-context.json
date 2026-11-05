@@ -1,5 +1,5 @@
 {
-  "title": "fail plutus v2 current treasury context",
+  "title": "plutus v2 script in a transaction with a current treasury value",
   "description": "A transaction with a Plutus V2 script and a declared current treasury value. The ledger rejects it when it builds the script context. Plutus V2 cannot represent the current treasury.",
   "category": "governance proposals",
   "network": "preprod",

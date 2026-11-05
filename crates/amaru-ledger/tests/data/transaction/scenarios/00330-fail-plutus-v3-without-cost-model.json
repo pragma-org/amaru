@@ -1,5 +1,5 @@
 {
-  "title": "Fail Plutus V3 validation without a cost model",
+  "title": "plutus v3 script without a cost model",
   "description": "A Plutus V3 governance-policy transaction is evaluated with protocol-version 10 parameters that do not provide a Plutus V3 cost model.",
   "category": "scripts",
   "network": "preprod",

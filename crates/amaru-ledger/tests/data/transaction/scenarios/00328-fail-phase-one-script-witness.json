@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail phase one script witness",
+  "title": "phase one script witness",
   "description": "A transaction contains a malformed script witness that must be rejected before phase two evaluation.",
   "initial_state": {
     "utxo": [

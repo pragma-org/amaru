@@ -1,5 +1,5 @@
 {
-  "title": "empty protocol parameter update is rejected",
+  "title": "empty protocol parameter update",
   "description": "A governance proposal contains an empty protocol parameter update.",
   "category": "governance proposals",
   "network": "preprod",

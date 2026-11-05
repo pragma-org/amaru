@@ -1,5 +1,5 @@
 {
-  "title": "committee member expiration cannot be in the past",
+  "title": "committee member expiration in the past",
   "description": "A committee update proposes a member whose expiration epoch is not later than the current epoch.",
   "category": "governance proposals",
   "network": "preprod",

@@ -1,5 +1,5 @@
 {
-  "title": "DRep deregistration has an incorrect refund",
+  "title": "drep deregistration with an incorrect refund",
   "description": "A transaction that deregisters a DRep. The refund in the certificate differs from the deposit paid at registration.",
   "category": "governance proposals",
   "network": "preprod",

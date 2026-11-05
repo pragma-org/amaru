@@ -1,5 +1,5 @@
 {
-  "title": "fail plutus v2 voting procedures context",
+  "title": "plutus v2 script in a transaction with voting procedures",
   "description": "A transaction with a Plutus V2 script and a vote. The ledger rejects it when it builds the script context. Plutus V2 cannot represent voting procedures.",
   "category": "governance proposals",
   "network": "preprod",

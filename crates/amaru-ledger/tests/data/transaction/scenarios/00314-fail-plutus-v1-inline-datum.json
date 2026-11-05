@@ -1,5 +1,5 @@
 {
-  "title": "Plutus V1 cannot use inline datums",
+  "title": "plutus v1 script with an inline datum",
   "description": "A Plutus V1 script attempts to spend an output carrying an inline datum. Inline datums are not available in the Plutus V1 script context.",
   "category": "scripts",
   "network": "preprod",

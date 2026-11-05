@@ -1,5 +1,5 @@
 {
-  "title": "repeating the same delegation certificate in one transaction",
+  "title": "stake registration",
   "description": "A transaction that registers a stake credential with a single stake registration certificate.",
   "category": "certificates",
   "network": "preprod",

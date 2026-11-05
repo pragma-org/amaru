@@ -1,5 +1,5 @@
 {
-  "title": "Extraneous script witnesses are rejected",
+  "title": "extraneous script witness",
   "description": "A transaction carries a script witness that is not required by any input, certificate, withdrawal, or minting policy.",
   "category": "scripts",
   "network": "preprod",

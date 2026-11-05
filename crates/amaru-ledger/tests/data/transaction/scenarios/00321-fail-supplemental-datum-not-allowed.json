@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail supplemental datum not allowed",
+  "title": "supplemental datum not allowed",
   "description": "A transaction supplies a datum that is not required by any of its Plutus inputs.",
   "initial_state": {
     "utxo": [

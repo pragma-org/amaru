@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail spending script does not validate",
+  "title": "spending script does not validate",
   "description": "A spending Plutus script evaluates unsuccessfully during phase two validation.",
   "initial_state": {
     "utxo": [

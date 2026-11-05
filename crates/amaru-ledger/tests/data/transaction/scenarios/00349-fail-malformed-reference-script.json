@@ -1,5 +1,5 @@
 {
-  "title": "Malformed reference scripts are rejected",
+  "title": "malformed reference script",
   "description": "A transaction output carries a reference script whose serialized script is malformed.",
   "category": "scripts",
   "network": "preprod",

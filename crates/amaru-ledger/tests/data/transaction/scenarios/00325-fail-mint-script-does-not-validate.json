@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail mint script does not validate",
+  "title": "mint script does not validate",
   "description": "A minting policy Plutus script evaluates unsuccessfully during phase two validation.",
   "initial_state": {
     "utxo": [

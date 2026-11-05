@@ -1,5 +1,5 @@
 {
-  "title": "fail plutus v1 treasury donation context",
+  "title": "plutus v1 script in a transaction with a treasury donation",
   "description": "A transaction with a Plutus V1 script and a treasury donation. The ledger rejects it when it builds the script context. Plutus V1 cannot represent a treasury donation.",
   "category": "governance proposals",
   "network": "preprod",

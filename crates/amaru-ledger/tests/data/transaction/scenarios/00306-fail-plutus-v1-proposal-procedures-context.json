@@ -1,5 +1,5 @@
 {
-  "title": "Plutus V1 cannot access proposal procedures",
+  "title": "plutus v1 script in a transaction with proposal procedures",
   "description": "A transaction with a Plutus V1 script and a governance proposal. The ledger rejects it when it builds the script context. Plutus V1 cannot represent proposal procedures.",
   "category": "governance proposals",
   "network": "preprod",

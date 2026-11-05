@@ -1,5 +1,5 @@
 {
-  "title": "zero protocol parameter update field is rejected",
+  "title": "zero protocol parameter update field",
   "description": "A governance proposal sets maxBlockBodySize to zero.",
   "category": "governance proposals",
   "network": "preprod",

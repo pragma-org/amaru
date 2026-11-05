@@ -1,5 +1,5 @@
 {
-  "title": "DRep registration with an incorrect deposit",
+  "title": "drep registration with an incorrect deposit",
   "description": "A DRep registration certificate declares a deposit different from the protocol parameter. The transaction is otherwise valid.",
   "category": "certificates",
   "network": "preprod",

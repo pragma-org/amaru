@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail missing collateral witness",
+  "title": "missing collateral vkey witness",
   "description": "A transaction uses a collateral input without providing the required verification-key witness.",
   "initial_state": {
     "utxo": [

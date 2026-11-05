@@ -7,7 +7,7 @@
     "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
   },
   "category": "scripts",
-  "title": "Fail redeemer with incorrect purpose",
+  "title": "redeemer with incorrect purpose",
   "description": "A transaction places a redeemer under the wrong purpose, leaving the required spending redeemer missing.",
   "initial_state": {
     "utxo": [
