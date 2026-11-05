@@ -43,10 +43,10 @@ pub use field::{
     DecodedField, TAG_FIELD_PREFIX, as_field_ref, as_str_value, cbor_to_any_value, cbor_to_decoded_field,
     cbor_to_trace_value, display_string_value, encode_cbor, is_tag_field_name,
 };
-pub use json_format::{CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, SpanJsonFields};
+pub use json_format::{CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, SpanJsonFields, json_layer};
 pub use layers::{
     CborAwareMakeVisitor, CborConsoleEventFormat, CborDiagVisitor, CborToStringVisit, HideTagFields,
-    console_field_formatter,
+    console_field_formatter, console_layer,
 };
 pub use opentelemetry;
 pub use otel_log_bridge::CborOtelLogBridge;

@@ -38,14 +38,30 @@ use tracing::{
 use tracing_subscriber::{
     Layer,
     fmt::{
-        FmtContext, FormatEvent, FormatFields, FormattedFields,
-        format::Writer,
+        FmtContext, FormatEvent, FormatFields, FormattedFields, MakeWriter,
+        format::{FmtSpan, Writer},
         time::{FormatTime, SystemTime},
     },
     registry::LookupSpan,
 };
 
 use crate::{field::cbor_to_json, span_encode::ancestor_span_names};
+
+/// Build a CBOR-aware JSON layer. Add [`CborJsonSpanLayer`] to preserve structured span fields.
+pub fn json_layer<S, W>(
+    writer: W,
+    span_events: FmtSpan,
+) -> tracing_subscriber::fmt::Layer<S, CborJsonFields, CborJsonEventFormat, W>
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    tracing_subscriber::fmt::layer()
+        .with_writer(writer)
+        .with_span_events(span_events)
+        .event_format(CborJsonEventFormat::new())
+        .fmt_fields(CborJsonFields::new())
+}
 
 // -----------------------------------------------------------------------------
 // Structured span field bag (extension)
