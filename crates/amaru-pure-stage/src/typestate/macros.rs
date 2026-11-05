@@ -821,6 +821,19 @@ macro_rules! typestate_tuple {
 
 /// Compile-time dump of a session's pretty remainder.
 ///
+/// Requires the following nightly features on the crate using it:
+/// ```ignore
+/// ![feature(
+///     min_generic_const_args,
+///     generic_const_args,
+///     generic_const_items,
+///     const_type_name,
+///     unsized_const_params,
+///     adt_const_params
+/// )]
+/// #[allow(incomplete_features)]
+/// ```
+///
 /// Infers `Rem` from the value (so it works when that type is unnameable) and
 /// const-evaluates [`ConstDesc::TEXT`](crate::typestate::ConstDesc::TEXT), which
 /// panics. rustc reports that panic as E0080 with the remainder string:
@@ -835,10 +848,12 @@ macro_rules! typestate_tuple {
 #[macro_export]
 macro_rules! reveal_remainder {
     ($s:expr) => {
-        fn reveal<M, Rem: $crate::typestate::ConstDesc>(s: &Session<M, Rem>)
+        const REVEAL<Rem: $crate::typestate::ConstDesc>: usize = $crate::typestate::remainder_ctfe_panic::<Rem>();
+        fn reveal<M, Rem: $crate::typestate::ConstDesc>(s: &$crate::typestate::Session<M, Rem>)
         where
-            [(); $crate::typestate::remainder_ctfe_panic::<Rem>()]:,
+            [(); ::core::direct_const_arg!(REVEAL::<Rem>)]:,
         {
+            let _ = s;
         }
         reveal(&$s);
     };
