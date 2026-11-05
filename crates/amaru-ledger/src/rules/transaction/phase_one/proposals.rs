@@ -259,7 +259,7 @@ where
         }
 
         GovernanceAction::ParameterChange(_, ppu, policy) => {
-            ppu_well_formed(ppu)?;
+            ppu_well_formed(ppu, protocol_parameters.protocol_version)?;
             check_guardrails_script_hash(guardrail_script, *policy)?;
         }
 
@@ -300,7 +300,7 @@ fn check_guardrails_script_hash(
     Ok(())
 }
 
-fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
+fn ppu_well_formed(ppu: &ProtocolParamUpdate, version: ProtocolVersion) -> Result<(), InvalidProposals> {
     fn reject_zero(field: Option<impl Into<u64>>, field_name: &str) -> Result<(), InvalidProposals> {
         if field.is_some_and(|value| value.into() == 0u64) {
             return Err(InvalidProposals::MalformedProposal { reason: format!("{field_name} cannot be 0") });
@@ -320,6 +320,11 @@ fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
     reject_zero(ppu.drep_deposit, "drep_deposit")?;
 
     reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+
+    // The ledger accepts a zero number of stake pools before protocol version 11.
+    if version.major() >= 11 {
+        reject_zero(ppu.desired_number_of_stake_pools, "desired_number_of_stake_pools")?;
+    }
 
     let is_empty = ppu.minfee_a.is_none()
         && ppu.minfee_b.is_none()
