@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::cbor;
+use crate::{ProtocolVersion, cbor, protocol_version};
 
 #[derive(
     Debug,
@@ -82,3 +82,13 @@ impl IsKnownPlutusVersion for KnownPlutusVersion<2> {}
 /// Plutus Version 3
 pub const PLUTUS_V3: KnownPlutusVersion<3> = KnownPlutusVersion;
 impl IsKnownPlutusVersion for KnownPlutusVersion<3> {}
+
+impl PlutusVersion {
+    pub fn introduced_in(&self) -> ProtocolVersion {
+        match self {
+            Self::V1 => protocol_version::PROTOCOL_VERSION_5,
+            Self::V2 => protocol_version::PROTOCOL_VERSION_7,
+            Self::V3 => protocol_version::PROTOCOL_VERSION_9,
+        }
+    }
+}

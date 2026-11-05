@@ -57,6 +57,13 @@ pub fn decode_plutus_script<'a, const V: usize>(
     let plutus_version = reify_plutus_version::<V>()
         .ok_or_else(|| FlatDecodeError::Message(format!("unable to reify type-level Plutus version '{V:#?}' ??!")))?;
 
+    if plutus_version.introduced_in() > protocol_version {
+        return Err(FlatDecodeError::Message(format!(
+            "non-available Plutus version {plutus_version} for protocol version {protocol_version}; it is only introduced in {}",
+            plutus_version.introduced_in()
+        )));
+    }
+
     let (program, remainder) = decode(arena, bytes, plutus_version, protocol_version)?;
 
     if plutus_version >= PlutusVersion::V3 && remainder > 0 {

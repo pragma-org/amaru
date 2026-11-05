@@ -1,0 +1,28 @@
+{
+  "title": "reference script with an unknown Plutus language",
+  "description": "The output carries a reference script whose outer language tag is 99. The embedded Flat payload is otherwise the same well-formed V3 program used by the valid reference-script fixture, but the transaction cannot decode an unknown Plutus language tag.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed02800",
+        "output": "bf00581d70d441227553a0f1a965fee7d60a0f724b368dd1bddbc208730fccebcf011a004c4b40ff"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820a1c4425c08922d444e4fad7ad6e73796ac118e27165f0688ac049858938ed028000181bf00581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e0003d8184b82186347460101004bd721ff021a00030d400f00a101d9010281820180f5f6",
+  "expected": {
+    "decoding_failure": true
+  }
+}
