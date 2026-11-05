@@ -1,6 +1,6 @@
 {
   "title": "proposal deposit does not match protocol parameters",
-  "description": "A governance proposal whose return account carries a network id different from the fixture network. The transaction is otherwise valid.",
+  "description": "A transaction with a governance proposal. The deposit of the proposal differs from the value in the protocol parameters.",
   "category": "governance proposals",
   "network": "preprod",
   "era_history": {

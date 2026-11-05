@@ -1,6 +1,6 @@
 {
   "title": "repeating the same delegation certificate in one transaction",
-  "description": "Ported from the legacy Conway ledger conformance vector `pass-deleg-twice-the-same-certificate-in-the-same-transaction`.",
+  "description": "A transaction that registers a stake credential with a single stake registration certificate.",
   "category": "certificates",
   "network": "preprod",
   "era_history": {

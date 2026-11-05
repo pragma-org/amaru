@@ -1,6 +1,6 @@
 {
   "title": "fail plutus v2 proposal procedures context",
-  "description": "A Plutus V1 or V2 script attempts to access a Conway transaction-context field that is unavailable in that language version.",
+  "description": "A transaction with a Plutus V2 script and a governance proposal. The ledger rejects it when it builds the script context. Plutus V2 cannot represent proposal procedures.",
   "category": "governance proposals",
   "network": "preprod",
   "era_history": {

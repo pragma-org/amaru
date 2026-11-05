@@ -8,7 +8,7 @@
   },
   "category": "scripts",
   "title": "Fail unspendable script input without datum hash",
-  "description": "A transaction attempts to spend a script-locked output whose datum cannot be resolved because it has no datum hash.",
+  "description": "A transaction spending a plutus v1 script-locked UTxO without an inline datum or a datum hash.",
   "initial_state": {
     "utxo": [
       {

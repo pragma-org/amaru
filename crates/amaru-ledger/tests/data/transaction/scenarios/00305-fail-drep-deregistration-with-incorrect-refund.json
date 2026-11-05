@@ -1,6 +1,6 @@
 {
   "title": "DRep deregistration has an incorrect refund",
-  "description": "A governance proposal whose return account carries a network id different from the fixture network. The transaction is otherwise valid.",
+  "description": "A transaction that deregisters a DRep. The refund in the certificate differs from the deposit paid at registration.",
   "category": "governance proposals",
   "network": "preprod",
   "era_history": {
