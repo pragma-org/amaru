@@ -52,6 +52,7 @@ fn test_keepalive_with_node() {
             Peer::for_test(3005),
             conn_id,
             Role::Initiator,
+            false,
             ManagerConfig::default(),
             NetworkMagic::for_testing(),
             StageRef::blackhole(),

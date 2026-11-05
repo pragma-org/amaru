@@ -144,7 +144,8 @@ amaru node run --network preprod
 | `--db-ledger` | Directory for the ledger database (defaults to `./ledger.<network>.db`)           |
 | `--peers-listen-on` | Address to accept incoming peer connections on (default `0.0.0.0:3001`)           |
 | `--peer` | Upstream peer(s) to sync from; repeatable or comma-separated                      |
-| `--peers-max-upstream` | Maximum number of upstream (outbound) peers Amaru maintains at once (default `3`) |
+| `--peers-max-upstream` | Maximum number of upstream (outbound) peers Amaru maintains at once (default `50`) |
+| `--peers-max-downstream` | Inbound peers kept at once (default `100`). At least one more, and up to 30% more, are answered for 150ms and then closed |
 | `--submit-api-listen-on` | If set, exposes an HTTP `POST /api/submit/tx` endpoint for transaction submission |
 
 For the full list of options run `amaru node run --help`.

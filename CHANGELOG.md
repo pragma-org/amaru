@@ -50,6 +50,7 @@ Other guiding principles:
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
 - **amaru**: with OpenTelemetry enabled, metrics are now exported every second by default (previously every 60 seconds), including when running interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) to use a different interval. The generated environment files (`/etc/default/amaru`, `/etc/sysconfig/amaru`, `.env.example`) now list it.
 - **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
+- **amaru**: the default peer limits are 50 upstream and 100 downstream. `--peers-max-upstream` and `--peers-max-downstream` still override them.
 
 ### Fixed
 
@@ -59,6 +60,7 @@ Other guiding principles:
 - **amaru-ledger**: transactions whose witness set includes the datum for a collateral-return datum hash are accepted.
 - **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
 - **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
+- **amaru**: when every downstream slot is full, Amaru still answers a few more inbound connections so `cardano-cli ping` can read the tip. Those connections only answer, for 150ms, and then close. The extra room is 30% of the downstream limit, and at least one connection. Anything beyond that is refused. ([#1576](https://github.com/pragma-org/amaru/issues/1576))
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
