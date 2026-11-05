@@ -75,10 +75,16 @@ pub enum ProtocolMetrics {
     TipBlock(TipBlockMetrics),
 }
 
+/// Connections past their handshake, as counted by the connection manager. They are exported under the names
+/// cardano-node uses, so dashboards and tools such as gLiveView read them unchanged.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConnectionManagerMetrics {
+    /// Connections a remote peer opened to us.
     pub inbound_connections: u64,
+    /// Connections we opened to a remote peer.
     pub outbound_connections: u64,
+    /// Connections, in either direction, whose handshake did not agree on full duplex: only the side that opened
+    /// them runs mini-protocols as initiator.
     pub unidirectional_connections: u64,
 }
 
