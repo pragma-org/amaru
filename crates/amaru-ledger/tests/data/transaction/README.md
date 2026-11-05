@@ -54,17 +54,18 @@ with the same credentials. See its
 The authoritative schema is [`schema.json`](./schema.json). A summary follows; consult the schema for exact types, ranges, and
 required-field rules.
 
-| Field                | Notes                                                  |
-| -------------------- | ------------------------------------------------------ |
-| `title`              | Optional, but names the generated test case, so it must be unique across the corpus. Falls back to the fixture's path when absent. |
-| `description`        | Optional. Informational; ignored by the harness.       |
-| `network`            | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`. |
-| `era_history`         | Inline `{ stability_window, eras: [EraSummary] }` or a `$ref` to a shared file. |
-| `protocol_parameters` | Inline (see `schema.json`) or a `$ref` to a shared file, optionally with `$override`. |
-| `initial_state`       | See [Initial state](#initial-state).                   |
-| `point`              | `{ slot, transaction_index }`.                          |
-| `transaction`        | Hex-encoded CBOR.                                      |
-| `expected`           | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decoding_failure": true }`. Some predicates carry extra fields; `ValidationTagMismatch` requires `description`, either `"PassedUnexpectedly"` or `"FailedUnexpectedly"`. |
+| Field                 | Notes                                                                                                                                                                                                                       |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `title`               | Optional, but names the generated test case, so it must be unique across the corpus. Falls back to the fixture's path when absent.                                                                                          |
+| `description`         | Optional. Informational; ignored by the harness.                                                                                                                                                                            |
+| `category`            | Optional. Names the group of rules the fixture exercises, for example `certificates` or `scripts`. Informational; ignored by the harness.                                                                                   |
+| `network`             | `mainnet`, `preprod`, `preview`, or `testnet_<magic>`.                                                                                                                                                                      |
+| `era_history`         | Inline `{ stability_window, eras: [EraSummary] }` or a `$ref` to a shared file.                                                                                                                                             |
+| `protocol_parameters` | Inline (see `schema.json`) or a `$ref` to a shared file, optionally with `$override`.                                                                                                                                       |
+| `initial_state`       | See [Initial state](#initial-state).                                                                                                                                                                                        |
+| `point`               | `{ slot, transaction_index }`.                                                                                                                                                                                              |
+| `transaction`         | Hex-encoded CBOR.                                                                                                                                                                                                           |
+| `expected`            | `"Pass"`, `{ "predicate": "<Name>", ... }`, or `{ "decoding_failure": true }`. Some predicates carry extra fields; `ValidationTagMismatch` requires `description`, either `"PassedUnexpectedly"` or `"FailedUnexpectedly"`. |
 
 UTxO entries are pairs of hex-encoded CBOR: `input` is `TransactionInput`,
 `output` is the transaction output.
@@ -105,6 +106,10 @@ it is made up of the following fields:
   the latest enacted governance action id per purpose, each a governance action id
   (see below). Use `{}` when none are enacted; absent purposes default to none.
 - `governance_activity`: `{ consecutive_dormant_epochs }`.
+- `voting_state`: optional grouped form of the initial DRep, committee, and governance-activity
+  state. When present, `dreps`, `committee`, and `consecutive_dormant_epochs` inside it take
+  precedence over the legacy fields above. The legacy fields remain accepted so existing fixtures
+  do not need to be rewritten.
 - `pots`: `{ treasury, reserves }`, the protocol pots as of the initial state.
 - `guardrail_script`: hex-encoded script hash of the enacted constitution's
   guardrails script. A proposal carrying a policy must name exactly this script;
@@ -183,6 +188,12 @@ A harness should:
 The Amaru implementation lives in
 `crates/amaru-ledger/src/rules/transaction/`, with the two phases under
 `phase_one/mod.rs` and `phase_two/mod.rs` and the harness in `mod.rs`.
+
+To run only some fixtures, set `AMARU_LEDGER_CONFORMANCE_CATEGORIES` to a comma-separated list of `category` values:
+
+```console
+$ AMARU_LEDGER_CONFORMANCE_CATEGORIES="certificates,scripts" make conformance-ledger-rules
+```
 
 ## Adding a fixture
 

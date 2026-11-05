@@ -1,0 +1,28 @@
+{
+  "title": "stake registration with an incorrect deposit",
+  "description": "Ported from the legacy Conway ledger conformance vector `fail-deleg-with-incorrect-deposit`.",
+  "category": "certificates",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c1113140001818258390045954d0d96cc011d49413c32037fafc30ba872902c2faea62ab0898de22a4bdcda353e6620f3d426cd2a07dda27316a10651d011bcc836ae1b009fdf42f6c35c6f021a00029f1104d901028183078200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a001e8481a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840920a37dcc0a9dacdb2895370cfdb2c9361a210b9bbc678a8b87087597d31203e6d255f21528e87a43c8aa3e76f5b24415666353b008d37f8295e16368c99180ef5f6",
+  "expected": {
+    "predicate": "IncorrectDepositDELEG"
+  }
+}

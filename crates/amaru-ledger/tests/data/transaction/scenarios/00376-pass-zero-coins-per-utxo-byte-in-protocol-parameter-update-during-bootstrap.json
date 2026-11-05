@@ -1,0 +1,50 @@
+{
+  "title": "zero coins per utxo byte in a protocol parameter update during the bootstrap phase",
+  "description": "A governance proposal sets coinsPerUTxOByte to zero at protocol version 9, the Conway bootstrap phase. Later protocol versions reject it.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json",
+    "$override": {
+      "governance_action_deposit": 123
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003c6abc5ac54442b47631eabe715516274997c5adf1903b28a2acab401534be200",
+        "output": "82581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a00989680"
+      },
+      {
+        "input": "82582003c6abc5ac54442b47631eabe715516274997c5adf1903b28a2acab401534be201",
+        "output": "8258390093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a82148ae6c8f83754064e63725e5544dc4f816064ff72e0d90009f6f1b009fdf42f6284ba6"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c3c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4"
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d901028182582003c6abc5ac54442b47631eabe715516274997c5adf1903b28a2acab401534be2010dd901028182582003c6abc5ac54442b47631eabe715516274997c5adf1903b28a2acab401534be20001818258390057e40b90bdbe178b4f3531362f8f3c05b4ad30dde6fe693210c09442b4fc2cd2151951f8b9c07249fe9488f2fc440b93b68aa28e0ae387a31b009fdf42f6104a92021a001800990b5820e5ea8b0c0d69dc16f07435502d515ccdd9f63095a2f28731e12db52fa7f0fc7614d901028184187b581de03c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b8400f6a11100581c186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b482782868747470733a2f2f4771657737787275612d6576567a66416e4a734875476d5a657839312e636f6d5820625b990b44dac84d314b70085e6fb78d3cafcde6edae8fcf662d424e8127a544a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258402f5fbf52e6d8da5bddd900d55ecc5d027c91e8d6cece90d21c5e556768cff9465f365e719c7ca6bde9de799ac811db42a80ea7cef2863fa9ea29eeb9d530260307d90102814645010100249905a18205008200820000f5f6",
+  "expected": "Pass"
+}

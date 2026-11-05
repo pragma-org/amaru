@@ -1,5 +1,5 @@
 {
-  "title": "Retirement of a pool absent from a non-empty pools set",
+  "title": "retirement of a pool absent from a non-empty pools set",
   "description": "Pool retirement for a pool absent from a non-empty pools set.",
   "network": "preprod",
   "era_history": {

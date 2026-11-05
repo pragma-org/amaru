@@ -145,7 +145,7 @@ mod tests {
     use amaru_uplc::arena_pool::ArenaPool;
     use test_case::test_case;
 
-    use super::fixture::{Expected, Fixture, Predicate};
+    use super::fixture::{Expected, Fixture, Predicate, VotingState};
     use crate::{
         context::DefaultValidationContext, rules::block::validate_transaction, state::volatile::VolatileFragment,
     };
@@ -190,6 +190,23 @@ mod tests {
             .expect("write ledger conformance report");
     }
 
+    /// Environment variable listing the fixture categories to run, separated by commas.
+    const CATEGORIES_VARIABLE: &str = "AMARU_LEDGER_CONFORMANCE_CATEGORIES";
+
+    fn is_selected(selection: Option<&str>, category: Option<&str>) -> bool {
+        match (selection, category) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(selection), Some(category)) => selection.split(',').any(|selected| selected.trim() == category),
+        }
+    }
+
+    fn category_is_selected(category: Option<&str>) -> bool {
+        static SELECTION: OnceLock<Option<String>> = OnceLock::new();
+        let selection = SELECTION.get_or_init(|| std::env::var(CATEGORIES_VARIABLE).ok());
+        is_selected(selection.as_deref(), category)
+    }
+
     fn predicate_name(predicate: &Predicate) -> String {
         json::to_value(predicate)
             .expect("serialize ledger conformance predicate")
@@ -211,6 +228,10 @@ mod tests {
 
     fn run_conformance(fixture_path: &str) {
         let fixture = load(fixture_path);
+
+        if !category_is_selected(fixture.category.as_deref()) {
+            return;
+        }
 
         let decoded = cbor::decode::<Transaction>(&fixture.transaction);
 
@@ -245,15 +266,31 @@ mod tests {
         let protocol_parameters: ProtocolParameters =
             fixture.protocol_parameters.resolve(&resolver).expect("resolve protocol_parameters");
 
+        let super::fixture::InitialState {
+            utxo,
+            pools,
+            accounts,
+            dreps,
+            committee,
+            proposals,
+            proposals_roots,
+            governance_activity,
+            pots,
+            guardrail_script,
+            voting_state,
+        } = fixture.initial_state;
+        let VotingState { dreps, committee, governance_activity } =
+            voting_state.unwrap_or(VotingState { dreps, committee, governance_activity });
+
         let mut ctx = DefaultValidationContext::new(
-            fixture.initial_state.utxo,
-            fixture.initial_state.pools,
-            fixture.initial_state.accounts,
-            fixture.initial_state.dreps,
-            fixture.initial_state.committee,
-            fixture.initial_state.proposals,
-            fixture.initial_state.proposals_roots,
-            fixture.initial_state.pots.treasury,
+            utxo,
+            pools,
+            accounts,
+            dreps,
+            committee,
+            proposals,
+            proposals_roots,
+            pots.treasury,
         );
 
         let arena_pool = ArenaPool::new(1, 1_024_000);
@@ -265,13 +302,31 @@ mod tests {
             &protocol_parameters,
             &era_history,
             fixture.network.as_global_parameters().expect("missing global parameters for network"),
-            fixture.initial_state.governance_activity,
-            fixture.initial_state.guardrail_script,
+            governance_activity,
+            guardrail_script,
             fixture.point,
             tx.tx_ref(),
         )
         .map_err(Predicate::from);
 
         (fixture.expected, result, ctx)
+    }
+
+    #[test]
+    fn selection_is_open_when_no_category_is_requested() {
+        assert!(is_selected(None, Some("scripts")));
+        assert!(is_selected(None, None));
+    }
+
+    #[test]
+    fn selection_matches_any_listed_category() {
+        assert!(is_selected(Some("certificates, scripts"), Some("scripts")));
+        assert!(is_selected(Some("governance proposals"), Some("governance proposals")));
+        assert!(!is_selected(Some("certificates"), Some("scripts")));
+    }
+
+    #[test]
+    fn selection_skips_fixtures_without_a_category() {
+        assert!(!is_selected(Some("scripts"), None));
     }
 }

@@ -1,5 +1,5 @@
 {
-  "title": "Treasury withdrawals with some zeros",
+  "title": "treasury withdrawals with some zeros",
   "description": "A TreasuryWithdrawals proposal which contains zero-withdrawals but whose total sum is not zero.",
   "network": "preprod",
   "era_history": {

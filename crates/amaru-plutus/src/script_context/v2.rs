@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use amaru_kernel::{Address, MemoizedTransactionOutput, PlutusData};
 
 use crate::{
-    PlutusDataError, ToPlutusData, constr_v2,
+    PlutusDataError, ToPlutusData, UnsupportedFeature, constr_v2,
     script_context::{OutputReference, PlutusDatums, PlutusWithdrawals, ScriptContext, TxInfo},
 };
 
@@ -57,7 +57,7 @@ impl ToPlutusData<2> for OutputReference<'_> {
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if let Address::Byron(_) = self.output.address {
-            return Err(PlutusDataError::unsupported_version("byron address included in OutputReference", 2));
+            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, 2));
         }
 
         constr_v2!(0, [self.input, self.output])

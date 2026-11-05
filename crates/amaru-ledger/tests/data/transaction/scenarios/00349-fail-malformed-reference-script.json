@@ -1,0 +1,28 @@
+{
+  "title": "malformed reference script",
+  "description": "A transaction output carries a reference script whose serialized script is malformed.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "82581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000182a300581d603c875ce0f647bdcc64b70e62814680fbd939f8faf0203b98236ede7b011a000e020e03d8184a820247696e76616c6964825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6d3eeb1021a00028f41a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258407ee9fc805609a406e53200a92deccdb858cb5f25c630237f8f2abd360d19a30bb70871fa200d39b7c62feda039d1ffa3c9d77d7312f9b3a2024a8eb365621403f5f6",
+  "expected": {
+    "predicate": "MalformedReferenceScripts"
+  }
+}
