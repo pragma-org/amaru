@@ -123,7 +123,7 @@ pub struct Args {
     )]
     operator_cert: Option<PathBuf>,
 
-    /// VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+    /// VRF signing key, as a raw 32-byte seed or an unencrypted cardano-cli `vrf.skey` text envelope.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
