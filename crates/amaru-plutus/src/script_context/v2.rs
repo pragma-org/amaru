@@ -57,7 +57,7 @@ impl ToPlutusData<2> for OutputReference<'_> {
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if let Address::Byron(_) = self.output.address {
-            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInOutputReference, 2));
+            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, 2));
         }
 
         constr_v2!(0, [self.input, self.output])

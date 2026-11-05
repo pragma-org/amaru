@@ -47,8 +47,8 @@ pub enum UnsupportedFeature {
     #[error("proposing purpose unsupported")]
     ProposingPurpose,
 
-    #[error("byron address included in OutputReference")]
-    ByronAddressInOutputReference,
+    #[error("byron address in script context")]
+    ByronAddressInContext,
 
     /// The certificate, rendered with its `Debug` output, has no Plutus V1 or V2 representation.
     #[error("illegal certificate type: {0}")]
@@ -174,11 +174,11 @@ where
     PlutusVersion<V>: IsKnownPlutusVersion,
     amaru_kernel::RewardAccount: ToPlutusData<V>,
 {
-    /// In all Plutus v1 and v2 and v3 encodings, Byron addresses are not possible encodings.
+    /// Byron addresses have no representation in any Plutus version, so translating one is an error.
     ///
-    /// In [PlutusV1](https://github.com/IntersectMBO/cardano-ledger/blob/59b52bb31c76a4a805e18860f68f549ec9022b14/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Plutus/TxInfo.hs#L111-L112), outputs containing Byron addresses are filtered out.
-    ///
-    /// In [PlutusV2](https://github.com/IntersectMBO/cardano-ledger/blob/232511b0fa01cd848cd7a569d1acc322124cf9b8/eras/conway/impl/src/Cardano/Ledger/Conway/TxInfo.hs#L306) and PlutusV3, Byron addresses are completely disallowed, throwing an error instead.
+    /// Alonzo filtered Byron inputs out of the PlutusV1 context. In Conway, `transTxOutV1` and `transTxOutV2`
+    /// (`Cardano.Ledger.Conway.TxInfo` and `Cardano.Ledger.Babbage.TxInfo`) fail with `ByronTxOutInContext` for
+    /// every Plutus version, whether the address belongs to an input, a reference input or an output.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         match self {
             Address::Shelley(shelley_address) => {
@@ -197,7 +197,9 @@ where
 
                 constr!(0, [payment_part_plutus_data, stake_part_plutus_data])
             }
-            Address::Byron(_) => unreachable!("unable to encode Byron address in PlutusData"),
+            Address::Byron(_) => {
+                Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, V))
+            }
         }
     }
 }

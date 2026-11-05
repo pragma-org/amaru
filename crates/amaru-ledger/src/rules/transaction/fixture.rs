@@ -274,6 +274,7 @@ pub(super) enum Predicate {
     BabbageNonDisjointRefInputs,
     BabbageOutputTooSmallUTxO,
     BadInputsUTxO,
+    ByronTxOutInContext,
     CommitteeHasPreviouslyResigned,
     CommitteeIsUnknown,
     ConflictingCommitteeUpdate,
@@ -491,9 +492,9 @@ impl From<PhaseOneError> for Predicate {
                     UnsupportedFeature::CurrentTreasuryValue => Predicate::CurrentTreasuryFieldNotSupported,
                     UnsupportedFeature::TreasuryDonation => Predicate::TreasuryDonationFieldNotSupported,
                     UnsupportedFeature::InlineDatums => Predicate::InlineDatumsNotSupported,
+                    UnsupportedFeature::ByronAddressInContext => Predicate::ByronTxOutInContext,
                     UnsupportedFeature::VotingPurpose
                     | UnsupportedFeature::ProposingPurpose
-                    | UnsupportedFeature::ByronAddressInOutputReference
                     | UnsupportedFeature::IllegalCertificate(_) => unreachable!("no predicate mapping yet for {err}"),
                 },
                 PlutusDataError::Custom(_) => unreachable!("no predicate mapping yet for {err}"),

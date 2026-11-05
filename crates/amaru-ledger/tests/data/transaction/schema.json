@@ -619,6 +619,7 @@
                 "BabbageNonDisjointRefInputs",
                 "BabbageOutputTooSmallUTxO",
                 "BadInputsUTxO",
+                "ByronTxOutInContext",
                 "CommitteeHasPreviouslyResigned",
                 "CommitteeIsUnknown",
                 "ConflictingCommitteeUpdate",

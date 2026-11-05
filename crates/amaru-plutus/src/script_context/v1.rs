@@ -47,17 +47,19 @@ impl ToPlutusData<1> for ScriptContext<'_> {
 impl ToPlutusData<1> for TxInfo<'_> {
     /// PlutusV1 has no field for reference inputs, so none is serialized. The Haskell ledger still translates each
     /// reference input with the V1 output rules and discards the result (`transTxInInfoV1` in
-    /// `Cardano.Ledger.Conway.TxInfo`). An inline datum on a reference input therefore rejects the transaction.
+    /// `Cardano.Ledger.Conway.TxInfo`). An inline datum or a Byron address on a reference input therefore rejects
+    /// the transaction.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        if self.reference_inputs.iter().any(|reference| matches!(reference.output.datum, MemoizedDatum::Inline(..))) {
-            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::InlineDatums, 1));
+        for reference in &self.reference_inputs {
+            if matches!(reference.output.datum, MemoizedDatum::Inline(..)) {
+                return Err(PlutusDataError::unsupported_version(UnsupportedFeature::InlineDatums, 1));
+            }
+            if matches!(reference.output.address, Address::Byron(..)) {
+                return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, 1));
+            }
         }
 
-        let inputs = self
-            .inputs
-            .iter()
-            .filter(|output_ref| !matches!(output_ref.output.address, Address::Byron(..)))
-            .collect::<Vec<_>>();
+        let inputs = &self.inputs;
 
         let fee = amaru_kernel::Value::Coin(self.fee);
 
