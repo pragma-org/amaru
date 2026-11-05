@@ -1,6 +1,6 @@
 {
-  "title": "plutus v1 script with an inline datum",
-  "description": "A Plutus V1 script attempts to spend an output carrying an inline datum. Inline datums are not available in the Plutus V1 script context.",
+  "title": "plutus v1 script with an inline datum on a spent input",
+  "description": "A transaction with a Plutus V1 script spending a UTxO that carries an inline datum. Inline datums are not available in the Plutus V1 script context.",
   "category": "scripts",
   "network": "preprod",
   "era_history": {

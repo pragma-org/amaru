@@ -45,7 +45,14 @@ impl ToPlutusData<1> for ScriptContext<'_> {
 }
 
 impl ToPlutusData<1> for TxInfo<'_> {
+    /// PlutusV1 has no field for reference inputs, so none is serialized. The Haskell ledger still translates each
+    /// reference input with the V1 output rules and discards the result (`transTxInInfoV1` in
+    /// `Cardano.Ledger.Conway.TxInfo`). An inline datum on a reference input therefore rejects the transaction.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        if self.reference_inputs.iter().any(|reference| matches!(reference.output.datum, MemoizedDatum::Inline(..))) {
+            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::InlineDatums, 1));
+        }
+
         let inputs = self
             .inputs
             .iter()
