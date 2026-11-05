@@ -88,11 +88,10 @@ where
             let script_ref = output.script.as_ref().map(|s| (s.script_hash(), s.len()));
 
             match &output.datum {
-                MemoizedDatum::Inline(data) => context.acknowledge_datum(data.hash(), *reference_input),
                 MemoizedDatum::Hash(hash) => {
                     context.allow_supplemental_datum(*hash.as_ref());
                 }
-                MemoizedDatum::None => (),
+                MemoizedDatum::None | MemoizedDatum::Inline(..) => (),
             };
 
             if let Some((script_hash, script_size)) = script_ref {

@@ -20,9 +20,9 @@ use std::{
 };
 
 use amaru_kernel::{
-    Anchor, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedDatum,
-    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, ProposalSlim, ProposalsRoots, RequiredScript, TransactionInput, Value, Vote, Voter,
+    Anchor, CertificatePointer, Credential, DRep, DRepRegistration, Epoch, Hash, Lovelace, MemoizedScript,
+    MemoizedTransactionOutput, Mint, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalSlim,
+    ProposalsRoots, RequiredScript, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
@@ -438,9 +438,6 @@ pub trait WitnessSlice {
     /// Acknowledge presence of a script in the transaction by its location, to use for later validations.
     fn acknowledge_script(&mut self, script_hash: Hash<SCRIPT>, location: TransactionInput);
 
-    /// Acknowledge presence of an inline datum in the transaction by its location, to use for later validations.
-    fn acknowledge_datum(&mut self, datum_hash: Hash<DATUM>, location: TransactionInput);
-
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
     fn require_script_witness(&mut self, script: RequiredScript);
 
@@ -467,9 +464,6 @@ pub trait WitnessSlice {
 
     /// Obtain the full list of known scripts collected while traversing the transaction.
     fn known_scripts(&mut self) -> BTreeMap<Hash<SCRIPT>, &MemoizedScript>;
-
-    /// Obtain the full list of known datums collected while traversing the transaction.
-    fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData>;
 }
 
 /// Implement 'known_script' using the provided script locations and a context that is at least a
@@ -497,35 +491,4 @@ where
     }
 
     scripts
-}
-
-/// Implement 'known_datums' using the provided datum locations and a context that is at least a
-/// UtxoSlice.
-///
-/// Note that re-constructing the known datums is relatively fast as the lookup are in logarithmic
-/// times, and no allocation (other than the BTreeMap) is happening whatsoever.
-pub fn blanket_known_datums<C>(
-    context: &'_ mut C,
-    known_datums: impl Iterator<Item = (Hash<DATUM>, TransactionInput)>,
-) -> BTreeMap<Hash<DATUM>, &'_ MemoizedPlutusData>
-where
-    C: UtxoSlice,
-{
-    let mut datums = BTreeMap::new();
-
-    for (datum_hash, location) in known_datums {
-        let lookup = |input| {
-            UtxoSlice::lookup(context, input)
-                .and_then(|output| match &output.datum {
-                    MemoizedDatum::None => None,
-                    MemoizedDatum::Hash(..) => None,
-                    MemoizedDatum::Inline(data) => Some(data.as_ref()),
-                })
-                .unwrap_or_else(|| unreachable!("no datum at expected location: {location:?}"))
-        };
-
-        datums.insert(datum_hash, lookup(&location));
-    }
-
-    datums
 }
