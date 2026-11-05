@@ -280,17 +280,14 @@ pub(super) enum Predicate {
     ConwayWdrlNotDelegatedToDRep,
     CurrentTreasuryFieldNotSupported,
     DelegateeDRepNotRegistered,
-    DelegateeDRepNotRegistered,
-    DelegateeStakePoolNotRegistered,
     DelegateeStakePoolNotRegistered,
     DisallowedVoters,
     DRepAlreadyRegistered,
-    DRepAlreadyRegistered,
-    DRepNotRegistered,
     DRepNotRegistered,
     ExpirationEpochTooSmall,
     ExtraneousScriptWitnessesUTXOW,
     ExtraRedeemers,
+    ExUnitsTooBigUTxO,
     FeeTooSmallUTxO,
     GovActionsDoNotExist,
     IncorrectDepositDELEG,
@@ -337,11 +334,8 @@ pub(super) enum Predicate {
     StakePoolNotRegisteredOnKeyPOOL,
     StakePoolRetirementWrongEpochPOOL,
     TooManyCollateralInputs,
-    TooManyExUnits,
     TreasuryDonationFieldNotSupported,
     TreasuryWithdrawalReturnAccountsDoNotExist,
-    TreasuryWithdrawalReturnAccountsDoNotExist,
-    TreasuryWithdrawalsAllZeros,
     TreasuryWithdrawalsAllZeros,
     UnspendableUTxONoDatumHash,
     ValidationTagMismatch { description: TagMismatchDescription },
@@ -483,7 +477,7 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Scripts(InvalidScripts::ScriptIntegrityHashMismatch { .. }) => {
                 Predicate::PPViewHashesDontMatch
             }
-            PhaseOneError::Scripts(InvalidScripts::TooManyExUnits { .. }) => Predicate::TooManyExUnits,
+            PhaseOneError::Scripts(InvalidScripts::TooManyExUnits { .. }) => Predicate::ExUnitsTooBigUTxO,
             PhaseOneError::ScriptPreparation(PreparationError::MalformedScriptWitness(_)) => {
                 Predicate::MalformedScriptWitnesses
             }
