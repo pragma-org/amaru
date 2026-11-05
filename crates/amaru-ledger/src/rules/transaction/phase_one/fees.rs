@@ -13,13 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    ExUnitPrices, ExUnits, HasExUnits, Lovelace, MemoizedTransactionOutput, ProtocolParameters, RationalNumber,
-    TransactionInput, WitnessSet,
-    cardano::value::Balance,
+    Lovelace, MemoizedTransactionOutput, ProtocolParameters, TransactionInput, WitnessSet, cardano::value::Balance,
     minimum_fee,
-    rational_number::{SafeRatio, floor_to_lovelace, into_safe_ratio, safe_ratio},
 };
-use num::{BigUint, Zero};
 
 use crate::{
     context::{BalanceSlice, PotsSliceMut},
