@@ -47,6 +47,11 @@ fn decode_integer_with(
     check_chunk: impl Fn(&[u8]) -> Result<(), decode::Error>,
 ) -> Result<IBig, decode::Error> {
     if d.datatype()? == Type::Tag {
+        // The Haskell node only reads a bignum where the tag is the exact byte `c2` or `c3`. The same tags written
+        // with a longer head (`d8 02`, ...) are rejected.
+        if !matches!(d.input().get(d.position()), Some(0xc2 | 0xc3)) {
+            return Err(decode::Error::message("bignum tag must be the 1-byte head 0xc2 or 0xc3"));
+        }
         let tag = d.tag()?;
         return match tag.try_into() {
             Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
