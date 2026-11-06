@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
+
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
 
 ### Added

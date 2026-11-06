@@ -182,7 +182,7 @@ socket2 = { version = "0.6", default-features = false, features = ["all"] }
 subtle = { version = "2", default-features = false, features = ["const-generics", "std"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
-time = { version = "0.3", features = ["macros", "parsing"] }
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "test-util"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
@@ -232,8 +232,8 @@ subtle = { version = "2", default-features = false, features = ["const-generics"
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 thiserror = { version = "2" }
-time = { version = "0.3", features = ["macros", "parsing"] }
-time-macros = { version = "0.2", default-features = false, features = ["parsing"] }
+time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
+time-macros = { version = "0.2", default-features = false, features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "test-util"] }
 tracing = { version = "0.1", features = ["log", "valuable"] }
 tracing-core = { version = "0.1", features = ["valuable"] }

@@ -20,6 +20,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Context;
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
+
 use crate::{
     Epoch, EraBound, EraName, EraSummary, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
     PREVIEW_GLOBAL_PARAMETERS, Slot,
@@ -525,6 +528,19 @@ impl EraHistory {
         }
 
         Err(EraHistoryError::InvalidEraHistory)
+    }
+
+    /// Format a slot as an RFC 3339 timestamp in UTC or the local timezone.
+    pub fn format_time(&self, slot: Slot, system_start: SystemTime, utc: bool) -> anyhow::Result<String> {
+        let relative_time = self.slot_to_relative_time_unchecked_horizon(slot)?;
+        let time = system_start.checked_add(relative_time).context("slot time is outside the supported time range")?;
+        let time = OffsetDateTime::from(time);
+        let time = if utc {
+            time
+        } else {
+            time.to_offset(UtcOffset::local_offset_at(time).context("could not determine the local timezone")?)
+        };
+        time.format(&Rfc3339).context("could not format slot time")
     }
 
     pub fn slot_to_epoch(&self, slot: Slot, tip: Slot) -> Result<Epoch, EraHistoryError> {
