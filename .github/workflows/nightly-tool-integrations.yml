@@ -174,10 +174,10 @@ jobs:
             install: |
               mkdir "$HOME/tmp"
               cd "$HOME/tmp"
-              curl -sS -o guild-deploy.sh \
-                https://raw.githubusercontent.com/cardano-community/guild-operators/node-agnostic/scripts/cnode-helper-scripts/guild-deploy.sh
+              curl -fsSL -o guild-deploy.sh \
+                https://raw.githubusercontent.com/cardano-community/guild-operators/cntools-rebuild/scripts/cnode-helper-scripts/guild-deploy.sh
               chmod 755 guild-deploy.sh
-              ./guild-deploy.sh -b node-agnostic -i amaru -n preprod -s pd
+              ./guild-deploy.sh -b cntools-rebuild -i amaru -n preprod -s pd
             test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
             cleanup: docker rm -f otlp-collector 2>/dev/null || true
 
