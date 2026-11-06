@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+test_timeout=${TOOL_TEST_TIMEOUT:-300}
+amaru_pid=$(cat amaru.pid)
+screen_output=$(mktemp)
+nview_pid=
+trap '
+  if [[ -n "$nview_pid" ]]; then
+    kill "$nview_pid" 2>/dev/null || true
+    wait "$nview_pid" 2>/dev/null || true
+  fi
+  rm -f "$screen_output"
+' EXIT
+deadline=$((SECONDS + test_timeout))
+
+render_screen_output() {
+  sed -E 's/\x1B\[[0-?]*[ -/]*[@-~]//g; s/\x1B[()][A-Z0-9]//g' "$screen_output"
+}
+
+# shellcheck disable=SC2016 # NVIEW_BIN is expanded by the shell launched by script.
+NVIEW_BIN="${NVIEW_BIN:-$PWD/nview-bin/nview}" \
+  CARDANO_NODE_BINARY=amaru CARDANO_NODE_PID="$amaru_pid" NETWORK="${AMARU_NETWORK:-preprod}" \
+  PROM_HOST="${PROM_HOST:-127.0.0.1}" PROM_PORT="${PROM_PORT:-8889}" \
+  TERM=xterm NVIEW_VISUAL_MODE=plain NVIEW_IMAGE_PROTOCOL=none \
+  timeout "$test_timeout" script --quiet --flush --return \
+    --command 'stty rows 60 cols 160 && exec "$NVIEW_BIN"' \
+    "$screen_output" >/dev/null 2>&1 &
+nview_pid=$!
+
+while (( SECONDS < deadline )); do
+  if ! kill -0 "$nview_pid" 2>/dev/null; then
+    wait "$nview_pid" || true
+    nview_pid=
+    echo "nview exited before displaying a non-zero slot."
+    render_screen_output | fold -w 160 | tail -50
+    exit 1
+  fi
+  slot=$(
+    render_screen_output \
+      | sed -nE 's/.*Slot[[:space:]]*([0-9]+).*/\1/p' \
+      | tail -1
+  )
+  if [[ "$slot" =~ ^[0-9]+$ ]] && (( slot > 0 )); then
+    echo "nview displayed a non-zero slot: $slot"
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "nview did not display a non-zero slot within ${test_timeout} seconds."
+render_screen_output | fold -w 160 | tail -50
+exit 1
