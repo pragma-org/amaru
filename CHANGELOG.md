@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Fixed
+
+- **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
+
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
 
 ### Added

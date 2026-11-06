@@ -14,6 +14,8 @@
 
 use std::{cmp::Ordering, fmt};
 
+use dashu_base::{Gcd, Sign, UnsignedAbs};
+use dashu_int::IBig;
 use num::{BigUint, rational::Ratio};
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
@@ -55,12 +57,14 @@ impl fmt::Display for RationalNumber {
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for RationalNumber {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    /// Read the numerator and denominator as unbounded integers, reduce the ratio, then require that it fits in
+    /// `u64`. The Haskell node does the same: `-1 / -2` and `2^65 / 2^66` are valid encodings of `1 / 2`.
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         cbor::expect_tag(d, cbor::Tag::new(30))?;
         cbor::heterogeneous_array(d, |d, assert_len| {
             assert_len(2)?;
-            let numerator = d.decode_with(ctx)?;
-            let denominator = d.decode_with(ctx)?;
+            let numerator = cbor::decode_integer(d)?;
+            let denominator = cbor::decode_integer(d)?;
             RationalNumber::new(numerator, denominator).map_err(|e| minicbor::decode::Error::message(&e))
         })
     }
@@ -94,15 +98,25 @@ impl<'de> serde::Deserialize<'de> for RationalNumber {
 }
 
 impl RationalNumber {
-    /// Build a rational in lowest terms.
+    /// Build a rational in lowest terms from integers of any size.
     /// This makes sure that PartialEq / Eq are correct and makes the comparison
     /// with encoded values easier in the conformance test suite.
-    pub fn new(numerator: u64, denominator: u64) -> Result<Self, String> {
-        if denominator == 0 {
+    ///
+    /// Signs are normalized, so `-1 / -2` is `1 / 2`. Fails when the denominator is zero, or when the reduced
+    /// ratio is negative or does not fit in `u64`.
+    pub fn new(numerator: impl Into<IBig>, denominator: impl Into<IBig>) -> Result<Self, String> {
+        let (numerator, denominator) = (numerator.into(), denominator.into());
+        if denominator == IBig::ZERO {
             return Err("rational denominator cannot be zero".to_string());
         }
-        let divisor = gcd(numerator, denominator);
-        Ok(Self { numerator: numerator / divisor, denominator: denominator / divisor })
+        let negative = (numerator.sign() == Sign::Negative) != (denominator.sign() == Sign::Negative);
+        let numerator = numerator.unsigned_abs();
+        let denominator = denominator.unsigned_abs();
+        let divisor = (&numerator).gcd(&denominator);
+        match (u64::try_from(&numerator / &divisor), u64::try_from(&denominator / &divisor)) {
+            (Ok(numerator), Ok(denominator)) if !negative || numerator == 0 => Ok(Self { numerator, denominator }),
+            _ => Err("rational value must be non-negative and fit in 64 bits once reduced".to_string()),
+        }
     }
 
     pub fn numerator(&self) -> u64 {
@@ -118,14 +132,6 @@ impl From<UnitRationalNumber> for SafeRatio {
     fn from(r: UnitRationalNumber) -> Self {
         into_safe_ratio(&r.into())
     }
-}
-
-/// Binary GCD, iterative so a pathological pair cannot blow the stack.
-fn gcd(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        (a, b) = (b, a % b);
-    }
-    a
 }
 
 #[cfg(any(test, feature = "test-utils"))]
