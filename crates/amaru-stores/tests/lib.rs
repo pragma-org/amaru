@@ -14,6 +14,7 @@
 
 mod bootstrap_dormant_epochs;
 mod rollback;
+mod sparse_chain;
 mod switch_to_fork;
 
 mod helpers;
