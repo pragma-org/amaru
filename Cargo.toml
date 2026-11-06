@@ -6,6 +6,7 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://amaru.global"
 documentation = "https://docs.rs/amaru"
+readme = "README.md"
 keywords = ["cardano", "blockchain", "node", "ouroboros", "crypto"]
 categories = ["cryptography::cryptocurrencies"]
 rust-version = "1.97" # Find versions here: https://rust-lang.github.io/rustup-components-history
