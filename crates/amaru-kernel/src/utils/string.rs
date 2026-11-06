@@ -16,7 +16,7 @@ use std::fmt::{Debug, Display};
 
 use itertools::Itertools;
 
-use crate::{cbor, from_cbor};
+use crate::{Lovelace, cbor, from_cbor};
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;
@@ -36,6 +36,12 @@ where
     V: std::fmt::Display,
 {
     map.into_iter().map(|(k, v)| format!("{k}: {v}")).join(", ")
+}
+
+/// Format a stake share as a percentage rounded to two decimal places.
+pub fn format_share(stake: Lovelace, active_stake: Lovelace) -> String {
+    let hundredths = (u128::from(stake) * 10_000 + u128::from(active_stake) / 2) / u128::from(active_stake);
+    format!("{}.{:02}%", hundredths / 100, hundredths % 100)
 }
 
 /// Extension trait to convert a list of displayable items into a single string.

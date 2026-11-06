@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use crate::{Lovelace, Slot};
 
 #[cfg(feature = "clap")]
@@ -100,6 +102,14 @@ pub struct GlobalParameters {
 }
 
 impl GlobalParameters {
+    /// POSIX time at which the network started.
+    #[expect(clippy::unreachable)]
+    pub fn system_start(&self) -> SystemTime {
+        UNIX_EPOCH
+            .checked_add(Duration::from_millis(self.system_start))
+            .unwrap_or_else(|| unreachable!("global system start is outside the supported time range"))
+    }
+
     /// Relative slot from which data of the previous epoch can be considered stable.
     pub fn stability_window(&self) -> Slot {
         Slot::new(3 * self.consensus_security_param * self.active_slot_coeff_inverse)
