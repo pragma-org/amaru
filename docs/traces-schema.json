@@ -2172,6 +2172,30 @@
         "warn"
       ]
     },
+    "amaru::cli::pool::schedule::SPECULATIVE_NONCE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "speculative_nonce",
+      "kind": "event",
+      "target": "amaru::cli::pool::schedule",
+      "description": "The requested leader schedule uses a nonce derived before the epoch was observed on-chain.",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {
