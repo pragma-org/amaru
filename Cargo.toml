@@ -75,8 +75,7 @@ opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_
 opentelemetry_sdk = { version = "0.32.1", features = ["logs"] }
 ouroboros = "0.18.5"
 pallas-network = "0.34.0"
-# TODO: Hopefully temporary, required for libc >= 0.2.190; unreleased yet from parking_lot.
-parking_lot = { git = "https://github.com/Amanieu/parking_lot", rev = "43d5007a252d" }
+parking_lot = "0.13.0"
 poolshark = "0.2.9"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0.107"
