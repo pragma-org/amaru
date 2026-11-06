@@ -14,9 +14,36 @@
 
 use std::{iter::successors, sync::Arc};
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, PoolId, RawBlock, Slot};
+use amaru_kernel::{Epoch, Header, HeaderHash, IsHeader, Nonce, ORIGIN_HASH, PoolId, RawBlock, Slot};
 
-use crate::{Nonces, ReadChainStore};
+use crate::{BaseReadChainStore, Nonces, ReadChainStore};
+
+/// Find the nonce used to compute leadership for an epoch from the best chain in a store.
+///
+/// A stored nonce is authoritative for epochs already represented by the chain. The following
+/// epoch can be derived from the stored tail and candidate nonce when the chain has not yet
+/// stored a header in that epoch.
+pub fn nonce_for_epoch<T>(chain: &T, epoch: Epoch) -> Option<Nonce>
+where
+    T: BaseReadChainStore + DiagnosticChainStore,
+{
+    for header in chain.get_best_chain_block_headers().iter().rev() {
+        if let Some(nonces) = chain.get_nonces(&header.hash())
+            && nonces.epoch == epoch
+        {
+            return Some(nonces.active);
+        }
+    }
+
+    let tip = chain.get_best_chain_tip();
+    let nonces = chain.get_nonces(&tip.hash())?;
+    if epoch != nonces.epoch + 1 {
+        return None;
+    }
+
+    let tail_parent = chain.load_header(&nonces.tail).and_then(|header| header.parent()).unwrap_or(ORIGIN_HASH);
+    Some(nonces.next_active(tail_parent))
+}
 
 /// A chain store interface that also exposes diagnostic methods to load raw data.
 /// It should not be used by the consensus stages since it might load lots of data at once.

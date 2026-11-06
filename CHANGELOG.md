@@ -41,6 +41,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
 - **amaru**: `amaru node run` warns at startup when the operating system does not report the wall clock as NTP-synchronized, or when its error bound exceeds 500 ms. Linux and macOS only. ([#1369](https://github.com/pragma-org/amaru/issues/1369))
 - **amaru**: block forging now selects transactions from the mempool in insertion order. A transaction is skipped when it would exceed a block constraint (maximum body size, maximum execution units, or maximum reference script size). ([#1568](https://github.com/pragma-org/amaru/pull/1568))
 - **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in [edr-040](engineering-decision-records/040-cip-0203-block-producer-identifer.md). [#1360][]
