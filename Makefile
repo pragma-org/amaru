@@ -199,7 +199,7 @@ generate-debian-env: ## &dist Generate Debian and RPM environment configuration
 		--override AMARU_DB_LEDGER=/var/lib/amaru/ledger.mainnet.db \
 		--override AMARU_NETWORK=mainnet \
 		--override AMARU_PID_EXPORT=/run/amaru/amaru.pid \
-		--override AMARU_WITH_JSON_TRACES=true \
+		--override AMARU_LOG_JSON=true \
 		> .github/debian/amaru.env
 
 cli-assets: clean-dist ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)

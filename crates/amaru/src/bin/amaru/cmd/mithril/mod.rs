@@ -24,6 +24,12 @@ pub(crate) enum MithrilCommand {
 }
 
 impl MithrilCommand {
+    pub(crate) fn log_options(&self) -> Option<crate::cli::LogOptions> {
+        match self {
+            Self::Sync(args) => Some(args.log_options()),
+        }
+    }
+
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
             Self::Sync(args) => sync::runnable(args),

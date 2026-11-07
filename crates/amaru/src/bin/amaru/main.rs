@@ -62,9 +62,9 @@ fn try_main() -> anyhow::Result<()> {
     let signals = install_termination_signals().context("failed to install signal handlers")?;
 
     let color_enabled = Color::is_enabled(cli.color);
+    let cli::LogOptions { log_json: with_json_traces, log_export, log_otlp } = cli.log_options();
     let (with_open_telemetry, open_telemetry_signals) =
-        cli.open_telemetry.unwrap_or(cli::OpenTelemetryConfig::Disabled).into_parts();
-    let with_json_traces = cli.with_json_traces;
+        log_otlp.unwrap_or(cli::OpenTelemetryConfig::Disabled).into_parts();
     let skip_logging = cli.command.skip_logging();
     let tui_settings = cli.command.tui_settings();
     // Capture observability hints before the command is consumed into a Runnable.
@@ -103,7 +103,7 @@ fn try_main() -> anyhow::Result<()> {
             local,
             color_enabled,
             &ListenAddressHint(listen_address.as_deref()),
-            &cli.log_output,
+            &log_export,
         )
         .context("failed to configure observability")?;
         // Record precise binary identity in operator logs as soon as tracing is live.

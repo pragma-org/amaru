@@ -106,7 +106,7 @@ jobs:
       AMARU_DB_LEDGER: ./ledger.preprod.db
       AMARU_PEERS_LISTEN_ON: 127.0.0.1:3000
       AMARU_PEER: preprod-node.play.dev.cardano.org:3001
-      AMARU_WITH_OPEN_TELEMETRY: ${{ matrix.tool.metrics || 'false' }}
+      AMARU_LOG_OTLP: ${{ matrix.tool.metrics || 'false' }}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 2000
       TOOL_TEST_TIMEOUT: ${{ matrix.tool.timeout || 120 }}

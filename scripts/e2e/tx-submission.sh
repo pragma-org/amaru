@@ -250,7 +250,7 @@ start_amaru() {
   mkdir -p "$LOGDIR"
   : >"$AMARU_LOG_EXPORT"
   e2e_log "starting Amaru from current source; upstream=${AMARU_PEER:-via peer sharing} submit_api=$AMARU_SUBMIT_API_LISTEN_ON"
-  AMARU_WITH_OPEN_TELEMETRY=false \
+  AMARU_LOG_OTLP=false \
     AMARU_COLOR=never \
     AMARU_LOG="${AMARU_LOG:-info}" \
     AMARU_TRACE="${AMARU_TRACE:-info}" \

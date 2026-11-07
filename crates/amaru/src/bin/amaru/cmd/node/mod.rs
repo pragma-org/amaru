@@ -57,6 +57,13 @@ pub(crate) enum NodeCommand {
 }
 
 impl NodeCommand {
+    pub(crate) fn log_options(&self) -> Option<crate::cli::LogOptions> {
+        match self {
+            Self::Run(args) => Some(args.log_options()),
+            Self::Bootstrap(_) | Self::Rollback(_) | Self::Rm(_) => None,
+        }
+    }
+
     pub(crate) fn into_runnable(self) -> Runnable {
         match self {
             Self::Run(args) => run::runnable(args),
