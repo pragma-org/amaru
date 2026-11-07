@@ -41,6 +41,10 @@ Other guiding principles:
 
 - **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
 
+### Changed
+
+- **amaru**: logging options are now scoped to `node run` and `mithril sync`. Use `--log-json`, `--log-export`, and `--log-otlp` (or `AMARU_LOG_JSON`, `AMARU_LOG_EXPORT`, and `AMARU_LOG_OTLP`); the previous option and environment names remain accepted as (now deprecated) aliases.
+
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
 
 ### Added

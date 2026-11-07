@@ -6,7 +6,7 @@
 # into the codebase so that simulation tests advance the clock in a realistic way.
 # You first need to obtain the relevant logs:
 #
-#     amaru node run [...your flags] --log-output timings.ndjson:none,amaru_pure_stage::effect=debug
+#     amaru node run [...your flags] --log-export timings.ndjson:none,amaru_pure_stage::effect=debug
 #
 # Make sure to run the node long enough to get a representative sample of effect timings;
 # a good approach is to sync a few epochs and then let it run until its has seen a few

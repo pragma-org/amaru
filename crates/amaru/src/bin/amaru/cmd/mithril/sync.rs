@@ -59,6 +59,15 @@ pub(crate) struct Args {
         alias = "ingest-maximum-blocks",
     )]
     max_blocks: Option<usize>,
+
+    #[command(flatten, next_help_heading = "Log options")]
+    log: crate::cli::LogOptions,
+}
+
+impl Args {
+    pub(crate) fn log_options(&self) -> crate::cli::LogOptions {
+        self.log.clone()
+    }
 }
 
 pub(crate) fn runnable(args: Args) -> Runnable {
@@ -66,7 +75,7 @@ pub(crate) fn runnable(args: Args) -> Runnable {
 }
 
 async fn run(args: Args, cancellation: MithrilCancellation) -> anyhow::Result<()> {
-    let Args { network, db_ledger, db_chain, snapshots, until_slot, max_blocks } = args;
+    let Args { network, db_ledger, db_chain, snapshots, until_slot, max_blocks, .. } = args;
     let network = NetworkName::from(network);
     let db_ledger = db_ledger.into_path_buf(network);
     let db_chain = db_chain.into_path_buf(network);

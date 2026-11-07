@@ -61,6 +61,9 @@ pub struct Args {
     #[command(flatten)]
     network: amaru::args::Network,
 
+    #[command(flatten, next_help_heading = "Log options")]
+    log: crate::cli::LogOptions,
+
     #[command(flatten, next_help_heading = "Storage options")]
     db_chain: amaru::args::DbChain,
 
@@ -369,6 +372,10 @@ pub struct Args {
 }
 
 impl Args {
+    pub(crate) fn log_options(&self) -> crate::cli::LogOptions {
+        self.log.clone()
+    }
+
     pub fn peers_listen_on(&self) -> &str {
         &self.peers_listen_on
     }

@@ -15,7 +15,7 @@
 //! Extra trace files requested on the command line.
 //!
 //! Each spec is `PATH:FILTER`, split at the first colon. A path ending in `.ndjson` uses the
-//! same JSON event format as `--with-json-traces`, one object per line; any other path is the
+//! same JSON event format as `--log-json`, one object per line; any other path is the
 //! console text format. Span close lines include busy and idle time. These layers are added
 //! beside the terminal, TUI, and OpenTelemetry outputs, each with its own filter.
 
@@ -39,7 +39,7 @@ use amaru_observability::{
 };
 use anyhow::Context;
 
-/// One `--log-output` value.
+/// One `--log-export` value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraceOutputSpec {
     path: PathBuf,
