@@ -299,6 +299,9 @@ impl ConnectionProvider for TokioConnections {
                 })?;
 
                 debug!(network::connection::ACCEPTED, peer_addr = peer_addr.to_string());
+                // A dual-stack listener on `[::]` reports IPv4 clients as IPv4-mapped IPv6 addresses, which `Peer`
+                // does not accept; the client is the IPv4 peer.
+                let peer_addr = SocketAddr::new(peer_addr.ip().to_canonical(), peer_addr.port());
                 let peer = Peer::try_from(peer_addr)
                     .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
                 let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
@@ -540,6 +543,21 @@ mod tests {
             assert_eq!(connections.local_addr(id).await?.is_ipv4(), remote.is_ipv4());
             connections.close(id).await?;
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dual_stack_listener_accepts_an_ipv4_client() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let listen_addr = SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0));
+        // Skip on hosts without IPv6.
+        let Ok(addr) = connections.listen(listen_addr).await else { return Ok(()) };
+        let client = TcpStream::connect(("127.0.0.1", addr.port())).await;
+        // Skip where `[::]` is IPv6-only (net.ipv6.bindv6only=1, or Windows).
+        let Ok(client) = client else { return Ok(()) };
+        let (peer, id) = timeout(Duration::from_secs(1), connections.accept(listen_addr)).await??;
+        assert_eq!(peer, Peer::try_from(client.local_addr()?)?);
+        connections.close(id).await?;
         Ok(())
     }
 

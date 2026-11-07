@@ -569,11 +569,11 @@ async fn own_share_address(params: &Params, eff: &Effects<ConnectionMessage>) ->
 }
 
 fn share_address(local: std::net::SocketAddr, listen: std::net::SocketAddr) -> Option<std::net::SocketAddr> {
-    let ip = local.ip();
-    if ip.is_unspecified() || ip.is_ipv4() != listen.is_ipv4() {
+    // An IPv4-mapped source belongs to a dual-stack `[::]` listener, which serves it; advertise it as IPv4.
+    if local.ip().is_unspecified() || local.is_ipv4() != listen.is_ipv4() {
         None
     } else {
-        Some(std::net::SocketAddr::new(ip, listen.port()))
+        Some(std::net::SocketAddr::new(local.ip().to_canonical(), listen.port()))
     }
 }
 
@@ -859,6 +859,8 @@ mod tests {
         assert_eq!(share_address(addr("[2001:db8::7]:40000"), v4_listen), None);
         assert_eq!(share_address(addr("203.0.113.7:40000"), v6_listen), None);
         assert_eq!(share_address(addr("0.0.0.0:40000"), v4_listen), None);
+        // An IPv4 client of a dual-stack listener is advertised as IPv4.
+        assert_eq!(share_address(addr("[::ffff:203.0.113.7]:40000"), v6_listen), Some(addr("203.0.113.7:3001")));
     }
 
     #[test]

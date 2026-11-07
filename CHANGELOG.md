@@ -45,6 +45,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-network**: outbound connections to a peer whose address family differs from the listen address (e.g. an IPv6 peer while listening on `0.0.0.0`, the default) now use an ephemeral port instead of failing with "Address family not supported by protocol". Peer-sharing replies only advertise a local IP of the listen address's family.
+- **amaru-network**: a dual-stack listener on `[::]` now accepts IPv4 clients; they arrive as IPv4-mapped IPv6 addresses, which were refused with "invalid input parameter".
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
