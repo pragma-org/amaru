@@ -4,14 +4,14 @@ Amaru emits metrics, logs, and spans through [OpenTelemetry](https://opentelemet
 
 To turn on monitoring, use the following CLI options when running the application:
 
-- `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to export OpenTelemetry metrics, logs, and spans
-- `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
+- `--log-otlp` (or env variable `AMARU_LOG_OTLP`) to export OpenTelemetry metrics, logs, and spans
+- `--log-json` (or env variable `AMARU_LOG_JSON`) to enable JSON traces on stdout
 
 By default, enabling OpenTelemetry exports all three signals. Pass a comma-separated subset of `metrics`, `traces`, and
 `logs` to construct and export only those signals. For example:
 
 ```console
-amaru --with-open-telemetry=traces node run
+amaru node run --log-otlp=traces
 ```
 
 Disabled signal providers are not constructed, so their signal-specific endpoints do not need to be available. An
@@ -19,19 +19,19 @@ empty list or an unknown signal causes startup to fail instead of silently enabl
 
 ## Extra log files
 
-`--log-output PATH:FILTER` (or `AMARU_LOG_OUTPUT`) adds a file. Repeat the flag for one file per occurrence. The value is split at the first colon, so a filter may contain `::`. A path ending in `.ndjson` uses the same JSON format as `--with-json-traces`, one object per line; any other path is the usual text log. The file is created or truncated. Span close lines include `time.busy` and `time.idle`. The terminal, TUI, and OpenTelemetry output are unchanged.
+`--log-export PATH:FILTER` (or `AMARU_LOG_EXPORT`) adds a file. Repeat the flag for one file per occurrence. The value is split at the first colon, so a filter may contain `::`. A path ending in `.ndjson` uses the same JSON format as `--log-json`, one object per line; any other path is the usual text log. The file is created or truncated. Span close lines include `time.busy` and `time.idle`. The terminal, TUI, and OpenTelemetry output are unchanged.
 
 External effects record a debug span on the target `amaru_pure_stage::effect` (span name `effect`, field `type_name`). The filter `amaru_pure_stage::effect=debug` does not turn on the rest of the `amaru_pure_stage` logs:
 
 ```bash
-amaru --log-output effects.ndjson:amaru_pure_stage::effect=debug node run
+amaru node run --log-export effects.ndjson:amaru_pure_stage::effect=debug
 ```
 
 ## Filtering traces
 
 Trace spans and log events can be filtered by target and severity using two environment variables:
 
-- `AMARU_TRACE`: for any event emitted by the OpenTelemetry layer (enabled both by `--with-open-telemetry` and `--with-json-traces`);
+- `AMARU_TRACE`: for any event emitted by the OpenTelemetry layer (enabled both by `--log-otlp` and `--log-json`);
 - `AMARU_LOG`: for any event emitted to stdout;
 
 > [!TIP]
@@ -164,7 +164,7 @@ Application metrics are exported by the collector at `http://localhost:8889/metr
 
 Amaru recognizes the following environment variables for its OpenTelemetry configuration:
 
-- `AMARU_WITH_OPEN_TELEMETRY`: Set to `true` to export all signals, `false` to disable OpenTelemetry, or a comma-separated
+- `AMARU_LOG_OTLP`: Set to `true` to export all signals, `false` to disable OpenTelemetry, or a comma-separated
   subset of `metrics`, `traces`, and `logs` to export only those signals.
 - `OTEL_SERVICE_NAME`: Sets the [service.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-name) key used to identify metrics, logs, and spans. Defaults to `amaru`.
 - `OTEL_SERVICE_INSTANCE_ID`: Sets the [service.instance.id](https://opentelemetry.io/docs/specs/semconv/registry/attributes/service/#service-instance-id) key used to identify this specific amaru instance

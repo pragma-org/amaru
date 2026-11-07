@@ -58,7 +58,7 @@ AMARU_DB_CHAIN=/var/lib/amaru/chain.mainnet.db
 AMARU_DB_LEDGER=/var/lib/amaru/ledger.mainnet.db
 AMARU_DB_CHAIN_AUTOMATIC_MIGRATION=true
 AMARU_PID_EXPORT=/run/amaru/amaru.pid
-AMARU_WITH_JSON_TRACES=true
+AMARU_LOG_JSON=true
 ```
 
 ## 2. Bootstrapping the node
@@ -117,12 +117,12 @@ Every `amaru node run` [flag](01-amaru-fast-forward.md#4-running-the-node) has a
 AMARU_PEER=my-own-peer.example.com:3001
 AMARU_PEERS_LISTEN_ON=0.0.0.0:3001
 AMARU_PEERS_MAX_UPSTREAM=10
-AMARU_WITH_OPEN_TELEMETRY=true
+AMARU_LOG_OTLP=true
 OTEL_METRIC_EXPORT_INTERVAL=1000
 ```
 
 :::note
-`AMARU_WITH_OPEN_TELEMETRY` allow Amaru to send traces to the OTLP collector
+`AMARU_LOG_OTLP` allows Amaru to send traces to the OTLP collector
 `OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s)
 :::
 
@@ -203,15 +203,15 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
 
-When running Amaru in CLI use `--with-open-telemetry`:
+When running Amaru in CLI use `--log-otlp`:
 
 ```bash
-amaru --with-open-telemetry node run --network preprod
+amaru node run --log-otlp --network preprod
 ```
 
-When running Amaru as a systemd service set the env variable `AMARU_WITH_OPEN_TELEMETRY`:
+When running Amaru as a systemd service set the env variable `AMARU_LOG_OTLP`:
 ```bash title="/etc/default/amaru"
-AMARU_WITH_OPEN_TELEMETRY=true
+AMARU_LOG_OTLP=true
 OTEL_METRIC_EXPORT_INTERVAL=1000
 ```
 

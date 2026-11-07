@@ -43,6 +43,9 @@ const LEGACY_ENVIRONMENT_VARIABLES: &[(&str, &str)] = &[
     ("AMARU_KES_SIGNING_KEY_FILE", amaru::env_vars::OPERATOR_KES),
     ("AMARU_LEDGER_DIR", amaru::env_vars::DB_LEDGER),
     ("AMARU_LISTEN_ADDRESS", amaru::env_vars::PEERS_LISTEN_ON),
+    ("AMARU_LOG_OUTPUT", amaru::env_vars::LOG_EXPORT),
+    ("AMARU_WITH_JSON_TRACES", amaru::env_vars::LOG_JSON),
+    ("AMARU_WITH_OPEN_TELEMETRY", amaru::env_vars::LOG_OTLP),
     ("AMARU_MAX_EXTRA_LEDGER_SNAPSHOTS", amaru::env_vars::DB_LEDGER_MAX_EXTRA_SNAPSHOTS),
     ("AMARU_MIGRATE_CHAIN_DB", amaru::env_vars::DB_CHAIN_AUTOMATIC_MIGRATION),
     ("AMARU_MITHRIL_SNAPSHOTS_DIR", amaru::env_vars::MITHRIL_SNAPSHOTS),
@@ -130,6 +133,16 @@ impl Command {
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
+    pub(crate) fn log_options(&self) -> Option<LogOptions> {
+        match self {
+            Command::Node(cmd) => cmd.log_options(),
+            #[cfg(feature = "mithril")]
+            Command::Mithril(cmd) => cmd.log_options(),
+            _ => None,
+        }
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub(crate) fn tui_settings(&self) -> Option<tui::Settings> {
         match self {
             Command::Node(cmd::node::NodeCommand::Run(args)) => Some(args.tui_settings()),
@@ -179,6 +192,40 @@ impl FromStr for OpenTelemetryConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, clap::Args)]
+pub(crate) struct LogOptions {
+    /// Emit trace events as structured JSON instead of human-readable text.
+    #[arg(long = "log-json", env = amaru::env_vars::LOG_JSON, action)]
+    pub(crate) log_json: bool,
+
+    /// Also write traces to a file. Repeat for one file per occurrence.
+    ///
+    /// The value is `PATH:FILTER`, split at the first colon so a filter may contain `::`.
+    /// `FILTER` uses the same directives as `AMARU_LOG`. A path ending in `.ndjson` uses the
+    /// same JSON format as `--log-json`, one object per line; any other path is text.
+    /// The file is created or truncated.
+    /// Span close lines include busy and idle time. This does not replace the terminal, the
+    /// TUI, or OpenTelemetry.
+    #[arg(
+        long = "log-export",
+        env = amaru::env_vars::LOG_EXPORT,
+        action = clap::ArgAction::Append,
+        value_name = "PATH:FILTER"
+    )]
+    pub(crate) log_export: Vec<TraceOutputSpec>,
+
+    /// Export OpenTelemetry signals via OTLP; without a value, export all signals.
+    #[arg(
+        long = "log-otlp",
+        env = amaru::env_vars::LOG_OTLP,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_name = amaru::value_names::OTEL_SIGNALS
+    )]
+    pub(crate) log_otlp: Option<OpenTelemetryConfig>,
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru")]
 #[clap(bin_name = "amaru")]
@@ -191,32 +238,52 @@ pub(crate) struct Cli {
     #[clap(long, env = "AMARU_COLOR", default_value = "auto")]
     pub(crate) color: Color,
 
-    /// Emit trace events as structured JSON instead of human-readable text.
-    #[clap(long, global = true, action, env = "AMARU_WITH_JSON_TRACES")]
-    pub(crate) with_json_traces: bool,
+    // These hidden global flags preserve the pre-command-scoped interface. New deployments
+    // should use the command-local options in `LogOptions` instead.
+    #[arg(long = "with-json-traces", global = true, hide = true, env = "AMARU_WITH_JSON_TRACES", action)]
+    legacy_log_json: bool,
 
-    /// Also write traces to a file. Repeat for one file per occurrence.
-    ///
-    /// The value is `PATH:FILTER`, split at the first colon so a filter may contain `::`.
-    /// `FILTER` uses the same directives as `AMARU_LOG`. A path ending in `.ndjson` uses the
-    /// same JSON format as `--with-json-traces`, one object per line; any other path is text.
-    /// The file is created or truncated.
-    /// Span close lines include busy and idle time. This does not replace the terminal, the
-    /// TUI, or OpenTelemetry.
-    #[clap(long, global = true, env = "AMARU_LOG_OUTPUT", action = clap::ArgAction::Append, value_name = "PATH:FILTER")]
-    pub(crate) log_output: Vec<TraceOutputSpec>,
+    #[arg(
+        long = "log-output",
+        global = true,
+        hide = true,
+        env = "AMARU_LOG_OUTPUT",
+        action = clap::ArgAction::Append,
+        value_name = "PATH:FILTER"
+    )]
+    legacy_log_export: Vec<TraceOutputSpec>,
 
-    /// Export OpenTelemetry signals via OTLP; without a value, export all signals.
-    #[clap(
+    #[arg(
         long = "with-open-telemetry",
         global = true,
+        hide = true,
         env = "AMARU_WITH_OPEN_TELEMETRY",
         num_args = 0..=1,
         require_equals = true,
         default_missing_value = "true",
-        value_name = "SIGNALS"
+        value_name = amaru::value_names::OTEL_SIGNALS
     )]
-    pub(crate) open_telemetry: Option<OpenTelemetryConfig>,
+    legacy_log_otlp: Option<OpenTelemetryConfig>,
+}
+
+impl Cli {
+    pub(crate) fn log_options(&self) -> LogOptions {
+        let local_options = self.command.log_options();
+        let mut options = local_options.clone().unwrap_or_default();
+        let local_options = local_options.is_some();
+
+        if (!local_options || env::var_os(amaru::env_vars::LOG_JSON).is_none()) && !options.log_json {
+            options.log_json = self.legacy_log_json;
+        }
+        if (!local_options || env::var_os(amaru::env_vars::LOG_EXPORT).is_none()) && options.log_export.is_empty() {
+            options.log_export.clone_from(&self.legacy_log_export);
+        }
+        if (!local_options || env::var_os(amaru::env_vars::LOG_OTLP).is_none()) && options.log_otlp.is_none() {
+            options.log_otlp.clone_from(&self.legacy_log_otlp);
+        }
+
+        options
+    }
 }
 
 pub(crate) fn command(version: &'static str) -> clap::Command {
