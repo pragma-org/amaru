@@ -525,8 +525,10 @@ mod tests {
 
     #[tokio::test]
     async fn outbound_connect_reaches_the_other_address_family() -> anyhow::Result<()> {
-        // Skip on hosts without IPv6 loopback.
-        let Ok(v6_listener) = TcpListener::bind(("::1", 0)).await else { return Ok(()) };
+        let Ok(v6_listener) = TcpListener::bind(("::1", 0)).await else {
+            eprintln!("skipping address family test; no IPv6 loopback");
+            return Ok(());
+        };
         let v6_remote = v6_listener.local_addr()?;
         let v4_listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let v4_remote = v4_listener.local_addr()?;
@@ -550,11 +552,16 @@ mod tests {
     async fn dual_stack_listener_accepts_an_ipv4_client() -> anyhow::Result<()> {
         let connections = TokioConnections::new(1024);
         let listen_addr = SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0));
-        // Skip on hosts without IPv6.
-        let Ok(addr) = connections.listen(listen_addr).await else { return Ok(()) };
+        let Ok(addr) = connections.listen(listen_addr).await else {
+            eprintln!("skipping dual-stack test; cannot listen on [::]");
+            return Ok(());
+        };
         let client = TcpStream::connect(("127.0.0.1", addr.port())).await;
-        // Skip where `[::]` is IPv6-only (net.ipv6.bindv6only=1, or Windows).
-        let Ok(client) = client else { return Ok(()) };
+        // `[::]` is IPv6-only where net.ipv6.bindv6only=1, and on Windows.
+        let Ok(client) = client else {
+            eprintln!("skipping dual-stack test; the [::] listener does not accept IPv4");
+            return Ok(());
+        };
         let (peer, id) = timeout(Duration::from_secs(1), connections.accept(listen_addr)).await??;
         assert_eq!(peer, Peer::try_from(client.local_addr()?)?);
         connections.close(id).await?;
