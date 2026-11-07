@@ -45,6 +45,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-network**: a failed accept no longer stops the listener for good: after an error such as running out of file descriptors, or a network error Linux reports for a pending connection, it keeps accepting, pausing a second when the error is not about that one connection. Each failure is traced as `network.connection.accept_retry`.
+- **amaru-protocols**: a client that resets its connection before it is accepted no longer makes the node log an error and restart its listener; connection attempts arriving while the listener was being rebound were refused.
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
