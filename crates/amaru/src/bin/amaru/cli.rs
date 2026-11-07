@@ -268,21 +268,21 @@ pub(crate) struct Cli {
 
 impl Cli {
     pub(crate) fn log_options(&self) -> LogOptions {
-        let local_options = self.command.log_options();
-        let mut options = local_options.clone().unwrap_or_default();
-        let local_options = local_options.is_some();
+        if let Some(mut options) = self.command.log_options() {
+            options.log_json = options.log_json || self.legacy_log_json;
 
-        if (!local_options || env::var_os(amaru::env_vars::LOG_JSON).is_none()) && !options.log_json {
-            options.log_json = self.legacy_log_json;
-        }
-        if (!local_options || env::var_os(amaru::env_vars::LOG_EXPORT).is_none()) && options.log_export.is_empty() {
-            options.log_export.clone_from(&self.legacy_log_export);
-        }
-        if (!local_options || env::var_os(amaru::env_vars::LOG_OTLP).is_none()) && options.log_otlp.is_none() {
-            options.log_otlp.clone_from(&self.legacy_log_otlp);
-        }
+            if options.log_export.is_empty() {
+                options.log_export.clone_from(&self.legacy_log_export);
+            }
 
-        options
+            if options.log_otlp.is_none() {
+                options.log_otlp.clone_from(&self.legacy_log_otlp);
+            }
+
+            options
+        } else {
+            LogOptions::default()
+        }
     }
 }
 

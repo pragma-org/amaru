@@ -121,8 +121,7 @@ impl Telemetry {
     ///
     /// Environment:
     /// - `AMARU_LOG_OTLP` — when truthy (`1`/`true`/`yes`/`on`), export metrics,
-    ///   traces, and logs via OTLP; it can also contain a comma-separated list
-    ///   of signals (see `OTEL_EXPORTER_OTLP_ENDPOINT`).
+    ///   traces, and logs via OTLP;
     /// - `AMARU_WITH_OPEN_TELEMETRY` — deprecated fallback for
     ///   `AMARU_LOG_OTLP`.
     /// - `AMARU_LOG_JSON` — when truthy, forces [`LogFormat::Json`].
