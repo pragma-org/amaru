@@ -71,7 +71,8 @@ toml.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-stores.workspace = true
+# Omit this benchmark dependency from published packages to avoid a dependency cycle.
+amaru-stores = { path = "../amaru-stores" }
 
 [build-dependencies]
 anyhow.workspace = true
