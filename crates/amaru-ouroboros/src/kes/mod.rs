@@ -16,7 +16,7 @@ use std::{array::TryFromSliceError, io, mem::ManuallyDrop, ops::Deref, path::Pat
 
 use amaru_kernel::{
     KesEvolution, cbor,
-    utils::envelope::{self, HasEnvelope, ReadEnvelopeError},
+    utils::envelope::{self, HasEnvelope, ReadEnvelopeError, read_key_file},
 };
 use amaru_observability::trace;
 use kes_summed_ed25519::{
@@ -72,7 +72,7 @@ impl SecretKey {
     /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
         let path = path.as_ref();
-        crate::read_key_file::<{ Self::SIZE }, _, _>(
+        read_key_file::<{ Self::SIZE }, _, _>(
             path,
             |bytes| Self::from_bytes(bytes.to_vec()),
             || {
