@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use amaru_kernel::{NonEmptyBytes, Peer};
-use amaru_observability::{Instrument, debug, debug_span, info};
+use amaru_observability::{Instrument, debug, debug_span, info, warn};
 use amaru_ouroboros::{ConnectionId, ConnectionProvider};
 use amaru_pure_stage::BoxFuture;
 use bytes::{Buf, BytesMut};
@@ -248,7 +248,19 @@ impl ConnectionProvider for TokioConnections {
                         let result = loop {
                             let (stream, peer_addr) = match listener.accept().await {
                                 Ok(connection) => connection,
-                                Err(error) => break Err(error),
+                                // A failed accept does not end the listener, see `accept_retry_pause`.
+                                Err(error) => {
+                                    let pause = accept_retry_pause(&error);
+                                    let (local, error, pause_ms) =
+                                        (local.to_string(), error.to_string(), pause.as_millis() as u64);
+                                    if pause.is_zero() {
+                                        debug!(network::connection::ACCEPT_RETRY, local, error, pause_ms);
+                                    } else {
+                                        warn!(network::connection::ACCEPT_RETRY, local, error, pause_ms);
+                                        tokio::time::sleep(pause).await;
+                                    }
+                                    continue;
+                                }
                             };
                             let Ok(_) = incoming_tx.send(PendingAccept { stream, peer_addr }).await else {
                                 break Ok(());
@@ -432,6 +444,31 @@ async fn connect_bound(local: SocketAddr, remote: SocketAddr) -> std::io::Result
 
 /// Binds a TCP listener to the specified address with
 /// `SO_REUSEADDR` enabled.
+/// Pause after an accept failure that is not about the pending connection alone.
+const ACCEPT_RETRY_PAUSE: Duration = Duration::from_secs(1);
+
+/// Pause before accepting again after a listener's accept failed.
+///
+/// The listener itself rarely fails. A reset client shows up as an aborted or reset connection, and
+/// Linux reports network errors of the pending connection from accept (accept(2)); for those with
+/// an `ErrorKind` (network down, host or network unreachable) only that connection is lost, so
+/// accept again at once. Anything else passes too, such as running out of file descriptors or an
+/// `EPROTO`, which has no `ErrorKind`, but may fail again straight away, so pause first.
+fn accept_retry_pause(error: &std::io::Error) -> Duration {
+    #[expect(clippy::wildcard_enum_match_arm)]
+    match error.kind() {
+        std::io::ErrorKind::ConnectionAborted
+        | std::io::ErrorKind::ConnectionReset
+        | std::io::ErrorKind::ConnectionRefused
+        | std::io::ErrorKind::HostUnreachable
+        | std::io::ErrorKind::NetworkUnreachable
+        | std::io::ErrorKind::NetworkDown
+        | std::io::ErrorKind::TimedOut
+        | std::io::ErrorKind::Interrupted => Duration::ZERO,
+        _ => ACCEPT_RETRY_PAUSE,
+    }
+}
+
 fn bind_address(addr: SocketAddr) -> std::io::Result<TcpListener> {
     let domain = match addr {
         SocketAddr::V4(_) => Domain::IPV4,
@@ -590,6 +627,16 @@ mod tests {
         assert_eq!(connections.listen(address).await.unwrap_err().kind(), std::io::ErrorKind::BrokenPipe);
         assert!(connections.inner.tasks.lock().await.is_empty());
         Ok(())
+    }
+
+    #[test]
+    fn accept_retry_pause_only_waits_when_the_failure_is_not_the_connections() {
+        use std::io::{Error, ErrorKind};
+        for kind in [ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset, ErrorKind::HostUnreachable] {
+            assert_eq!(accept_retry_pause(&Error::from(kind)), Duration::ZERO, "{kind:?}");
+        }
+        // EMFILE, "Too many open files"
+        assert_eq!(accept_retry_pause(&Error::from_raw_os_error(24)), ACCEPT_RETRY_PAUSE);
     }
 
     #[tokio::test]
