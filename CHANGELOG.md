@@ -37,8 +37,13 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru-node**: embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.
+
 ### Fixed
 
+- **amaru-node**: HTTP transaction submission rejects inputs larger than 64 KiB with HTTP 413 and returns HTTP 503 when the node is stopping or stopped.
 - **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
 
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
