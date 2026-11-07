@@ -61,9 +61,6 @@ pub struct Args {
     #[command(flatten)]
     network: amaru::args::Network,
 
-    #[command(flatten, next_help_heading = "Log options")]
-    log: crate::cli::LogOptions,
-
     #[command(flatten, next_help_heading = "Storage options")]
     db_chain: amaru::args::DbChain,
 
@@ -267,6 +264,9 @@ pub struct Args {
         alias = "peer-mix"
     )]
     peers_mix: String,
+
+    #[command(flatten, next_help_heading = "Log options")]
+    log: crate::cli::LogOptions,
 
     /// Disable the embedded terminal dashboard, even in an interactive terminal.
     #[arg(
