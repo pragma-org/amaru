@@ -397,7 +397,14 @@ struct PendingAccept {
 ///
 /// A bind the listen socket will not share falls back to an ephemeral port.
 async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<TcpStream> {
-    if let Some(local) = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten() {
+    // A socket of the listen address's family cannot reach a peer of the other family, so those connections use an
+    // ephemeral port.
+    if let Some(local) = resource
+        .bind_outbound_to_listen_port
+        .then(|| *resource.outbound_bind.lock())
+        .flatten()
+        .filter(|local| local.is_ipv4() == addr.is_ipv4())
+    {
         match connect_bound(local, addr).await {
             Ok(stream) => return Ok(stream),
             Err(err) if local_bind_rejected(&err) => {}
@@ -510,6 +517,29 @@ mod tests {
         let local = connections.local_addr(id).await?;
         assert_ne!(local.port(), listen.port());
         connections.close(id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn outbound_connect_reaches_the_other_address_family() -> anyhow::Result<()> {
+        // Skip on hosts without IPv6 loopback.
+        let Ok(v6_listener) = TcpListener::bind(("::1", 0)).await else { return Ok(()) };
+        let v6_remote = v6_listener.local_addr()?;
+        let v4_listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let v4_remote = v4_listener.local_addr()?;
+
+        for (listen, listener, remote) in [
+            (SocketAddr::from(([127, 0, 0, 1], 0)), v6_listener, v6_remote),
+            (SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 0)), v4_listener, v4_remote),
+        ] {
+            let connections = TokioConnections::new(1024);
+            connections.listen(listen).await?;
+            let accept = tokio::spawn(async move { listener.accept().await.map(|(stream, _)| stream) });
+            let id = connections.connect(Peer::try_from(remote)?, Duration::from_secs(1)).await?;
+            accept.await??;
+            assert_eq!(connections.local_addr(id).await?.is_ipv4(), remote.is_ipv4());
+            connections.close(id).await?;
+        }
         Ok(())
     }
 

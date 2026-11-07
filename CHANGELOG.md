@@ -42,6 +42,10 @@ Other guiding principles:
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 
+### Fixed
+
+- **amaru-network**: outbound connections to a peer whose address family differs from the listen address (e.g. an IPv6 peer while listening on `0.0.0.0`, the default) now use an ephemeral port instead of failing with "Address family not supported by protocol". Peer-sharing replies only advertise a local IP of the listen address's family.
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added

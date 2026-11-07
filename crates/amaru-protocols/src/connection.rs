@@ -65,7 +65,7 @@ impl Connection {
         era_history: Arc<EraHistory>,
         mempool_stage: StageRef<MempoolMsg>,
         manager: StageRef<ManagerMessage>,
-        listen_port: Option<u16>,
+        listen_addr: Option<std::net::SocketAddr>,
     ) -> Self {
         Self {
             params: Params {
@@ -78,7 +78,7 @@ impl Connection {
                 era_history,
                 mempool_stage,
                 manager,
-                listen_port,
+                listen_addr,
             },
             state: State::Initial,
         }
@@ -96,9 +96,9 @@ struct Params {
     era_history: Arc<EraHistory>,
     mempool_stage: StageRef<MempoolMsg>,
     manager: StageRef<ManagerMessage>,
-    /// Listen port to advertise. The bearer's local IP is read from the socket.
+    /// Bound listener address: its port is advertised, the bearer's local IP is read from the socket.
     /// `None` when this node is not listening.
-    listen_port: Option<u16>,
+    listen_addr: Option<std::net::SocketAddr>,
 }
 
 pub use amaru_ouroboros::MiniProtocolUse;
@@ -558,13 +558,23 @@ async fn register_responders(mut s: Established, params: &Params, eff: &Effects<
 /// Address to put in a share reply for this bearer: the connected socket's IP and the listen port.
 ///
 /// The socket port is ephemeral on an outbound bearer, so it is not used. An unspecified
-/// address (a wildcard bind that never became a concrete source) is not shared. No listener
-/// means this node has nothing to advertise.
+/// address (a wildcard bind that never became a concrete source) is not shared, nor is an IP of
+/// the other address family than the listener's (e.g. the IPv6 source of an outbound bearer while
+/// listening on `0.0.0.0`), since nothing listens there. No listener means this node has nothing to
+/// advertise.
 async fn own_share_address(params: &Params, eff: &Effects<ConnectionMessage>) -> Option<std::net::SocketAddr> {
-    let port = params.listen_port?;
+    let listen = params.listen_addr?;
     let local = Network::new(eff).local_addr(params.conn_id).await.ok()?;
+    share_address(local, listen)
+}
+
+fn share_address(local: std::net::SocketAddr, listen: std::net::SocketAddr) -> Option<std::net::SocketAddr> {
     let ip = local.ip();
-    if ip.is_unspecified() { None } else { Some(std::net::SocketAddr::new(ip, port)) }
+    if ip.is_unspecified() || ip.is_ipv4() != listen.is_ipv4() {
+        None
+    } else {
+        Some(std::net::SocketAddr::new(ip, listen.port()))
+    }
 }
 
 async fn converge_use(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
@@ -838,6 +848,20 @@ mod tests {
     }
 
     #[test]
+    fn share_address_only_advertises_the_listener_family() {
+        let addr = |s: &str| s.parse::<std::net::SocketAddr>().unwrap();
+        let v4_listen = addr("0.0.0.0:3001");
+        let v6_listen = addr("[::]:3001");
+        // The bearer's source IP with the listen port, not the bearer's own port.
+        assert_eq!(share_address(addr("203.0.113.7:40000"), v4_listen), Some(addr("203.0.113.7:3001")));
+        assert_eq!(share_address(addr("[2001:db8::7]:40000"), v6_listen), Some(addr("[2001:db8::7]:3001")));
+        // Nothing listens on an IP of the other family.
+        assert_eq!(share_address(addr("[2001:db8::7]:40000"), v4_listen), None);
+        assert_eq!(share_address(addr("203.0.113.7:40000"), v6_listen), None);
+        assert_eq!(share_address(addr("0.0.0.0:40000"), v4_listen), None);
+    }
+
+    #[test]
     fn test_fetch_blocks_in_initial_state_reschedules() {
         fetch_blocks_in_disconnected_state_reschedules(State::Initial);
     }
@@ -1003,7 +1027,7 @@ mod tests {
                 era_history: Arc::new(PREPROD_ERA_HISTORY.clone()),
                 mempool_stage: StageRef::blackhole(),
                 manager: StageRef::blackhole(),
-                listen_port: None,
+                listen_addr: None,
             },
             state: State::Established(Established {
                 desired_use: MiniProtocolUse::None,
@@ -1040,7 +1064,7 @@ mod tests {
                 era_history: Arc::new(PREPROD_ERA_HISTORY.clone()),
                 mempool_stage: StageRef::blackhole(),
                 manager: StageRef::blackhole(),
-                listen_port: None,
+                listen_addr: None,
             },
             state,
         }
