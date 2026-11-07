@@ -145,6 +145,5 @@ pub mod voter_kind;
 pub mod voting_procedure;
 pub mod voting_procedures;
 pub mod vrf_cert;
-pub mod vrf_verification_key;
 pub mod withdrawals;
 pub mod witness_set;

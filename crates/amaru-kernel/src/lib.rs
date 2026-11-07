@@ -28,6 +28,8 @@ pub use utils::byte_size::{ByteSize, ByteSizeError, SiByteSize};
 
 pub mod bech32;
 
+pub mod vrf;
+
 mod hasher;
 pub use hasher::Hasher;
 
@@ -224,7 +226,6 @@ pub use cardano::{
     voting_procedure::{PlutusVotes, VotingProcedure},
     voting_procedures::VotingProcedures,
     vrf_cert::VrfCert,
-    vrf_verification_key::VrfVerificationKey,
     withdrawals::Withdrawals,
     witness_set::WitnessSet,
 };

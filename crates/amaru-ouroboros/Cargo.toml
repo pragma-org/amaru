@@ -26,7 +26,6 @@ kes-summed-ed25519.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-vrf_dalek.workspace = true
 zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

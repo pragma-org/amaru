@@ -19,5 +19,5 @@ const KEY_SIZE: usize = 32;
 /// A raw Ed25519 verification key.
 ///
 /// VRF verification keys are the same length but are a different kind of key; they have
-/// their own type, [`crate::VrfVerificationKey`].
+/// their own type, [`crate::vrf::PublicKey`].
 pub type VerificationKey = FixedBytes<KEY_SIZE>;

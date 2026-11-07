@@ -86,7 +86,7 @@ pub fn assert_all<'a>(
     let issuer = ed25519::VerifyingKey::try_from(&header.body().issuer_verification_key[..])
         .map_err(|_| AssertHeaderError::InvalidEd25519PublicKey)?;
 
-    let declared_vrf_key: &'a [u8; vrf::PublicKey::SIZE] = header.body().vrf_verification_key.as_array();
+    let declared_vrf_key: &'a vrf::PublicKey = &header.body().vrf_verification_key;
 
     let (registered_vrf_key, leader_relative_stake): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) = {
         let leader_relative_stake = if pool_summary.active_stake == 0 {
@@ -102,16 +102,11 @@ pub fn assert_all<'a>(
 
     Ok(vec![
         Box::new(move || {
-            AssertKnownLeaderVrfError::new(registered_vrf_key, &vrf::PublicKey::from(declared_vrf_key))?;
+            AssertKnownLeaderVrfError::new(registered_vrf_key, declared_vrf_key)?;
             Ok(())
         }),
         Box::new(move || {
-            AssertVrfProofError::new(
-                absolute_slot,
-                epoch_nonce,
-                &vrf::PublicKey::from(declared_vrf_key),
-                &header.body().vrf_result,
-            )?;
+            AssertVrfProofError::new(absolute_slot, epoch_nonce, declared_vrf_key, &header.body().vrf_result)?;
             Ok(())
         }),
         Box::new(move || {
