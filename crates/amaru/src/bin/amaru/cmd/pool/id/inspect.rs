@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::PoolId;
+use amaru_kernel::{PoolId, ProtocolVersion, protocol_version};
 use amaru_ouroboros::load_cold_verification_key;
 use anyhow::Context;
 
@@ -25,6 +25,10 @@ pub struct InspectArgs {
     /// Pool cold verification key (Ed25519)
     #[arg(long, value_name = amaru::value_names::FILEPATH)]
     verification_key: PathBuf,
+
+    /// Protocol version under which the key CBOR is decoded.
+    #[arg(long, value_name = amaru::value_names::PROTOCOL_VERSION, default_value_t = protocol_version::DEFAULT)]
+    protocol_version: ProtocolVersion,
 }
 
 impl InspectArgs {
@@ -34,7 +38,7 @@ impl InspectArgs {
 
     #[expect(clippy::print_stdout)]
     pub fn run(self) -> anyhow::Result<()> {
-        let cold = load_cold_verification_key(&self.verification_key)
+        let cold = load_cold_verification_key(&self.verification_key, self.protocol_version)
             .with_context(|| format!("failed to load cold verification key: {}", self.verification_key.display()))?;
 
         println!("{}", PoolId::from(cold));

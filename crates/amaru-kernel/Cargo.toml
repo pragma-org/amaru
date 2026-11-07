@@ -33,6 +33,7 @@ crc.workspace = true
 dashu-base.workspace = true
 dashu-int.workspace = true
 ed25519-dalek.workspace = true
+getrandom.workspace = true
 hex.workspace = true
 itertools.workspace = true
 minicbor.workspace = true
@@ -46,6 +47,7 @@ sha3.workspace = true
 stacksafe.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["macros"] }
+vrf_dalek.workspace = true
 zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
@@ -71,6 +73,7 @@ sysinfo.workspace = true
 
 [target.'cfg(target_family="wasm")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+
 
 [[bench]]
 name = "cbor_encoding"

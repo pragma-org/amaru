@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::MAINNET_GLOBAL_PARAMETERS;
+use amaru_kernel::{MAINNET_GLOBAL_PARAMETERS, ProtocolVersion, protocol_version};
 use amaru_ouroboros::load_operational_certificate;
 use anyhow::{Context, ensure};
 
@@ -51,6 +51,10 @@ pub struct PeriodArgs {
         default_value_t = MAINNET_GLOBAL_PARAMETERS.max_kes_evolution as u64,
     )]
     max_kes_evolutions: u64,
+
+    /// Protocol version under which the certificate CBOR is decoded.
+    #[arg(long, value_name = amaru::value_names::PROTOCOL_VERSION, default_value_t = protocol_version::DEFAULT)]
+    protocol_version: ProtocolVersion,
 }
 
 impl PeriodArgs {
@@ -62,7 +66,7 @@ impl PeriodArgs {
     pub fn run(self) -> anyhow::Result<()> {
         ensure!(self.slots_per_kes_period > 0, "--slots-per-kes-period must be greater than zero");
 
-        let (cert, _) = load_operational_certificate(&self.cert)
+        let (cert, _) = load_operational_certificate(&self.cert, self.protocol_version)
             .with_context(|| format!("failed to load operational certificate: {}", self.cert.display()))?;
 
         let cert_kes_period = u64::from(cert.operational_cert_kes_period);

@@ -287,7 +287,7 @@ mod tests {
                 slot,
                 prev_hash,
                 issuer_verification_key: FixedBytes::zeroes(),
-                vrf_verification_key: FixedBytes::zeroes(),
+                vrf_verification_key: crate::vrf::PublicKey::zeroes(),
                 vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::zeroes() },
                 block_body_size,
                 block_body_hash,

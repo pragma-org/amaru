@@ -16,18 +16,21 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
-use std::{array::TryFromSliceError, io, ops::Deref, path::Path};
+use std::{array::TryFromSliceError, fmt, io, ops::Deref, path::Path};
 
-use amaru_kernel::{
-    Hash, Hasher, Slot, cbor,
-    utils::envelope::{self, HasEnvelope, ReadEnvelopeError},
-};
 use thiserror::Error;
 use vrf_dalek::{
     errors::VrfError,
     vrf03::{PublicKey03, SecretKey03, VrfProof03},
 };
 use zeroize::Zeroizing;
+
+use crate::{
+    Hash, Hasher, Slot,
+    cardano::fixed_bytes::FixedBytes,
+    cbor,
+    utils::envelope::{self, HasEnvelope, ReadEnvelopeError, read_key_file},
+};
 
 // ------------------------------------------------------------------- SecretKey
 
@@ -68,7 +71,7 @@ impl SecretKey {
     /// Raw files contain exactly 32 bytes. Envelope CBOR payloads contain the seed followed by the verification key.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, SecretKeyError> {
         let path = path.as_ref();
-        crate::read_key_file::<{ Self::SIZE }, _, _>(
+        read_key_file::<{ Self::SIZE }, _, _>(
             path,
             |seed| Ok(Self::from(seed)),
             || Ok(envelope::read_envelope(path, &mut ())?),
@@ -122,16 +125,70 @@ impl TryFrom<&[u8]> for SecretKey {
 
 // ------------------------------------------------------------------- PublicKey
 
-/// A VRF public key.
-#[derive(Debug, PartialEq)]
+const PUBLIC_KEY_SIZE: usize = 32;
+
+/// A VRF public key, as carried in block headers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicKey(PublicKey03);
 
 impl PublicKey {
     /// Size of a VRF public key, in bytes.
-    pub const SIZE: usize = 32;
+    pub const SIZE: usize = PUBLIC_KEY_SIZE;
 
     /// Size of a VRF public key hash digest (Blake2b-256), in bytes.
     pub const HASH_SIZE: usize = 32;
+
+    /// A key whose bytes are all zero, for placeholder headers.
+    pub fn zeroes() -> Self {
+        Self::from(&[0u8; PUBLIC_KEY_SIZE])
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    pub fn as_array(&self) -> &[u8; PUBLIC_KEY_SIZE] {
+        self.0.as_bytes()
+    }
+
+    fn as_fixed_bytes(&self) -> FixedBytes<PUBLIC_KEY_SIZE> {
+        FixedBytes::from(*self.0.as_bytes())
+    }
+}
+
+impl fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_fixed_bytes().fmt(f)
+    }
+}
+
+impl serde::Serialize for PublicKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.as_fixed_bytes().serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PublicKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        FixedBytes::<PUBLIC_KEY_SIZE>::deserialize(deserializer).map(|bytes| Self::from(bytes.as_array()))
+    }
+}
+
+impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for PublicKey {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let bytes: FixedBytes<PUBLIC_KEY_SIZE> = d.decode_with(ctx)?;
+        Ok(Self::from(bytes.as_array()))
+    }
+}
+
+impl<C> cbor::Encode<C> for PublicKey {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        self.as_fixed_bytes().encode(e, ctx)
+    }
 }
 
 impl AsRef<[u8]> for PublicKey {
@@ -336,11 +393,11 @@ mod serde_remote {
 mod tests {
     use std::fs;
 
-    use amaru_kernel::cbor;
     use proptest::prelude::*;
     use serde::Deserialize;
 
     use super::*;
+    use crate::cbor;
 
     // Necessary to avoid defining a 'Debug' instance on SecretKey that would be leaky. It's only
     // needed for test, so appears here.

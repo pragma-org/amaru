@@ -15,7 +15,7 @@
 use std::path::PathBuf;
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::PoolId;
+use amaru_kernel::{PoolId, ProtocolVersion, protocol_version};
 use amaru_ouroboros::load_operational_certificate;
 use anyhow::Context;
 
@@ -25,6 +25,10 @@ pub struct InspectArgs {
     /// Operational certificate to inspect.
     #[arg(long, value_name = amaru::value_names::FILEPATH)]
     cert: PathBuf,
+
+    /// Protocol version under which the certificate CBOR is decoded.
+    #[arg(long, value_name = amaru::value_names::PROTOCOL_VERSION, default_value_t = protocol_version::DEFAULT)]
+    protocol_version: ProtocolVersion,
 }
 
 impl InspectArgs {
@@ -34,7 +38,7 @@ impl InspectArgs {
 
     #[expect(clippy::print_stdout)]
     pub fn run(self) -> anyhow::Result<()> {
-        let (cert, cold) = load_operational_certificate(&self.cert)
+        let (cert, cold) = load_operational_certificate(&self.cert, self.protocol_version)
             .with_context(|| format!("failed to load operational certificate: {}", self.cert.display()))?;
 
         let pool_id = PoolId::from(cold);
