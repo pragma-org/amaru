@@ -19,7 +19,8 @@ use std::fmt;
 use time::{Date, Duration, Month, macros::date};
 
 /// Block producer identifier carried in the minor component of a header's `protocol_version`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(untagged, rename_all = "snake_case")]
 pub enum SoftwareTag {
     NoSignal,
     OptOut,
@@ -75,7 +76,7 @@ pub enum SoftwareTagError {
 }
 
 /// Registered producer id; `0` and `255` are not ids.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
 pub struct ProducerId(u8);
 
@@ -119,7 +120,7 @@ impl fmt::Display for ProducerId {
 pub struct ProducerIdError(u8);
 
 /// Implementation-defined 22 bits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
 pub struct Payload(u32);
 
@@ -164,7 +165,7 @@ pub struct PayloadError(u32);
 /// ```
 ///
 /// No flags are assigned: they are written as `0` and ignored when read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct AmaruTag {
     release_day: ReleaseDay,
 }
@@ -233,8 +234,9 @@ pub enum AmaruTagError {
 }
 
 /// Days since 2026-01-01 (UTC); `0` is an unreleased build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
+#[serde(into = "String")]
 pub struct ReleaseDay(u16);
 
 impl ReleaseDay {
@@ -279,6 +281,12 @@ impl ReleaseDay {
 
     pub const fn days(&self) -> u16 {
         self.0
+    }
+}
+
+impl From<ReleaseDay> for String {
+    fn from(release_day: ReleaseDay) -> Self {
+        release_day.to_string()
     }
 }
 

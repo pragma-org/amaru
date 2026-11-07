@@ -55,16 +55,28 @@ pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::exit_on_signal(RuntimeKind::Simple, move || run(args))
 }
 
+#[expect(clippy::unwrap_used)]
 #[expect(clippy::print_stdout)]
 async fn run(args: Args) -> anyhow::Result<()> {
     let minor = args.version.0;
-    let tag = SoftwareTag::try_from(minor)?;
-    println!("minor: {minor} (0x{minor:08x})");
-    println!("tag:   {tag}");
-    match AmaruTag::try_from(tag) {
-        Ok(amaru) => println!("amaru: {amaru}"),
-        Err(AmaruTagError::Id(_) | AmaruTagError::NoSignal | AmaruTagError::OptOut) => {}
-        Err(error) => println!("amaru: invalid, {error}"),
-    }
+    let software_tag = SoftwareTag::try_from(minor)?;
+
+    let amaru_tag = match AmaruTag::try_from(software_tag) {
+        Ok(amaru) => serde_json::to_value(amaru).unwrap(),
+        Err(AmaruTagError::NoSignal) => serde_json::json!("no_signal"),
+        Err(AmaruTagError::OptOut) => serde_json::json!("opt_out"),
+        Err(AmaruTagError::Id(id)) => serde_json::json!(format!("unknown({id})")),
+        Err(error) => serde_json::json!(format!("invalid({error})")),
+    };
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "software_tag": software_tag,
+            "amaru_tag": amaru_tag,
+        }))
+        .unwrap()
+    );
+
     Ok(())
 }
