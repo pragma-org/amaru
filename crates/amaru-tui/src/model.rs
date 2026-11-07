@@ -133,7 +133,7 @@ pub struct Model {
     pub governance: GovernanceSummary,
     pub epoch_overlay_exists: bool,
     pub rewards_ready: bool,
-    /// One row per live connection id.
+    /// One row per connection id. A reconnect for the same socket and bootstrap name drops the older row.
     pub peers: BTreeMap<String, PeerState>,
     /// Connection ids already closed, so a late span does not recreate the row.
     closed_connections: BTreeSet<String>,
@@ -544,6 +544,12 @@ mod tests {
             protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
             protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "diffusion",
         )));
+
+        let peer = model.peers.get("4").expect("connection 4");
+        assert!(peer.inbound);
+        assert_eq!(peer.local_use, PeerUse::Maintenance);
+        assert_eq!(peer.remote_use, PeerUse::Diffusion);
+
         model.handle_message(Message::Telemetry(telemetry!(
             protocols::manager::peer::LOCAL_USE_APPLIED,
             protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.1.1.1:3001",
@@ -551,12 +557,13 @@ mod tests {
             protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
         )));
 
-        let peer = model.peers.get("4").expect("connection 4");
-        assert!(peer.inbound);
-        assert_eq!(peer.local_use, PeerUse::Maintenance);
-        assert_eq!(peer.remote_use, PeerUse::Diffusion);
+        // The later connection is the same socket with no distinct bootstrap name, so it
+        // replaces connection 4. Its row must not inherit that connection's direction or use.
+        assert!(!model.peers.contains_key("4"));
+        assert!(model.closed_connections.contains("4"));
         let other = model.peers.get("9").expect("connection 9");
         assert_eq!(other.local_use, PeerUse::Diffusion);
+        assert_eq!(other.remote_use, PeerUse::None);
         assert!(!other.inbound);
     }
 
@@ -606,6 +613,7 @@ mod tests {
             protocols::peer_selection::peer::REMOTE_USE::FIELD_CONN_ID => 4u64,
             protocols::peer_selection::peer::REMOTE_USE::FIELD_REMOTE_USE => "diffusion",
         )));
+        assert_eq!(model.peers.get("4").expect("measured connection").remote_use, PeerUse::Diffusion);
         model.handle_message(Message::Telemetry(telemetry!(
             protocols::peer_selection::peer::CONNECTED,
             protocols::peer_selection::peer::CONNECTED::FIELD_PEER => "10.1.1.1:3001",
@@ -615,10 +623,11 @@ mod tests {
             protocols::peer_selection::peer::CONNECTED::FIELD_LOCAL_USE => "none",
         )));
 
+        // Adopting the later bearer retires connection 4 and must not take its remote use.
         let adopted = model.peers.get("9").expect("adopted connection");
         assert_eq!(adopted.remote_use, PeerUse::None);
-        let measured = model.peers.get("4").expect("measured connection");
-        assert_eq!(measured.remote_use, PeerUse::Diffusion);
+        assert!(!model.peers.contains_key("4"));
+        assert!(model.closed_connections.contains("4"));
     }
 
     #[test]
@@ -680,6 +689,48 @@ mod tests {
             protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
         )));
         assert_eq!(model.peers.get("5").expect("replacement").local_use, PeerUse::Diffusion);
+    }
+
+    #[test]
+    fn a_reconnect_replaces_the_older_row_for_the_same_peer_and_candidate() {
+        use crate::model::peer_state::PeerState;
+
+        let mut model = Model::new(Config::default(), fixture_startup_context());
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::peer_selection::peer::RESOLVED,
+            protocols::peer_selection::peer::RESOLVED::FIELD_CANDIDATE => "relay.example:3001",
+            protocols::peer_selection::peer::RESOLVED::FIELD_ORIGIN => "snapshot",
+            protocols::peer_selection::peer::RESOLVED::FIELD_PEER => "10.9.9.9:3001",
+        )));
+        model.peers.insert("7".into(), PeerState::new("10.9.9.9:3001".into(), Instant::now()));
+        model.peers.insert("8".into(), PeerState::new("10.8.8.8:3001".into(), Instant::now()));
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::manager::peer::LOCAL_USE_APPLIED,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 4u64,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
+        )));
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::manager::peer::LOCAL_USE_APPLIED,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 5u64,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
+        )));
+
+        assert!(!model.peers.contains_key("4"));
+        assert!(model.closed_connections.contains("4"));
+        assert_eq!(model.peers.get("5").expect("newer connection").candidate_label(), Some("relay.example:3001"));
+        assert!(model.peers.get("7").expect("unnamed row").candidate.is_none());
+        assert!(model.peers.contains_key("8"));
+
+        model.handle_message(Message::Telemetry(telemetry!(
+            protocols::manager::peer::LOCAL_USE_APPLIED,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_PEER => "10.9.9.9:3001",
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_CONN_ID => 4u64,
+            protocols::manager::peer::LOCAL_USE_APPLIED::FIELD_LOCAL_USE => "diffusion",
+        )));
+        assert!(!model.peers.contains_key("4"), "a late span must not restore the replaced connection");
     }
 
     #[test]

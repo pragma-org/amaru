@@ -33,7 +33,7 @@ use amaru_pure_stage::{ExternalEffect, Instant, Resources};
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 use super::{
-    ClaimKind, HeaderLifecycleOutcome, HeaderPerformance, PeerPerformance, PeerShareFlags, Performance,
+    ClaimKind, DialOutcome, HeaderLifecycleOutcome, HeaderPerformance, PeerPerformance, PeerShareFlags, Performance,
     ResourcePerformance, SHARE_REQUEST_WINDOW, SelectPeersParams, ShareRequestRecord,
 };
 
@@ -422,6 +422,116 @@ fn open_slots_fill_worse_scores_after_better_ones() {
     assert_eq!(picked.outbound.len(), 2);
     assert_eq!(picked.outbound[0].candidate, fresh);
     assert_eq!(picked.outbound[1].candidate, failed);
+}
+
+#[test]
+fn outbound_selection_prefers_never_connected_over_uninteresting() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{PeerMix, SelectOutboundParams};
+
+    let fresh = peer("10.0.0.1:1");
+    let dull = peer("10.0.0.2:2");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::from([fresh, dull]).into_iter().map(PeerCandidate::from).collect(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        PeerMix::parse("static~1").unwrap(),
+    );
+    let (dull_id, _) = conn_ids();
+    let at = observed(1, 0);
+    peers.record_connection_established(connection_record(dull, dull_id, at, false), at);
+    peers.record_uninteresting(dull, dull_id, false, at);
+
+    for i in 0..20u8 {
+        let picked = peers.select_outbound(SelectOutboundParams {
+            open: 1,
+            excluded: BTreeSet::new(),
+            eligible_inbound: 0,
+            seed: [i; 32],
+            now: t(1),
+        });
+        assert_eq!(
+            picked.outbound.iter().map(|p| p.candidate.as_peer()).collect::<Vec<_>>(),
+            vec![Some(fresh)],
+            "seed {i} offered the uninteresting peer"
+        );
+    }
+}
+
+#[test]
+fn nearby_scores_share_one_outbound_bucket() {
+    use std::collections::BTreeSet;
+
+    use amaru_kernel::PeerCandidate;
+
+    use crate::performance::{PeerMix, SelectOutboundParams};
+
+    let clean = peer("10.0.0.1:1");
+    let dull = peer("10.0.0.2:2");
+    let mut peers = PeerPerformance::with_sources(
+        BTreeSet::from([clean, dull]).into_iter().map(PeerCandidate::from).collect(),
+        BTreeSet::new(),
+        BTreeSet::new(),
+        PeerMix::parse("static~1").unwrap(),
+    );
+    let (clean_id, dull_id) = conn_ids();
+    let at = observed(1, 0);
+    peers.record_connection_established(connection_record(clean, clean_id, at, false), at);
+    peers.record_connection_established(connection_record(dull, dull_id, at, false), at);
+    peers.record_uninteresting(dull, dull_id, false, at);
+
+    let mut seen = BTreeSet::new();
+    for i in 0..32u8 {
+        let picked = peers.select_outbound(SelectOutboundParams {
+            open: 1,
+            excluded: BTreeSet::new(),
+            eligible_inbound: 0,
+            seed: [i; 32],
+            now: t(1),
+        });
+        let candidate = picked.outbound.first().and_then(|pick| pick.candidate.as_peer());
+        seen.insert(candidate);
+    }
+    assert!(seen.contains(&Some(clean)), "a clean peer must be drawn from the bucket: {seen:?}");
+    assert!(seen.contains(&Some(dull)), "one point of malus stays in the same bucket: {seen:?}");
+}
+
+#[test]
+fn a_close_remembers_an_uninteresting_mark() {
+    let mut peers = PeerPerformance::new();
+    let alice = peer("10.0.0.1:1");
+    let (id, other) = conn_ids();
+    let at = observed(1, 0);
+    peers.record_connection_established(connection_record(alice, id, at, false), at);
+    peers.record_connection_established(connection_record(alice, other, at, false), at);
+
+    peers.record_uninteresting(alice, id, false, at);
+    peers.record_connection_closed(alice, other, CloseReason::BearerEnded, observed(2, 0));
+    let view = peers.query_peer_view(0).expect("generation moved");
+    assert!(
+        matches!(
+            view.closes.get(&alice).copied(),
+            Some(DialOutcome::Closed { conn_id, uninteresting: false, .. }) if conn_id == other
+        ),
+        "a different bearer does not make this close uninteresting: {:?}",
+        view.closes.get(&alice)
+    );
+    assert!(view.uninteresting.iter().any(|mark| mark.peer == alice && mark.conn_id == id));
+
+    peers.record_connection_closed(alice, id, CloseReason::BearerEnded, observed(3, 0));
+    let view = peers.query_peer_view(0).expect("close moved the generation");
+    assert!(
+        matches!(
+            view.closes.get(&alice).copied(),
+            Some(DialOutcome::Closed { conn_id, uninteresting: true, .. }) if conn_id == id
+        ),
+        "the close keeps the mark that belonged to this bearer: {:?}",
+        view.closes.get(&alice)
+    );
+    assert!(view.uninteresting.iter().all(|mark| mark.conn_id != id));
 }
 
 #[test]

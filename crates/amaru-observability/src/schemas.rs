@@ -2538,7 +2538,8 @@ define_schemas! {
                     }
                     /// A connection has been terminated (graceful disconnect, error, handshake refusal,
                     /// or network error).
-                    public span DISCONNECTED {
+                    public event DISCONNECTED {
+                        levels: debug
                         required peer: %amaru_kernel::Peer
                         required conn_id: u64
                         required direction: String

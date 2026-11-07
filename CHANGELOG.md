@@ -99,6 +99,8 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-tui**: the Peers card drops a peer's older connection row when that socket and bootstrap name connect again, so a peer that reconnects does not stay listed once per attempt.
+- **amaru**: a peer that closes before selection adopts the handshake is reported as disconnected. A peer with no chain intersection is not dialed again for two minutes, and is then chosen less often than a peer that was not rejected that way.
 - **amaru**: Linux (musl) release binaries no longer segfault at startup or shutdown. They are linked with a pinned zig 0.15.2, because zig 0.17 lets libc allocations bypass jemalloc.
 - **amaru-node**: startup reliably reports listener bind errors, including an occupied port, when the network manager exits immediately after the failed bind.
 - **amaru-ledger**: transactions whose Plutus redeemers declare execution units summing past 2^64 are rejected, instead of wrapping the totals.
