@@ -735,6 +735,7 @@ dependencies = [
  "amaru-plutus",
  "amaru-uplc",
  "anyhow",
+ "divan",
  "hex",
  "parking_lot 0.13.0",
  "proptest",
