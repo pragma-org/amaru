@@ -65,6 +65,7 @@ library
     , non-integral
     , optparse-applicative
     , ouroboros-consensus
+    , process
     , relude
     , sop-extras
     , time

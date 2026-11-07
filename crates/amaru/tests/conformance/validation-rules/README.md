@@ -59,10 +59,12 @@ cabal run -v0 exe:conformance -- validate-phase-one \
   --json-report ledger-rules-cardano-node.json
 ```
 
-The JSON report contains only a five-digit fixture id and its observed result:
-`pass` for a successful validation, or the observed predicate failure otherwise.
-Fixture metadata is maintained by the scenario definitions rather than copied
-into each implementation report.
+The JSON report contains the commit that last changed the transaction scenario
+corpus, plus only a five-digit fixture id and its observed result: `pass` for a
+successful validation, or the observed predicate failure otherwise. Fixture
+metadata is maintained by the scenario definitions rather than copied into
+each implementation report. The dataset commit lets consumers identify
+reports produced against an older fixture set.
 
 To run the whole suite of fixtures:
 

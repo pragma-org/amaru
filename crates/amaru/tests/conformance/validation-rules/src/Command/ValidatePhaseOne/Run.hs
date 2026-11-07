@@ -122,9 +122,13 @@ import System.Directory
     ( doesDirectoryExist
     , listDirectory
     )
+import System.Process
+    ( readProcess
+    )
 import System.FilePath
     ( dropExtension
     , takeExtension
+    , takeDirectory
     , takeFileName
     , (</>)
     )
@@ -149,7 +153,7 @@ run Options{target, jsonReport} =
 runSingleTestCase :: FilePath -> Maybe FilePath -> ExceptT Error IO ()
 runSingleTestCase testCasePath jsonReport = do
     result <- liftIO (runExceptT (validateTestCaseAt testCasePath))
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath [(testCasePath, result)])
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath (takeDirectory testCasePath) [(testCasePath, result)])
     case result of
         Right (label, validationLabel) -> liftIO (putTextLn (label <> ": " <> validationLabel))
         Left validationError -> ExceptT (pure (Left validationError))
@@ -161,21 +165,28 @@ runTestCaseDirectory directory jsonReport = do
         result <- runExceptT (validateTestCaseAt testCasePath)
         putLBSLn (encode (testCaseResult testCasePath result))
         pure (testCasePath, result)
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath results)
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath directory results)
     liftIO (Text.IO.hPutStr stderr (renderRunSummary directory results))
     when (any (isLeft . snd) results) (liftIO exitFailure)
 
-writeReport :: FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
-writeReport reportPath results = do
+writeReport :: FilePath -> FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
+writeReport reportPath datasetPath results = do
     generatedAt <- getCurrentTime
-    LazyByteString.writeFile reportPath (encode (report generatedAt results))
+    datasetCommit <- gitDatasetCommit datasetPath
+    LazyByteString.writeFile reportPath (encode (report generatedAt datasetCommit results))
 
-report :: UTCTime -> [(FilePath, Either Error (Text, Text))] -> Value
-report generatedAt results =
+gitDatasetCommit :: FilePath -> IO Text
+gitDatasetCommit datasetPath =
+    Text.strip . Text.pack
+        <$> readProcess "git" ["log", "-1", "--format=%H", "--", datasetPath] ""
+
+report :: UTCTime -> Text -> [(FilePath, Either Error (Text, Text))] -> Value
+report generatedAt datasetCommit results =
     object
         [ "version" .= ("1" :: Text)
         , "scenario" .= ("ledger-rules" :: Text)
         , "generated_at" .= generatedAt
+        , "dataset_commit" .= datasetCommit
         , "implementation" .= object ["name" .= ("cardano-node" :: Text)]
         , "scenarios" .= map scenarioResult results
         ]
