@@ -451,9 +451,10 @@ const ACCEPT_RETRY_PAUSE: Duration = Duration::from_secs(1);
 ///
 /// The listener itself rarely fails. A reset client shows up as an aborted or reset connection, and
 /// Linux reports network errors of the pending connection from accept (accept(2)); for those with
-/// an `ErrorKind` (network down, host or network unreachable) only that connection is lost, so
-/// accept again at once. Anything else passes too, such as running out of file descriptors or an
-/// `EPROTO`, which has no `ErrorKind`, but may fail again straight away, so pause first.
+/// an `ErrorKind` (host or network unreachable) only that connection is lost, so accept again at
+/// once. Anything else passes too, such as running out of file descriptors or an `EPROTO`, which
+/// has no `ErrorKind`, but may fail again straight away, so pause first. That includes network down:
+/// on Windows it means the network subsystem failed, which lasts.
 fn accept_retry_pause(error: &std::io::Error) -> Duration {
     #[expect(clippy::wildcard_enum_match_arm)]
     match error.kind() {
@@ -462,7 +463,6 @@ fn accept_retry_pause(error: &std::io::Error) -> Duration {
         | std::io::ErrorKind::ConnectionRefused
         | std::io::ErrorKind::HostUnreachable
         | std::io::ErrorKind::NetworkUnreachable
-        | std::io::ErrorKind::NetworkDown
         | std::io::ErrorKind::TimedOut
         | std::io::ErrorKind::Interrupted => Duration::ZERO,
         _ => ACCEPT_RETRY_PAUSE,
@@ -660,6 +660,8 @@ mod tests {
         }
         // EMFILE, "Too many open files"
         assert_eq!(accept_retry_pause(&Error::from_raw_os_error(24)), ACCEPT_RETRY_PAUSE);
+        // On Windows the network subsystem being down lasts, so it must not be retried in a busy loop.
+        assert_eq!(accept_retry_pause(&Error::from(ErrorKind::NetworkDown)), ACCEPT_RETRY_PAUSE);
     }
 
     #[tokio::test]
