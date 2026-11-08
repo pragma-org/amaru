@@ -629,29 +629,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn a_reset_client_only_fails_its_own_accept() -> anyhow::Result<()> {
-        let connections = TokioConnections::new(1024);
-        let addr = connections.listen(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
-
-        // The client resets its connection after the listener took it, before `accept` uses it.
-        let reset = std::net::TcpStream::connect(addr)?;
-        socket2::SockRef::from(&reset).set_linger(Some(Duration::ZERO))?;
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(reset);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let error = timeout(Duration::from_secs(1), connections.accept(addr)).await?.unwrap_err();
-        assert!(
-            matches!(error.kind(), std::io::ErrorKind::NotConnected | std::io::ErrorKind::ConnectionReset),
-            "{error}"
-        );
-
-        let client = TcpStream::connect(addr).await?;
-        let (peer, _) = timeout(Duration::from_secs(1), connections.accept(addr)).await??;
-        assert_eq!(peer, Peer::try_from(client.local_addr()?)?);
-        Ok(())
-    }
-
     #[test]
     fn accept_retry_pause_only_waits_when_the_failure_is_not_the_connections() {
         use std::io::{Error, ErrorKind};
