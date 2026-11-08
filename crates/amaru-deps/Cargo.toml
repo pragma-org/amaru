@@ -161,7 +161,7 @@ portable-atomic = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
+rand = { version = "0.9" }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", default-features = false, features = ["std"] }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
 rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
@@ -218,7 +218,7 @@ portable-atomic = { version = "1" }
 ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "std"] }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
+rand = { version = "0.9" }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
@@ -246,13 +246,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -276,13 +275,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -306,13 +304,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -336,13 +333,12 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -367,13 +363,12 @@ errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
@@ -397,12 +392,11 @@ stable_deref_trait = { version = "1" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
 tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log", "retry", "timeout"] }
@@ -424,7 +418,6 @@ windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_Fil
 
 [target.wasm32-unknown-unknown.dependencies]
 bumpalo = { version = "3", features = ["allocator_api", "collections"] }
-getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng", "wasm_js"] }
 js-sys = { version = "0.3" }
 libc = { version = "0.2" }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
@@ -452,13 +445,12 @@ errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "client-proxy-system", "http1", "http2", "server", "service"] }
-ipnet = { version = "2", features = ["serde"] }
+ipnet = { version = "2" }
 libc = { version = "0.2", features = ["extra_traits"] }
 mio = { version = "1", features = ["net", "os-ext"] }
 num = { version = "0.4", default-features = false, features = ["alloc", "libm"] }
 num-complex = { version = "0.4", default-features = false, features = ["libm"] }
 num-rational = { version = "0.4" }
-rand-93f6ce9d446188ac = { package = "rand", version = "0.10" }
 rustix = { version = "1", features = ["fs", "stdio", "termios"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
