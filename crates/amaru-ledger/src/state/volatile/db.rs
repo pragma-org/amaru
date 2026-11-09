@@ -35,7 +35,7 @@ use crate::{
             VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store},
+    store::{HistoricalStores, Store, TransactionalContext},
 };
 
 #[derive(Debug)]
@@ -353,8 +353,11 @@ impl VolatileDB {
     }
 
     /// Whether the rewards for the in-flight epoch are still to be computed.
-    pub fn rewards_not_ready(&self) -> bool {
-        matches!(self.overlay.rewards(), RewardsState::NotReady)
+    /// Whether the overlay holds rewards that wait for the next epoch boundary. A rollback across
+    /// that boundary turns the effective rewards back into computed ones, and the replay of the
+    /// epoch transition uses them again.
+    pub fn has_computed_rewards(&self) -> bool {
+        matches!(self.overlay.rewards(), RewardsState::Computed(_))
     }
 
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
@@ -409,6 +412,24 @@ impl VolatileDB {
         );
         self.draining = mem::take(&mut self.current);
         self.overlay.transition(effective_rewards, pools_updates, governance_updates, donations, account_exists);
+    }
+
+    /// Whether all blocks of the closing epoch are stable, or no epoch transition is pending. See
+    /// [`Self::epoch_tail_view`].
+    pub fn is_draining_empty(&self) -> bool {
+        self.draining.is_empty()
+    }
+
+    /// The blocks of the closing epoch that are still volatile, oldest first. Empty when no epoch
+    /// transition is pending, or when these blocks are all stable.
+    pub fn epoch_tail_view(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
+        self.draining.iter()
+    }
+
+    /// Write the end of the pending epoch transition to `batch`: pay the rewards, and reset the
+    /// recently pruned proposals. The pending transition is unchanged.
+    pub fn end_epoch<'store>(&self, batch: &impl TransactionalContext<'store>) -> Result<(), StateError> {
+        self.overlay.end_epoch(batch)
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
