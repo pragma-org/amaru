@@ -189,9 +189,6 @@ pub trait Store: ReadStore {
         unimplemented!("Store.next_snapshot({epoch})");
     }
 
-    /// A writable handle on a candidate snapshot.
-    type Candidate: Store;
-
     /// Save on disk a candidate snapshot of the store for `epoch`, and open it with write access.
     ///
     /// A candidate snapshot starts as a copy of the store. The caller then writes to it the
@@ -201,13 +198,7 @@ pub trait Store: ReadStore {
     ///
     /// If a candidate snapshot already exists for the same `epoch` and `last_block`, it is
     /// replaced. Candidate snapshots for other blocks are kept.
-    #[cfg(not(any(test, feature = "test-utils")))]
-    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Candidate>;
-
-    #[cfg(any(test, feature = "test-utils"))]
-    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Candidate> {
-        unimplemented!("Store.create_candidate_snapshot({epoch}, {last_block})");
-    }
+    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<impl Store + use<Self>>;
 
     /// Delete the candidate snapshot for `epoch` and `last_block`. Do nothing if this snapshot does
     /// not exist. All handles on the candidate snapshot must be closed first.

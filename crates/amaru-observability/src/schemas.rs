@@ -2245,10 +2245,10 @@ define_schemas! {
                         optional snapshot_count: u64
                         optional continuous_ranges: u64
                     }
-                    /// Skipped an unexpected file found in the snapshots directory
-                    public event UNEXPECTED_FILE {
+                    /// Skipped an unexpected directory found in the snapshots directory
+                    public event UNEXPECTED_DIRECTORY {
                         levels: warn
-                        required filename: String
+                        required dirname: String
                     }
                 }
                 /// Full scan for a given collection

@@ -359,9 +359,11 @@ impl Store for MockStore {
         self.db.next_snapshot(epoch)
     }
 
-    type Candidate = RocksDB;
-
-    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> amaru_ledger::store::Result<RocksDB> {
+    fn create_candidate_snapshot(
+        &self,
+        epoch: Epoch,
+        last_block: &HeaderHash,
+    ) -> amaru_ledger::store::Result<impl Store + use<>> {
         self.db.create_candidate_snapshot(epoch, last_block)
     }
 

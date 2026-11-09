@@ -4094,10 +4094,10 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `unexpected_file` | `event` | warn | public | Skipped an unexpected file found in the snapshots directory | filename |  |
+| `unexpected_directory` | `event` | warn | public | Skipped an unexpected file found in the snapshots directory | filename |  |
 | `validate` | `span` |  | public | Validate sufficient snapshots exist |  | snapshot_count, continuous_ranges |
 
-<details><summary>event: `unexpected_file`</summary>
+<details><summary>event: `unexpected_directory`</summary>
 
 | field | type | required |
 | --- | --- | --- |

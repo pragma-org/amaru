@@ -81,7 +81,7 @@ const KEY_GOVERNANCE_ACTIVITY: &str = "@governance-activity";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
-/// Marker in the name of a candidate snapshot directory: `<epoch>.candidate-<last block hash>`.
+/// This marker is used to identify candidate snapshot, when creating their directory name: `<epoch>.candidate-<last block hash>`.
 const CANDIDATE_MARKER: &str = ".candidate-";
 
 // RocksDB
@@ -193,6 +193,7 @@ impl RocksDB {
 
     pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
+        // Remove candidate snapshots on a restart since the volatile DB starts empty.
         remove_all_candidate_snapshots(&dir)?;
         assert_sufficient_snapshots(&dir)?;
         let live_dir = dir.join(DIR_LIVE_DB);
@@ -316,12 +317,7 @@ impl Store for RocksDB {
         info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch).in_scope(|| {
             let path = self.dir.join(epoch.to_string());
 
-            if path.exists() {
-                // RocksDB error can't be created externally, so panic instead
-                // It might be better to come up with a global error type
-                fs::remove_dir_all(&path)
-                    .map_err(|_| StoreError::Internal("Unable to remove existing snapshot directory".into()))?;
-            }
+            remove_dir_if_exists(&path)?;
 
             checkpoint::Checkpoint::new(&self.db)
                 .and_then(|handle| handle.create_checkpoint(path))
@@ -331,9 +327,11 @@ impl Store for RocksDB {
         })
     }
 
-    type Candidate = RocksDB;
-
-    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<RocksDB, StoreError> {
+    fn create_candidate_snapshot(
+        &self,
+        epoch: Epoch,
+        last_block: &HeaderHash,
+    ) -> Result<impl Store + use<>, StoreError> {
         let path = self.dir.join(candidate_dirname(epoch, last_block));
         remove_dir_if_exists(&path)?;
 
@@ -452,12 +450,14 @@ impl HistoricalStores for RocksDBHistoricalStores {
     }
 }
 
+/// Create a directory name for a candidate snapshot: `<epoch>.candidate-<last block hash>`
 fn candidate_dirname(epoch: Epoch, last_block: &HeaderHash) -> String {
     format!("{epoch}{CANDIDATE_MARKER}{last_block}")
 }
 
-fn is_candidate_dirname(filename: &str) -> bool {
-    filename
+/// Return true if the directory name is of the form: `<epoch>.candidate-<last block hash>`
+fn is_candidate_dirname(dirname: &str) -> bool {
+    dirname
         .split_once(CANDIDATE_MARKER)
         .is_some_and(|(epoch, last_block)| epoch.parse::<Epoch>().is_ok() && last_block.parse::<HeaderHash>().is_ok())
 }
@@ -491,20 +491,21 @@ fn remove_all_candidate_snapshots(dirname: &Path) -> Result<(), StoreError> {
 }
 
 fn with_snapshots(
-    dirname: &Path,
+    snapshots_dir: &Path,
     mut with: impl FnMut(PathBuf, Epoch) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
-    let mut dir = fs::read_dir(dirname).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+    let mut dir =
+        fs::read_dir(snapshots_dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(snapshots_dir, err)))?;
 
     for entry in dir.by_ref() {
-        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(snapshots_dir, err)))?;
         let path = entry.path();
-        let filename = entry.file_name();
-        let filename = filename.to_str().unwrap_or_default();
-        if let Ok(epoch) = filename.parse::<Epoch>() {
+        let dirname = entry.file_name();
+        let dirname = dirname.to_str().unwrap_or_default();
+        if let Ok(epoch) = dirname.parse::<Epoch>() {
             with(path, epoch)?;
-        } else if filename != DIR_LIVE_DB && !is_candidate_dirname(filename) {
-            warn!(stores::ledger::snapshots::UNEXPECTED_FILE, filename);
+        } else if dirname != DIR_LIVE_DB && !is_candidate_dirname(dirname) {
+            warn!(stores::ledger::snapshots::UNEXPECTED_DIRECTORY, dirname);
         }
     }
 
@@ -1304,7 +1305,7 @@ mod tests {
         }
 
         #[test]
-        fn a_candidate_snapshot_can_be_created_for_several_blocks() {
+        fn candidate_snapshots_can_be_created_for_different_blocks() {
             let dir = TempDir::new().unwrap();
             let (store, snapshots) = open_store(dir.path());
 

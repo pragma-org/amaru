@@ -128,10 +128,9 @@ pub trait ReadChainStore: BaseReadChainStore {
 
     /// Whether `ancestor` is on the chain that ends with `descendant`, `descendant` included.
     ///
-    /// This walks the same path as [`Self::ancestors_between`], without collecting it: it stops at
-    /// `ancestor`, or at the first header whose slot is not above the slot of `ancestor`.
-    ///
-    /// Returns `false` if a header along the way is missing from the store.
+    /// This function navigates the same headers as [`Self::ancestors_between`] and returns true
+    /// if it reaches `ancestor`, or false when it reaches the first header whose slot is below the
+    /// slot of `ancestor` (or if any header is missing from the store along the way).
     fn is_ancestor(&self, ancestor: &Point, descendant: HeaderHash) -> bool {
         let snapshot = self.snapshot();
         let ancestor_slot = ancestor.slot_or_default();

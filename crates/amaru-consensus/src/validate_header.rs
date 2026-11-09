@@ -77,10 +77,10 @@ pub fn validate_header(
             .map_err(ConsensusError::GetPoolError)?
             .ok_or(ConsensusError::UnknownPool { pool_id })?;
 
-        // A stake distribution from a candidate snapshot depends on the last block of its epoch.
-        // A header on a fork without that block needs another stake distribution: it is not
-        // available, so the header waits instead of failing. The header itself is not stored yet,
-        // so the walk starts from its parent.
+        // A stake distribution might have been computed from a candidate snapshot in case of a
+        // sparse chain. In that case we need to check that the header that we are checking for the
+        // given era is a descendant of the last block of that era because the blocks are not final
+        // and there could be several competing forks.
         if let Some((epoch, last_block)) =
             pool_summaries.candidate_for(header.slot(), era_history.as_ref()).map_err(ConsensusError::GetPoolError)?
             && !header.parent().is_some_and(|parent| store.is_ancestor(&last_block, parent))

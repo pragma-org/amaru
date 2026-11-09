@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//! Tests for switching the ledger `State` to a new fork.
-//! We want to show that:
+
+//! Tests for switching the ledger `State` to a new fork. We want to show that:
 //!
 //!  - The switch is atomic: either the whole fork is applied or nothing is applied.
 //!  - If the fork is applied we end up with a longer chain than the one we replaced,
@@ -28,15 +28,20 @@
 //!  - Completed: the fork was applied and the ledger tip is updated to the new fork tip.
 //!  - Failed: one of the blocks in the fork was invalid, and the ledger tip is restored to the pre-switch tip.
 //!
-//!  There is however a third outcome, Partial, which is a bit more subtle.
-//!  It happens when:
-//!   - A snapshot was forced by an epoch transition during the replay of the fork. The note in
-//!     `apply_transition` explains that this can only happen if the chain growth property of the
-//!     network is breached.
+//!  There is however a third outcome, Partial, which is a bit more subtle. It happens when:
+//!   - The replay of the fork crosses the boundary of epoch e+2 while the last blocks of epoch e
+//!     are still volatile. This only happens when epoch e+1 has fewer than `k` blocks, a breach of
+//!     the chain growth property of the network. The epoch transition then forces these blocks to
+//!     the stable store.
 //!   - One of the blocks of the fork then fails to be applied.
 //!
-//!  In that case we cannot revert the snapshot, and the best we can do is report a "partial" outcome
-//!  mentioning the last applied block and the failure.
+//!  In that case we cannot revert the writes to the stable store, and the best we can do is report
+//!  a "partial" outcome mentioning the last applied block and the failure.
+//!
+//!  A sparse chain with fewer than `k` blocks in the first 3·k/f slots of epoch e+1 does not give
+//!  a partial outcome: the ledger then takes a candidate snapshot of epoch e, and writes nothing
+//!  to the stable store. The switches that involve a candidate snapshot are tested in
+//!  `sparse_chain.rs`.
 //!
 //!  We follow this test plan:
 //!
@@ -56,7 +61,8 @@
 //!   3. Switch to a fork across an epoch transition.
 //!
 //!  PARTIAL SWITCH:
-//!   1. Full volatile window (k blocks) + forced snapshot (chain growth violation) + invalid block on the fork after the snapshot is taken.
+//!   1. Fewer than `k` blocks in epoch e+1 + fork across the boundary of epoch e+2 (forced flush)
+//!      + invalid block on the fork after the boundary.
 //!
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
@@ -66,6 +72,7 @@ use amaru_uplc::arena_pool::ArenaPool;
 use crate::{
     MockStore, StateAcrossEpochBoundary, assert_invalid_switch_to_fork_from, empty_block_at, epoch_of, forward_to,
     invalid_block_at, make_state_across_epoch_boundary, make_state_in_epoch, make_state_in_epoch_with_store, point,
+    roll_forward,
 };
 
 // ASSERTIONS
@@ -409,37 +416,48 @@ fn a_switch_to_fork_can_be_successful_across_an_epoch_transition() {
 // ----------------------------------------------------------------------------
 
 #[test]
-fn a_failed_switch_is_fully_restored_when_a_candidate_snapshot_is_taken_during_the_replay() {
-    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, block_after } =
+fn a_switch_is_partial_when_an_invalid_block_follows_a_forced_flush_of_the_last_blocks_of_an_epoch() {
+    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, .. } =
         make_state_across_epoch_boundary();
     let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());
+    let next_boundary_slot = boundary_slot + PREPROD_GLOBAL_PARAMETERS.epoch_length();
+    assert_eq!(epoch_of(next_boundary_slot - 1), epoch_of(boundary_slot), "b' - 1 is in epoch e+1");
+    assert_eq!(epoch_of(next_boundary_slot), epoch_of(boundary_slot) + 1, "b' is the first slot of epoch e+2");
 
-    // Switch to a fork starting below the boundary, whose first block sits a whole stability
-    // window (3·k/f slots) into the new epoch — fewer than `k` blocks in that many slots is a
-    // chain growth violation. Applying block3 re-runs the epoch transition and, with the
-    // pre-boundary tail still unstable, takes a candidate snapshot of epoch e. The stable store
-    // is unchanged.
+    // Epoch e+1 has only 4 blocks, far fewer than `k`. Thus block1, the last block of epoch e, is
+    // still volatile at the end of epoch e+1. block3 takes a candidate snapshot of epoch e:
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
+    let block4 = empty_block_at(boundary_slot + stability_window + 1);
+    roll_forward(&mut state, &block4);
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 2));
+
+    // A fork replaces block5. Its first block crosses the boundary of epoch e+2: the epoch
+    // transition forces block1 to the stable store. Its second block is invalid:
     //
-    //             epoch e            ╎        epoch e+1
-    //     -------------------------- ╎ -------------------------------------------
-    //     fragment ── block1         ╎ block2                          rolled back
-    //                      │         ╎
-    //                      └─────────╎ ── ... ── block3 ── block4 (invalid)  replayed
-    //                                   3·k/f ──┘
+    //             epoch e            ╎                  epoch e+1                  ╎       epoch e+2
+    //     -------------------------- ╎ ------------------------------------------- ╎ ---------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4 ── block5 ╎                rolled back
+    //                                ╎                              │              ╎
+    //                                ╎                              └──────────────╎ block5' ── block6'  replayed
+    //     slots                      ╎ b                b+w       b+w+1     b+w+2  ╎ b'         b'+1
     //
-    // block4 then fails. Nothing reached the stable store, so the switch restores the chain it
-    // replaced.
-    let block3 = empty_block_at(boundary_slot + stability_window);
-    let block4 = invalid_block_at(boundary_slot + stability_window + 1);
-    let block4_tip = block4.point();
+    // b is `boundary_slot`, w is `stability_window` (3·k/f slots), and b' is the first slot of
+    // epoch e+2. block6' is invalid.
+    let block5_prime = empty_block_at(next_boundary_slot);
+    let block6_prime = invalid_block_at(next_boundary_slot + 1);
+    let (block5_prime_tip, block6_prime_tip) = (block5_prime.point(), block6_prime.point());
 
-    let result = state.switch_to_fork(&block_before.point(), vec![block3, block4], &ArenaPool::new(1024, 0));
-
-    match result {
-        Ok(ForkSwitchOutcome::Failed { failure, .. }) => assert_eq!(failure.tip, block4_tip),
-        other => panic!("expected a failed switch, got: {other:?}"),
+    match state.switch_to_fork(&block4.point(), vec![block5_prime, block6_prime], &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Partial { applied_tip, failure, .. }) => {
+            assert_eq!(applied_tip, block5_prime_tip, "the ledger keeps the valid prefix of the fork");
+            assert_eq!(failure.tip, block6_prime_tip);
+        }
+        other => panic!("expected a partial switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), block_after.point(), "the ledger is back on the chain it had before the switch");
-    assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
+    assert_eq!(*state.tip(), block5_prime_tip, "the ledger stays on the valid prefix of the fork");
+    assert!(
+        stable.lock().unwrap().contains(&block_before.point()),
+        "the forced flush wrote block1 to the stable store"
+    );
 }

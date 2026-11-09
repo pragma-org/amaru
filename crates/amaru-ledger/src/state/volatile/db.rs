@@ -414,14 +414,12 @@ impl VolatileDB {
         self.overlay.transition(effective_rewards, pools_updates, governance_updates, donations, account_exists);
     }
 
-    /// Whether all blocks of the closing epoch are stable, or no epoch transition is pending. See
-    /// [`Self::epoch_tail_view`].
+    /// Whether all blocks of the closing epoch are stable, or no epoch transition is pending.
     pub fn is_draining_empty(&self) -> bool {
         self.draining.is_empty()
     }
 
-    /// The blocks of the closing epoch that are still volatile, oldest first. Empty when no epoch
-    /// transition is pending, or when these blocks are all stable.
+    /// Return the blocks of the closing epoch that are still volatile, oldest first.
     pub fn epoch_tail_view(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
         self.draining.iter()
     }
