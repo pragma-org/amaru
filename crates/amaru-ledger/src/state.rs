@@ -18,7 +18,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     mem,
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -132,6 +132,10 @@ where
     /// The candidate snapshot of the closing epoch, when the ledger needed the snapshot of that
     /// epoch before its last blocks were stable. See [`Store::create_candidate_snapshot`].
     candidate_snapshot: Option<CandidateSnapshot>,
+
+    /// The stake distribution that the background task computes from the candidate snapshot, as
+    /// published. Shared with the task.
+    candidate_distribution: Option<Arc<Mutex<CandidateDistribution>>>,
 
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<RewardsComputation>>,
@@ -273,6 +277,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             observers: LedgerObservers::default(),
 
             candidate_snapshot: None,
+            candidate_distribution: None,
 
             rewards_join_handle: None,
             rewards_cancelled: Arc::new(AtomicBool::new(false)),
@@ -426,6 +431,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             if let Some(candidate) = self.candidate_snapshot.take() {
                 self.remove_candidate_snapshot_directory(&candidate)?;
             }
+            self.candidate_distribution = None;
 
             let db = &self.stable;
 
@@ -571,13 +577,13 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 // of the same epoch is taken after the background tasks start.
                 Some(candidate) => {
                     debug_assert_eq!(candidate.epoch, current_epoch - 1);
-                    let previous_epoch =
-                        self.snapshots.for_candidate_epoch(candidate.epoch, &candidate.last_block.hash())?;
-                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot);
+                    let last_block = candidate.last_block;
+                    let previous_epoch = self.snapshots.for_candidate_epoch(candidate.epoch, &last_block.hash())?;
+                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot, Some(last_block));
                 }
                 None => {
                     let previous_epoch = self.snapshots.for_epoch(current_epoch - 1)?;
-                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot);
+                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot, None);
                 }
             }
         }
@@ -586,14 +592,20 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     }
 
     /// Compute the stake distribution of `previous_epoch` (when not held yet), then the rewards
-    /// of `current_epoch`, in a background thread.
+    /// of `current_epoch`, in a background thread. `candidate_last_block` is set when
+    /// `previous_epoch` is a candidate snapshot.
     fn spawn_background_tasks(
         &mut self,
         current_epoch: Epoch,
         previous_epoch: impl Snapshot + Send + 'static,
         rewards_snapshot: impl Snapshot + Send + 'static,
+        candidate_last_block: Option<Point>,
     ) {
         {
+            self.candidate_distribution =
+                candidate_last_block.map(|_| Arc::new(Mutex::new(CandidateDistribution::default())));
+            let candidate = candidate_last_block.zip(self.candidate_distribution.clone());
+
             // Only rotate if we don't already have the distribution; this can happen on restart.
             let rotation = match self.stake_distributions.front() {
                 Some(front) if front.epoch >= previous_epoch.epoch() => None,
@@ -612,6 +624,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 era_history: self.era_history().clone(),
                 on_stake_dist_updated: self.on_stake_dist_updated.clone(),
                 on_ledger_snapshot: self.observers.on_ledger_snapshot.clone(),
+                candidate,
             };
 
             // The rewards task is a fresh thread, so it does not inherit the caller's subscriber.
@@ -669,8 +682,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         }
 
         if self.volatile.is_draining_empty() {
-            self.volatile.apply_transition(&self.stable)?;
-            self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
+            self.flush_overlay()?;
         } else if self.candidate_snapshot.is_none() {
             self.create_candidate_snapshot()?;
         }
@@ -756,10 +768,31 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             }
         }
 
+        self.flush_overlay()
+    }
+
+    /// Write the pending epoch transition to the stable store, once the last blocks of the closing
+    /// epoch are there. This takes the final snapshot of that epoch.
+    fn flush_overlay(&mut self) -> Result<(), StateError> {
         self.volatile.apply_transition(&self.stable)?;
         self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
-
+        self.publish_candidate_distribution_as_final();
         Ok(())
+    }
+
+    /// Mark the stake distribution computed from the candidate snapshot as final, now that the
+    /// last block of its epoch is stable. If the background task already published it, publish it
+    /// again without the candidate tag; otherwise, the task publishes it without the tag.
+    fn publish_candidate_distribution_as_final(&self) {
+        let Some(shared) = &self.candidate_distribution else {
+            return;
+        };
+        let mut distribution = shared.lock().unwrap_or_else(PoisonError::into_inner);
+        distribution.is_final = true;
+        if let (Some(mut summaries), Some(notify)) = (distribution.published.take(), &self.on_stake_dist_updated) {
+            summaries.candidates.clear();
+            notify(summaries);
+        }
     }
 
     /// View the stake distribution for a given epoch, if held in memory.
@@ -1228,6 +1261,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             let _ = handle.join();
             self.rewards_cancelled.store(false, Ordering::Relaxed);
         }
+        self.candidate_distribution = None;
     }
 
     /// Publish the stake distributions held in memory, for example after a background task
@@ -1419,7 +1453,7 @@ fn pool_summaries_for<'iter>(stake_distributions: impl Iterator<Item = &'iter St
         }
         by_epoch.insert(distr.epoch, pools);
     }
-    PoolSummaries { by_epoch }
+    PoolSummaries { by_epoch, ..Default::default() }
 }
 
 // RewardsCalculator
@@ -1478,6 +1512,19 @@ struct BackgroundTasks<Previous, Snap> {
     era_history: EraHistory,
     on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
     on_ledger_snapshot: Option<Arc<dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync>>,
+    /// Set when `previous_epoch` is a candidate snapshot: its last block, and the published stake
+    /// distribution, shared with the ledger.
+    candidate: Option<(Point, Arc<Mutex<CandidateDistribution>>)>,
+}
+
+/// The stake distribution that a background task computed from a candidate snapshot.
+#[derive(Default)]
+struct CandidateDistribution {
+    /// Set by the ledger when the last block of the epoch became stable.
+    is_final: bool,
+    /// The pool summaries last published with the candidate tag; kept so that the ledger can
+    /// publish them again, without the tag.
+    published: Option<PoolSummaries>,
 }
 
 impl<Previous: Snapshot, Snap: Snapshot> BackgroundTasks<Previous, Snap> {
@@ -1516,7 +1563,19 @@ impl<Previous: Snapshot, Snap: Snapshot> BackgroundTasks<Previous, Snap> {
         );
 
         if let Some(notify) = &self.on_stake_dist_updated {
-            notify(summaries);
+            match &self.candidate {
+                Some((last_block, shared)) => {
+                    // Publish under the lock, so that the ledger cannot mark the distribution as
+                    // final between the check and the publication.
+                    let mut shared = shared.lock().unwrap_or_else(PoisonError::into_inner);
+                    if !shared.is_final {
+                        summaries.candidates.insert(distribution.epoch, *last_block);
+                        shared.published = Some(summaries.clone());
+                    }
+                    notify(summaries);
+                }
+                None => notify(summaries),
+            }
         }
 
         Ok(distribution)

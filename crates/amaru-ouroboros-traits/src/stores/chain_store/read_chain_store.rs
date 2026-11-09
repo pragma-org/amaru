@@ -126,6 +126,34 @@ pub trait ReadChainStore: BaseReadChainStore {
         Some(tips)
     }
 
+    /// Whether `ancestor` is on the chain that ends with `descendant`, `descendant` included.
+    ///
+    /// This walks the same path as [`Self::ancestors_between`], without collecting it: it stops at
+    /// `ancestor`, or at the first header whose slot is not above the slot of `ancestor`.
+    ///
+    /// Returns `false` if a header along the way is missing from the store.
+    fn is_ancestor(&self, ancestor: &Point, descendant: HeaderHash) -> bool {
+        let snapshot = self.snapshot();
+        let ancestor_slot = ancestor.slot_or_default();
+        let ancestor_hash = ancestor.hash();
+        let mut current = descendant;
+
+        while current != ancestor_hash {
+            let Some(header) = snapshot.load_header(&current) else {
+                return false;
+            };
+            if header.slot() <= ancestor_slot {
+                return false;
+            }
+            let Some(parent) = header.parent() else {
+                return false;
+            };
+            current = parent;
+        }
+
+        true
+    }
+
     /// Return the fork point with the best chain (if it exists) and the list of points from
     /// that point to the new best tip (in that order, ending with `start`)
     ///

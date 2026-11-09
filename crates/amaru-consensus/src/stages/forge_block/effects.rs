@@ -276,7 +276,7 @@ mod tests {
         let nonce = Nonce::from([1u8; 32]);
         let mut by_pool = BTreeMap::new();
         by_pool.insert(pool, PoolSummary { vrf: Hash::new([0u8; 32]), stake: 1, active_stake: 1 });
-        let pools = PoolSummaries { by_epoch: BTreeMap::from([(Epoch::from(161), by_pool)]) };
+        let pools = PoolSummaries { by_epoch: BTreeMap::from([(Epoch::from(161), by_pool)]), ..Default::default() };
         let parameters = ConsensusParameters::create(1, 129_600, 62, 1, &PREPROD_ERA_HISTORY);
         let resources = resources_with(Some(Arc::new(credentials)), parameters, pools);
         let effect = LeaderScheduleEffect::new(Epoch::from(163), nonce, pool, from, until);
