@@ -617,7 +617,7 @@ fn synthesized_snapshot_splits_stake_evenly() {
             .collect();
         by_epoch.insert(distribution.epoch, pools);
     }
-    let summaries = PoolSummaries { by_epoch };
+    let summaries = PoolSummaries { by_epoch, ..Default::default() };
     let slot = Slot::from(4 * network.global_parameters.epoch_length());
     for credentials in &fixture.pools {
         let summary =

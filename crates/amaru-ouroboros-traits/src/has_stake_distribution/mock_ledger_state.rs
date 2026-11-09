@@ -43,6 +43,6 @@ impl MockLedgerState {
         );
         let mut by_epoch = BTreeMap::new();
         by_epoch.insert(epoch, pools);
-        PoolSummaries { by_epoch }
+        PoolSummaries { by_epoch, ..Default::default() }
     }
 }

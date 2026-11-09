@@ -552,6 +552,24 @@ fn ancestors_between_reports_a_from_on_another_branch() {
 }
 
 #[test]
+fn is_ancestor_holds_for_a_header_and_its_ancestors() {
+    with_db(|store| {
+        let headers = make_forked_headers();
+        append_best_chain(store.clone(), headers.main());
+
+        assert!(store.is_ancestor(&headers.h0.point(), headers.h3.hash()));
+        assert!(store.is_ancestor(&headers.h2.point(), headers.h3.hash()));
+        assert!(store.is_ancestor(&headers.h3.point(), headers.h3.hash()), "a header is its own ancestor");
+        assert!(
+            !store.is_ancestor(&headers.h3.point(), headers.h1.hash()),
+            "a header is not the ancestor of its parent"
+        );
+        let absent = run_strategy(any::<HeaderHash>());
+        assert!(!store.is_ancestor(&headers.h0.point(), absent), "a missing header cannot have an ancestor");
+    });
+}
+
+#[test]
 fn find_ancestor_on_best_chain_returns_none_when_start_header_is_not_in_store() {
     with_db(|store| {
         let headers = make_forked_headers();
