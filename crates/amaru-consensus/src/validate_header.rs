@@ -164,7 +164,6 @@ mod test {
     #[test]
     fn a_header_that_does_not_descend_from_the_last_block_of_a_candidate_distribution_waits() {
         let Chain { store, sibling, header, .. } = make_chain();
-
         let result = validate_with_candidate(store, &header, sibling.point());
 
         assert_eq!(
@@ -177,7 +176,6 @@ mod test {
     #[test]
     fn a_header_that_descends_from_the_last_block_of_a_candidate_distribution_is_checked() {
         let Chain { store, grandparent, header, .. } = make_chain();
-
         let result = validate_with_candidate(store, &header, grandparent.point());
 
         // The pool summary used here is made up, so the Praos checks fail: what matters is that

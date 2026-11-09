@@ -16,9 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::block_body_parts::hash_body_cbor;
 use crate::{
-    AuxiliaryData, Hash, Header, HeaderHash, Point, ProtocolVersion, Transaction, TransactionBody, TransactionIndex,
-    TransactionRef, WitnessSet, cbor, cbor::WithSize, protocol_version::PROTOCOL_VERSION_12, size::BLOCK_BODY,
-    traits::is_header::IsHeader,
+    AuxiliaryData, Hash, Header, HeaderHash, Point, ProtocolVersion, Slot, Transaction, TransactionBody,
+    TransactionIndex, TransactionRef, WitnessSet, cbor, cbor::WithSize, protocol_version::PROTOCOL_VERSION_12,
+    size::BLOCK_BODY, traits::is_header::IsHeader,
 };
 
 #[derive(Debug, Clone, PartialEq, cbor::Encode)]
@@ -78,6 +78,10 @@ impl Block {
 
     pub fn point(&self) -> Point {
         self.header.point()
+    }
+
+    pub fn slot_or_default(&self) -> Slot {
+        self.point().slot_or_default()
     }
 }
 
