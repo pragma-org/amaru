@@ -40,6 +40,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
+- **amaru-ledger**, **amaru-consensus**: on a chain with fewer than `k` blocks in the first 3·k/f slots of an epoch, take a candidate snapshot to compute the stake distribution and validate headers.
 
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
 

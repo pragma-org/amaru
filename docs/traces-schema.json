@@ -5533,6 +5533,124 @@
       "description": "Create validation context for a block",
       "public": true
     },
+    "amaru::ledger::candidate_snapshot::REMOVE_FAILED": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "last_block": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "last_block",
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "remove_failed",
+      "kind": "event",
+      "target": "amaru::ledger::candidate_snapshot",
+      "description": "The directory of a candidate snapshot that no longer serves could not be deleted. Nothing reads it, and the node deletes it again when it starts.",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
+    "amaru::ledger::candidate_snapshot::UPDATE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "last_block": {
+          "title": "Point",
+          "description": "Origin is an empty array. Specific points are [slot, header hash, block height]. The hash is a hex string in JSON; CBOR transport uses a byte string.",
+          "oneOf": [
+            {
+              "type": "array",
+              "maxItems": 0
+            },
+            {
+              "type": "array",
+              "items": [
+                {
+                  "description": "slot",
+                  "type": "integer"
+                },
+                {
+                  "description": "header hash",
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "description": "block height",
+                  "type": "integer"
+                }
+              ],
+              "maxItems": 3,
+              "minItems": 3
+            }
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "last_block",
+        "outcome"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "update",
+      "kind": "event",
+      "target": "amaru::ledger::candidate_snapshot",
+      "description": "A snapshot of an epoch whose last blocks are still volatile changed state. Outcome ∈ {created, final, discarded, restored, removed}: `created` at the first block after 3·k/f; `final` when its last block became stable; `discarded` when a rollback removed its last block; `restored` after a failed fork switch; `removed` when its directory is deleted.",
+      "public": true,
+      "levels": [
+        "info"
+      ]
+    },
     "amaru::ledger::chain_growth::VIOLATE": {
       "type": "object",
       "properties": {

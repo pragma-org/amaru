@@ -1212,6 +1212,27 @@ define_schemas! {
                     required reason: String
                 }
             }
+            candidate_snapshot {
+                /// A snapshot of an epoch whose last blocks are still volatile changed state.
+                /// Outcome ∈ {created, final, discarded, restored, removed}: `created` at the first
+                /// block after 3·k/f; `final` when its last block became stable; `discarded` when a
+                /// rollback removed its last block; `restored` after a failed fork switch;
+                /// `removed` when its directory is deleted.
+                public event UPDATE {
+                    levels: info
+                    required epoch: amaru_kernel::Epoch
+                    required last_block: amaru_kernel::Point
+                    required outcome: String
+                }
+                /// The directory of a candidate snapshot that no longer serves could not be deleted.
+                /// Nothing reads it, and the node deletes it again when it starts.
+                public event REMOVE_FAILED {
+                    levels: warn
+                    required epoch: amaru_kernel::Epoch
+                    required last_block: amaru_kernel::Point
+                    required reason: String
+                }
+            }
             constitutional_committee {
                 /// The constitutional committee votes were ignored during ratification
                 public event IGNORE {
