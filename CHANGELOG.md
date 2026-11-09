@@ -68,6 +68,10 @@ Other guiding principles:
 - **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
 - **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.
 
+### Fixed
+
+- **amaru-ledger**: on a chain with fewer than `k` blocks in the first 3·k/f slots of an epoch, take a candidate snapshot to compute the stake distribution and validate headers.
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added
