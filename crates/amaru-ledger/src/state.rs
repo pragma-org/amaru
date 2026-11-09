@@ -696,7 +696,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         if self.volatile.is_draining_empty() {
             self.flush_overlay()?;
         } else if self.candidate_snapshot.is_none() {
-            self.create_candidate_snapshot()?;
+            self.make_candidate_snapshot()?;
         }
 
         Ok(())
@@ -705,14 +705,14 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// Take a candidate snapshot of the closing epoch, whose last blocks are still volatile.
     ///
     /// In a healthy chain that honors the Chain Growth property, this never happens: the ledger
-    /// sees `k` blocks before 3*k/f slots of the new epoch, so the last blocks of the closing
-    /// epoch are stable by then. Cardano does not necessarily honor Chain Growth; yet the ledger
-    /// needs a snapshot to compute the stake distribution that validates the upcoming headers.
+    /// sees `k` blocks before 3*k/f slots of the new epoch, so the last blocks of the closing epoch
+    /// are stable by then. If this property is not satisfied the ledger still needs a snapshot to
+    /// compute the stake distribution to validate the upcoming headers in the next era.
     ///
     /// The candidate snapshot is a copy of the stable store, with the last blocks of the closing
     /// epoch and the end of that epoch (rewards payment) written to it. The stable store and the
     /// volatile state are unchanged, so a rollback through these blocks stays possible.
-    fn create_candidate_snapshot(&mut self) -> Result<(), StateError> {
+    fn make_candidate_snapshot(&mut self) -> Result<(), StateError> {
         let epoch = self.volatile.epoch() - 1;
 
         warn!(

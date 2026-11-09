@@ -11194,22 +11194,22 @@
       "description": "Write a slot/block-issuer entry",
       "public": true
     },
-    "amaru::stores::ledger::snapshots::UNEXPECTED_FILE": {
+    "amaru::stores::ledger::snapshots::UNEXPECTED_DIRECTORY": {
       "type": "object",
       "properties": {
-        "filename": {
+        "dirname": {
           "type": "string"
         }
       },
       "required": [
-        "filename"
+        "dirname"
       ],
       "optional": [],
       "additionalProperties": false,
-      "name": "unexpected_file",
+      "name": "unexpected_directory",
       "kind": "event",
       "target": "amaru::stores::ledger::snapshots",
-      "description": "Skipped an unexpected file found in the snapshots directory",
+      "description": "Skipped an unexpected directory found in the snapshots directory",
       "public": true,
       "levels": [
         "warn"
