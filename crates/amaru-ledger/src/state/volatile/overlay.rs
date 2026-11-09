@@ -192,6 +192,19 @@ impl StateOverlay {
         self.governance_updates = Some(Arc::new(governance_updates));
     }
 
+    /// Write the end of the epoch: pay the rewards, and reset the recently pruned proposals.
+    ///
+    /// The overlay is unchanged, so the same writes can go to more than one store: to a candidate
+    /// snapshot first, then to the stable store when the last blocks of the epoch are stable.
+    pub fn end_epoch<'store>(&self, batch: &impl TransactionalContext<'store>) -> Result<(), StateError> {
+        let RewardsState::Effective(effective_rewards) = &self.rewards else {
+            return Err(StateError::NoEffectiveRewards);
+        };
+        pay_rewards(batch, effective_rewards)?;
+        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
+        Ok(())
+    }
+
     /// Flush an overlay to disk.
     ///
     /// Returns the freshly-enacted `(protocol_parameters, governance_activity, guardrail_script)`
@@ -256,18 +269,9 @@ impl StateOverlay {
 
                 Span::current().record("should_end_epoch", should_end_epoch);
 
-                if should_end_epoch {
-                    if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
-                        pay_rewards(batch, &effective_rewards)?;
-                        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
-                    } else {
-                        return Err(StateError::NoEffectiveRewards);
-                    }
-                } else {
-                    mem::take(&mut self.rewards);
-                }
-
-                Ok(())
+                let ended = if should_end_epoch { self.end_epoch(batch) } else { Ok(()) };
+                mem::take(&mut self.rewards);
+                ended
             })?;
 
             // ------------------------------------------------------------------------------ Snapshot
