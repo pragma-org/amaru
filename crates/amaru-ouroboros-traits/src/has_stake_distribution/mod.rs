@@ -85,8 +85,7 @@ impl PoolSummaries {
         Ok(pools.get(pool).copied())
     }
 
-    /// When the stake distribution used at `slot` comes from a candidate snapshot: its epoch, and
-    /// the last block of that epoch that a header at `slot` must descend from.
+    /// Return the epoch and last block point if there is a candidate snapshot created for the `slot` era.
     pub fn candidate_for(&self, slot: Slot, era_history: &EraHistory) -> Result<Option<(Epoch, Point)>, GetPoolError> {
         Ok(Self::target_epoch(slot, era_history)?
             .and_then(|epoch| self.candidates.get(&epoch).map(|last_block| (epoch, *last_block))))
