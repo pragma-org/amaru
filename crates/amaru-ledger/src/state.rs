@@ -424,7 +424,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             // this epoch, or the forced flush above just took it. The rewards task, the only reader of the
             // candidate snapshot, is joined. So the candidate snapshot is no longer needed.
             if let Some(candidate) = self.candidate_snapshot.take() {
-                self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash())?;
+                self.remove_candidate_snapshot_directory(&candidate)?;
             }
 
             let db = &self.stable;
@@ -691,10 +691,6 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn create_candidate_snapshot(&mut self) -> Result<(), StateError> {
         let epoch = self.volatile.epoch() - 1;
 
-        let Some(last_block) = self.volatile.epoch_tail_view().last().map(|fragment| fragment.point()) else {
-            return Ok(());
-        };
-
         warn!(
             ledger::chain_growth::VIOLATE,
             unstable_tail_length = self.volatile.epoch_tail_view().count(),
@@ -705,6 +701,19 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 stability_window = self.global_parameters().stability_window()
             )
         );
+
+        self.write_candidate_snapshot()?;
+        Ok(())
+    }
+
+    /// Write the candidate snapshot of the closing epoch to disk, from the stable store and the
+    /// blocks of that epoch that are still volatile, and record it.
+    fn write_candidate_snapshot(&mut self) -> Result<(), StateError> {
+        let epoch = self.volatile.epoch() - 1;
+
+        let Some(last_block) = self.volatile.epoch_tail_view().last().map(|fragment| fragment.point()) else {
+            return Ok(());
+        };
 
         let protocol_parameters = self.protocol_parameters_for(epoch).unwrap_or_else(|| {
             unreachable!("invariant violation: no protocol parameters for the closing epoch {epoch}")
@@ -1041,7 +1050,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         // We return an error to let the consensus layer deal with it.
         if fork_length < rollback_length || fork_length > rollback_length + 1 {
             error_record!(ledger::state::SWITCH_TO_FORK, outcome = "invalid fork length");
-            self.recover(state_recovery);
+            self.recover(state_recovery)?;
             return Err(StateError::InvalidForkLength { rollback_length, fork_length }.into());
         }
 
@@ -1075,11 +1084,23 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     // violates the Chain Growth property (see `apply_transition`).
                     if self.immutable_tip() == initial_immutable_tip {
                         info_record!(ledger::state::SWITCH_TO_FORK, outcome = "failed");
-                        self.recover(state_recovery);
+                        // The invalid block is the cause: keep it as the error, and the failed
+                        // recovery as its context.
+                        if let Err(recovery_error) = self.recover(state_recovery) {
+                            return Err(anyhow::anyhow!(
+                                "invalid block {} on the fork: {}",
+                                failure.tip,
+                                failure.reason
+                            )
+                            .context(format!(
+                                "cannot restore the ledger after a failed fork switch: {recovery_error}"
+                            )));
+                        }
                         return Ok(ForkSwitchOutcome::Failed { failure });
                     }
 
                     warn_record!(ledger::state::SWITCH_TO_FORK, outcome = "partial");
+                    self.remove_replaced_candidate_snapshot(state_recovery.candidate_before)?;
                     return Ok(ForkSwitchOutcome::Partial { applied_tip, metrics, failure });
                 }
                 BlockValidation::Err(error) => {
@@ -1087,9 +1108,19 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     // Restore the pre-switch state while nothing has reached the stable store.
                     // If the error is a `RewardsSummaryNotReady` we might want to retry.
                     let stable_modified = self.immutable_tip() != initial_immutable_tip;
-                    if !stable_modified {
-                        self.recover(state_recovery);
-                    }
+                    let error = if stable_modified {
+                        self.remove_replaced_candidate_snapshot(state_recovery.candidate_before)?;
+                        error
+                    } else {
+                        // The first error is the cause: keep it, with the failed recovery as its
+                        // context.
+                        match self.recover(state_recovery) {
+                            Ok(()) => error,
+                            Err(recovery_error) => error.context(format!(
+                                "cannot restore the ledger after a failed fork switch: {recovery_error}"
+                            )),
+                        }
+                    };
                     error_record!(ledger::state::SWITCH_TO_FORK, outcome = "error", stable_modified);
                     return Err(error);
                 }
@@ -1107,7 +1138,11 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         }
 
         // Drop recovery without restoring — new tip is committed.
+        // Remove the candidate snapshot if a new one has been computed
+        let candidate_before = state_recovery.candidate_before.clone();
         drop(state_recovery);
+        self.remove_replaced_candidate_snapshot(candidate_before)?;
+
         if self.observers.wants_block_events() {
             for block in &deferred_blocks {
                 #[expect(clippy::expect_used)]
@@ -1127,7 +1162,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     }
 
     /// Rollback to a previous valid point and restore the state at that point
-    fn recover(&mut self, rollback_guard: RollbackGuard<'_>) {
+    fn recover(&mut self, rollback_guard: RollbackGuard<'_>) -> Result<(), StateError> {
         let immutable_tip = self.immutable_tip();
 
         assert_eq!(
@@ -1144,9 +1179,86 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 self.volatile.undo_rollback(*recovery);
             }
         }
+
+        // The replay discarded, created or removed a candidate snapshot: bring back the one that
+        // matches the restored chain, and restart the background tasks from it now. The next
+        // header can need the stake distribution that they compute, and no block can arrive
+        // before that header is accepted.
+        if self.candidate_snapshot != rollback_guard.candidate_before {
+            self.cancel_background_tasks();
+            if let Some(replayed) = self.candidate_snapshot.take() {
+                self.remove_candidate_snapshot_directory(&replayed)?;
+            }
+            if rollback_guard.candidate_before.is_some() {
+                self.write_candidate_snapshot()?;
+            }
+            self.publish_stake_distributions();
+            self.try_compute_rewards()?;
+        }
+
+        Ok(())
     }
 
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
+        let immutable_tip = self.immutable_tip();
+        let candidate_before = self.candidate_snapshot.clone();
+        let kind = self.rollback_volatile_to(to)?;
+        self.discard_rolled_back_candidate_snapshot();
+        Ok(RollbackGuard { immutable_tip, candidate_before, kind })
+    }
+
+    /// Forget the candidate snapshot when a rollback removed its last block: the snapshot, the
+    /// stake distribution computed from it, and the rewards computed from it no longer match the
+    /// chain. Its directory stays on disk until the fork switch ends, so that a failed switch can
+    /// restore it.
+    fn discard_rolled_back_candidate_snapshot(&mut self) {
+        let Some(_) = self.candidate_snapshot.take_if(|candidate| !self.volatile.has_point(&candidate.last_block))
+        else {
+            return;
+        };
+
+        self.cancel_background_tasks();
+        self.publish_stake_distributions();
+    }
+
+    /// Stop the background computation of the stake distribution and the rewards, and wait for it.
+    fn cancel_background_tasks(&mut self) {
+        if let Some(handle) = self.rewards_join_handle.take() {
+            self.rewards_cancelled.store(true, Ordering::Relaxed);
+            let _ = handle.join();
+            self.rewards_cancelled.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// Publish the stake distributions held in memory, for example after a background task
+    /// published one that is no longer valid.
+    fn publish_stake_distributions(&self) {
+        if let Some(notify) = &self.on_stake_dist_updated {
+            notify(pool_summaries_for(self.stake_distributions.iter()));
+        }
+    }
+
+    /// Delete the candidate snapshot recorded before a fork switch, unless it is still the current
+    /// one. A fork point at or after its last block leaves it untouched. A fork point before its
+    /// last block always discards it: the fork cannot contain the same last block.
+    fn remove_replaced_candidate_snapshot(
+        &self,
+        candidate_before: Option<CandidateSnapshot>,
+    ) -> Result<(), StoreError> {
+        match candidate_before {
+            Some(candidate) if self.candidate_snapshot.as_ref() != Some(&candidate) => {
+                self.remove_candidate_snapshot_directory(&candidate)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Delete the directory of a candidate snapshot that no longer serves.
+    fn remove_candidate_snapshot_directory(&self, candidate: &CandidateSnapshot) -> Result<(), StoreError> {
+        self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash())
+    }
+
+    fn rollback_volatile_to<'a>(&mut self, to: &'a Point) -> Result<StateRecovery<'a>, BackwardError> {
         info_span!(ledger::state::ROLL_BACKWARD).in_scope(|| {
             let immutable_tip = self.immutable_tip();
             let volatile_tip = self.volatile_tip().unwrap_or(immutable_tip);
@@ -1158,10 +1270,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             if *to == immutable_tip {
                 // Snapshot the whole VolatileDB fragment but leave the metadata initialized
                 // for the upcoming roll forwards.
-                Ok(RollbackGuard {
-                    immutable_tip,
-                    kind: StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) },
-                })
+                Ok(StateRecovery::RecoverWholeVolatileDB { volatile: Box::new(self.volatile.clear()) })
             } else if *to < immutable_tip {
                 Err(BackwardError::beyond_max(*to, volatile_tip, immutable_tip))
             } else if *to > volatile_tip {
@@ -1174,10 +1283,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     .volatile
                     .rollback_to(to)
                     .map_err(|_| BackwardError::unknown(*to, volatile_tip, immutable_tip))?;
-                Ok(RollbackGuard {
-                    immutable_tip,
-                    kind: StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) },
-                })
+                Ok(StateRecovery::RecoverVolatileDBPart { recovery: Box::new(recovery) })
             }
         })
     }
@@ -1346,6 +1452,7 @@ struct StakeDistributionRotation {
 }
 
 /// A snapshot of an epoch, taken while the last blocks of that epoch are still volatile.
+#[derive(Debug, Clone, PartialEq)]
 struct CandidateSnapshot {
     epoch: Epoch,
     /// The last block of `epoch`. A rollback that removes it makes the snapshot invalid.
@@ -1513,6 +1620,8 @@ fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
 #[derive(Debug)]
 struct RollbackGuard<'a> {
     immutable_tip: Point,
+    /// The candidate snapshot before the rollback; restored if the fork switch fails.
+    candidate_before: Option<CandidateSnapshot>,
     kind: StateRecovery<'a>,
 }
 
