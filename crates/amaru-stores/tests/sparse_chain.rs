@@ -104,14 +104,19 @@ fn a_candidate_snapshot_is_taken_after_the_stability_window_without_writing_to_t
     //     -------------------------- ╎ -------------------------------------------
     //     fragment ── block1         ╎ block2 ── ... ── block3
     //                                          3·k/f ──┘
-    let published = record_published_epochs(&mut state);
+    let published = record_publications(&mut state);
     let block3 = empty_block_at(boundary_slot + stability_window);
     roll_forward(&mut state, &block3);
     assert_eq!(*state.tip(), block3.point());
     assert_eq!(state.most_recent_snapshot(), closing_epoch, "the candidate snapshot counts as the snapshot of epoch e");
 
-    let epochs = next_publication(&published);
-    assert!(epochs.contains(&closing_epoch), "the stake distribution of epoch e is available: {epochs:?}");
+    let summaries = next_publication(&published);
+    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is available");
+    assert_eq!(
+        summaries.candidates.get(&closing_epoch),
+        Some(&block_before.point()),
+        "the stake distribution of epoch e is valid only for headers that descend from block1"
+    );
 
     assert!(stable.lock().unwrap().is_empty(), "the last blocks of epoch e are still volatile");
 }
@@ -140,16 +145,16 @@ fn a_rollback_past_the_last_block_of_an_epoch_discards_its_candidate_snapshot() 
         other => panic!("expected the switch to complete, got: {other:?}"),
     }
 
-    let epochs = next_publication(&published);
-    assert!(!epochs.contains(&closing_epoch), "the stake distribution of epoch e is withdrawn: {epochs:?}");
+    let summaries = next_publication(&published);
+    assert!(!summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is withdrawn");
     assert_eq!(state.most_recent_snapshot(), closing_epoch - 1, "no snapshot of epoch e is left");
 
     // After the stability window, the fork gets its own candidate snapshot, which ends with block1'.
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
 
-    let epochs = next_publication(&published);
-    assert!(epochs.contains(&closing_epoch), "the fork publishes its stake distribution of epoch e: {epochs:?}");
+    let summaries = next_publication(&published);
+    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the fork publishes its stake distribution of epoch e");
 }
 
 #[test]
@@ -207,9 +212,29 @@ fn a_failed_switch_past_the_last_block_of_an_epoch_restores_its_candidate_snapsh
     // The next block computes the stake distribution of epoch e again, from the restored
     // candidate snapshot.
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 2));
-    let epochs = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
-        .find(|epochs| epochs.contains(&closing_epoch));
-    assert!(epochs.is_some(), "the stake distribution of epoch e is published again");
+    let summaries = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
+        .find(|summaries| summaries.by_epoch.contains_key(&closing_epoch));
+    assert!(summaries.is_some(), "the stake distribution of epoch e is published again");
+}
+
+#[test]
+fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_when_the_last_block_of_its_epoch_is_stable() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // `k` more blocks make block1, the last block of epoch e, stable:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ -------------------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4 ── k more blocks
+    let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
+    for slot in 0..k {
+        roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 2 + slot));
+    }
+
+    let summaries = next_publication(&published);
+    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is still available");
+    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
 }
 
 // HELPERS
@@ -228,8 +253,8 @@ struct SparseChain {
     stability_window: u64,
     /// Epoch e, whose last block is block1.
     closing_epoch: Epoch,
-    /// The epochs of each publication of stake distributions, after the one of epoch e.
-    published: Receiver<Vec<Epoch>>,
+    /// The publications of stake distributions, after the one of epoch e.
+    published: Receiver<PoolSummaries>,
     /// The first block of epoch e+1.
     block2: Point,
 }
@@ -239,27 +264,27 @@ fn make_sparse_chain_with_candidate_snapshot() -> SparseChain {
         make_state_across_epoch_boundary();
     let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());
     let closing_epoch = epoch_of(block_before.point().slot_or_default().into());
-    let published = record_published_epochs(&mut state);
+    let published = record_publications(&mut state);
 
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
 
-    let epochs = next_publication(&published);
-    assert!(epochs.contains(&closing_epoch), "the stake distribution of epoch e is available: {epochs:?}");
+    let summaries = next_publication(&published);
+    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is available");
 
     SparseChain { state, boundary_slot, stability_window, closing_epoch, published, block2: block_after.point() }
 }
 
-/// Record the epochs of each stake distribution publication.
-fn record_published_epochs(state: &mut State<MockStore, RocksDBHistoricalStores>) -> Receiver<Vec<Epoch>> {
+/// Record each stake distribution publication.
+fn record_publications(state: &mut State<MockStore, RocksDBHistoricalStores>) -> Receiver<PoolSummaries> {
     let (sender, receiver) = mpsc::channel();
     state.set_on_stake_dist_updated(Arc::new(move |summaries: PoolSummaries| {
-        let _ = sender.send(summaries.by_epoch.keys().copied().collect::<Vec<_>>());
+        let _ = sender.send(summaries);
     }));
     receiver
 }
 
 #[expect(clippy::expect_used)]
-fn next_publication(published: &Receiver<Vec<Epoch>>) -> Vec<Epoch> {
+fn next_publication(published: &Receiver<PoolSummaries>) -> PoolSummaries {
     published.recv_timeout(Duration::from_secs(60)).expect("a stake distribution is published")
 }

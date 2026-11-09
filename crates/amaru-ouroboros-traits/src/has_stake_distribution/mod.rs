@@ -14,7 +14,9 @@
 
 use std::collections::BTreeMap;
 
-use amaru_kernel::{Epoch, EraHistory, EraHistoryError, Hash, Lovelace, PoolId, Slot, num::CheckedSub, size::VRF_KEY};
+use amaru_kernel::{
+    Epoch, EraHistory, EraHistoryError, Hash, Lovelace, Point, PoolId, Slot, num::CheckedSub, size::VRF_KEY,
+};
 use thiserror::Error;
 
 pub mod mock_ledger_state;
@@ -53,6 +55,12 @@ pub enum GetPoolError {
 pub struct PoolSummaries {
     /// Keyed by the epoch of the corresponding stake distribution snapshot.
     pub by_epoch: BTreeMap<Epoch, BTreeMap<PoolId, PoolSummary>>,
+
+    /// The epochs whose stake distribution comes from a candidate snapshot, with the last block of
+    /// that epoch on the ledger's chain. Such a distribution is valid only for headers that
+    /// descend from that block. The stake distributions of the other epochs are final.
+    #[serde(default)]
+    pub candidates: BTreeMap<Epoch, Point>,
 }
 
 impl PoolSummaries {
@@ -68,15 +76,27 @@ impl PoolSummaries {
         pool: &PoolId,
         era_history: &EraHistory,
     ) -> Result<Option<PoolSummary>, GetPoolError> {
-        let target_epoch = era_history
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(GetPoolError::SlotToEpochConversionFailure)?
-            .checked_sub(Epoch::TWO);
+        let target_epoch = Self::target_epoch(slot, era_history)?;
 
         let pools = target_epoch
             .and_then(|e| self.by_epoch.get(&e))
             .ok_or(GetPoolError::StakeDistributionNotAvailable(slot, target_epoch))?;
 
         Ok(pools.get(pool).copied())
+    }
+
+    /// When the stake distribution used at `slot` comes from a candidate snapshot: its epoch, and
+    /// the last block of that epoch that a header at `slot` must descend from.
+    pub fn candidate_for(&self, slot: Slot, era_history: &EraHistory) -> Result<Option<(Epoch, Point)>, GetPoolError> {
+        Ok(Self::target_epoch(slot, era_history)?
+            .and_then(|epoch| self.candidates.get(&epoch).map(|last_block| (epoch, *last_block))))
+    }
+
+    /// The epoch of the stake distribution used at `slot`: two epochs before the epoch of `slot`.
+    fn target_epoch(slot: Slot, era_history: &EraHistory) -> Result<Option<Epoch>, GetPoolError> {
+        Ok(era_history
+            .slot_to_epoch_unchecked_horizon(slot)
+            .map_err(GetPoolError::SlotToEpochConversionFailure)?
+            .checked_sub(Epoch::TWO))
     }
 }
