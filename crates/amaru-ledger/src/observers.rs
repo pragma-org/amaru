@@ -33,6 +33,7 @@
 //!     each discarded volatile block, **tip-first**, before the corresponding
 //!     adopt events of the new branch. Failed fork switches emit nothing.
 //! - [`LedgerObservers::on_ledger_snapshot`] is opt-in and only runs when installed.
+//!   On a chain with few blocks, a snapshot can be a candidate: see [`SnapshotFinality`].
 //!   [`StakeSummary`] / [`crate::summary::stake_distribution::StakeDistribution`]
 //!   do not implement [`Clone`]; their fields (`accounts`, `pools`, `dreps`,
 //!   scalars) and piece types ([`crate::summary::AccountState`],
@@ -123,12 +124,30 @@ pub enum LedgerBlockEvent<'a> {
 }
 
 /// Full stake summary that the node would otherwise discard after deriving the slim
-/// in-memory [`crate::summary::stake_distribution::StakeDistribution`].
+/// in-memory [`crate::summary::stake_distribution::StakeDistribution`], with the finality of the
+/// ledger snapshot it was computed from.
 ///
 /// Opt-in only. Callbacks receive a short-lived reference while the ledger still
-/// holds the value. The type is not [`Clone`]; clone individual fields / map
+/// holds the value. [`StakeSummary`] is not [`Clone`]; clone individual fields / map
 /// entries (`AccountState`, `PoolState`, `DRepState`, …) when ownership is needed.
-pub type LedgerStateSnapshot = StakeSummary;
+#[derive(Debug, Clone, Copy)]
+pub struct LedgerStateSnapshot<'a> {
+    pub summary: &'a StakeSummary,
+    pub finality: SnapshotFinality,
+}
+
+/// Whether the ledger snapshot behind a [`LedgerStateSnapshot`] can still change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotFinality {
+    /// Taken from blocks that are all stable: the snapshot does not change.
+    Final,
+    /// Taken while the last blocks of its epoch were still volatile, which happens on a chain
+    /// with fewer than `k` blocks in the first 3·k/f slots of an epoch. The snapshot is valid
+    /// only while `last_block`, the last block of its epoch, stays on the chain. If a fork switch
+    /// undoes `last_block`, the ledger computes the snapshot of the same epoch again, from the new
+    /// chain, and notifies it again.
+    Candidate { last_block: Point },
+}
 
 /// Callbacks installed on ledger [`crate::state::State`].
 ///
@@ -140,7 +159,7 @@ pub struct LedgerObservers {
     /// Unified tip block lifecycle (adopt + undo). Prefer this for reorg-safe indexes.
     pub on_block: Option<Arc<dyn Fn(LedgerBlockEvent<'_>) + Send + Sync>>,
     /// Invoked when a full stake summary is computed, before only the slim distribution is kept.
-    pub on_ledger_snapshot: Option<Arc<dyn Fn(&LedgerStateSnapshot) + Send + Sync>>,
+    pub on_ledger_snapshot: Option<Arc<dyn Fn(LedgerStateSnapshot<'_>) + Send + Sync>>,
 }
 
 impl LedgerObservers {
@@ -166,7 +185,7 @@ impl LedgerObservers {
         self
     }
 
-    pub fn on_ledger_snapshot(mut self, handler: impl Fn(&LedgerStateSnapshot) + Send + Sync + 'static) -> Self {
+    pub fn on_ledger_snapshot(mut self, handler: impl Fn(LedgerStateSnapshot<'_>) + Send + Sync + 'static) -> Self {
         self.on_ledger_snapshot = Some(Arc::new(handler));
         self
     }
