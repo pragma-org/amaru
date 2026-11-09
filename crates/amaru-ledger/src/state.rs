@@ -129,6 +129,10 @@ where
     /// Optional embedder observers (adopted blocks, full ledger stake summaries).
     observers: LedgerObservers,
 
+    /// The candidate snapshot of the closing epoch, when the ledger needed the snapshot of that
+    /// epoch before its last blocks were stable. See [`Store::create_candidate_snapshot`].
+    candidate_snapshot: Option<CandidateSnapshot>,
+
     /// Background computation calculating rewards and stake distributions
     rewards_join_handle: Option<JoinHandle<RewardsComputation>>,
 
@@ -268,6 +272,8 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
             observers: LedgerObservers::default(),
 
+            candidate_snapshot: None,
+
             rewards_join_handle: None,
             rewards_cancelled: Arc::new(AtomicBool::new(false)),
 
@@ -304,8 +310,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         &self.global_parameters
     }
 
+    /// The most recent epoch with a snapshot, final or candidate.
     pub fn most_recent_snapshot(&self) -> Epoch {
-        self.volatile.most_recent_snapshot(&self.snapshots)
+        let most_recent_final = self.volatile.most_recent_snapshot(&self.snapshots);
+        self.candidate_snapshot.as_ref().map_or(most_recent_final, |candidate| candidate.epoch.max(most_recent_final))
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -350,40 +358,14 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     self.epoch(),
                 });
 
-                // Persist changes for this block
-                let StoreUpdate { point: stable_point, issuer: stable_issuer, fees, donations, add, remove, withdrawals } =
-                    now_stable.into_store_update();
+                let governance_activity = self.governance_activity_for(immutable_epoch).unwrap_or_else(|| unreachable! {
+                    "invariant violation: asking governance activity for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
+                    immutable_epoch,
+                    self.epoch(),
+                });
 
-                self.stable
-                    .with_transaction(|batch| {
-                        batch.save(
-                            &self.era_history,
-                            protocol_parameters,
-                            Some(self.governance_activity_for(immutable_epoch).unwrap_or_else(|| unreachable! {
-                                "invariant violation: asking governance activity for an unreachable epoch; immutable epoch = {}; volatile epoch = {}",
-                                immutable_epoch,
-                                self.epoch(),
-                            })),
-                            &stable_point,
-                            Some(&stable_issuer),
-                            add,
-                            remove,
-                            withdrawals,
-                        )?;
-
-                        batch.with_pots(|mut row| {
-                            let row = row.borrow_mut();
-                            row.fees += fees;
-                            row.donations += donations;
-                        })?;
-
-                        batch.reset_epoch_transition_progress()?;
-
-                        Ok(())
-                    })
-                    .map_err(StateError::Storage)?;
-
-                Ok(())
+                save_block(&self.stable, &self.era_history, protocol_parameters, governance_activity, now_stable)
+                    .map_err(StateError::Storage)
             },
         )
     }
@@ -427,6 +409,23 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 // back from Effective to Computed; consume them for the re-transition.
                 self.volatile.take_computed_rewards()
             };
+
+            // NOTE: Forcing the flush before the next epoch boundary
+            //
+            // On a chain with fewer than `k` blocks in a whole epoch, the last blocks of the
+            // previous epoch are still volatile now. The volatile window can only hold one epoch
+            // boundary, and ratification needs a final snapshot of the previous epoch: so the
+            // pending epoch transition must reach the stable store now.
+            if !self.volatile.is_draining_empty() {
+                self.flush_epoch_transition()?;
+            }
+
+            // The final snapshot of the previous epoch exists now: either the normal flush took it during
+            // this epoch, or the forced flush above just took it. The rewards task, the only reader of the
+            // candidate snapshot, is joined. So the candidate snapshot is no longer needed.
+            if let Some(candidate) = self.candidate_snapshot.take() {
+                self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash())?;
+            }
 
             let db = &self.stable;
 
@@ -533,14 +532,68 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         let is_previous_epoch_stable =
             self.era_history.slot_in_epoch(tip, tip).unwrap_or_default() >= self.global_parameters().stability_window();
 
-        if self.volatile.rewards_not_ready()
+        // The overlay can still hold the effective rewards of the last epoch boundary: this
+        // happens when the snapshot of the previous epoch is a candidate snapshot.
+        if !self.volatile.has_computed_rewards()
             && self.rewards_join_handle.is_none()
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
             && is_previous_epoch_stable
         {
-            let previous_epoch = self.snapshots.for_epoch(current_epoch - 1)?;
+            // NOTE: Epochs used by the stake distribution and rewards computation
+            //
+            // The tip is in epoch c, at least 3·k/f slots after its start. The computation reads
+            // 2 snapshots:
+            //
+            // - Snapshot c−1 (`previous_epoch`): the state at the end of epoch c−1. It is a final
+            //   snapshot, or a candidate snapshot when the last blocks of epoch c−1 are still
+            //   volatile. It gives:
+            //   - the stake distribution of epoch c−1. The computation publishes it at once,
+            //     because consensus needs it to validate the headers of epoch c+1;
+            //   - the blocks made by each pool during epoch c−1, and the pots. They set the amount
+            //     of the rewards.
+            // - Snapshot c−3 (`rewards_snapshot`): the stake that the rewards are shared on. It is
+            //   the stake distribution that elected the leaders of epoch c−1.
+            //
+            // The transition from epoch c to epoch c+1 pays these rewards.
+            //
+            //  epoch c−3 │ epoch c−2 │ epoch c−1 │     epoch c     │ epoch c+1
+            // ───────────┼───────────┼───────────┼─────────────────┼───────────
+            //            ▲                       ▲     ▲           ▲
+            //            │                       │     │           └ the transition c → c+1 pays the rewards
+            //            │                       │     └ after 3·k/f slots: the computation starts
+            //            │                       └ snapshot c−1: the blocks of each pool in epoch c−1, the pots,
+            //            │                         and the stake distribution of epoch c−1 for the headers of epoch c+1
+            //            └ snapshot c−3: the stake that the rewards are shared on
             let rewards_snapshot = self.snapshots.for_epoch(current_epoch - 3)?;
 
+            match &self.candidate_snapshot {
+                // A candidate snapshot exists only until the next epoch boundary, and the final snapshot
+                // of the same epoch is taken after the background tasks start.
+                Some(candidate) => {
+                    debug_assert_eq!(candidate.epoch, current_epoch - 1);
+                    let previous_epoch =
+                        self.snapshots.for_candidate_epoch(candidate.epoch, &candidate.last_block.hash())?;
+                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot);
+                }
+                None => {
+                    let previous_epoch = self.snapshots.for_epoch(current_epoch - 1)?;
+                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Compute the stake distribution of `previous_epoch` (when not held yet), then the rewards
+    /// of `current_epoch`, in a background thread.
+    fn spawn_background_tasks(
+        &mut self,
+        current_epoch: Epoch,
+        previous_epoch: impl Snapshot + Send + 'static,
+        rewards_snapshot: impl Snapshot + Send + 'static,
+    ) {
+        {
             // Only rotate if we don't already have the distribution; this can happen on restart.
             let rotation = match self.stake_distributions.front() {
                 Some(front) if front.epoch >= previous_epoch.epoch() => None,
@@ -566,8 +619,6 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             self.rewards_join_handle =
                 Some(std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())))
         }
-
-        Ok(())
     }
 
     /// Record a freshly rotated stake distribution, keeping only the two most recent ones.
@@ -613,39 +664,91 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     }
 
     fn apply_transition(&mut self) -> Result<(), StateError> {
-        if self.volatile.is_epoch_transition_stable(self.era_history(), self.global_parameters()) {
-            if let Some((len, epoch_tail)) = self.volatile.epoch_tail() {
-                // NOTE: Forcing snapshot after 3*k/f slots
-                //
-                // In a healthy chain that honors the Chain Growth property, we should never reach
-                // this line; because we would have seen `k` blocks before that point and there
-                // should be no trailing epoch tail in the volatile. However, Cardano does not
-                // necessarily honors Chain Growth; and we can detect this as such.
-                //
-                // Yet, we must produce a new snapshot in order to produce a new stake distribution
-                // to keep validating upcoming block headers.
-                warn!(
-                    ledger::chain_growth::VIOLATE,
-                    unstable_tail_length = len,
-                    reason = format!(
-                        "chain growth violation: less than k={k} blocks seen in a window of \
-                         3*k/f={stability_window} slots; if this occurs during historical sync, it may \
-                         not be a big problem. However If this occurs at the tip, it can be more \
-                         serious. We will not be able to rollback through still-unstable blocks that \
-                         must now be persisted to disk.",
-                        k = self.global_parameters().consensus_security_param,
-                        stability_window = self.global_parameters().stability_window()
-                    )
-                );
+        if !self.volatile.is_epoch_transition_stable(self.era_history(), self.global_parameters()) {
+            return Ok(());
+        }
 
-                for anchored_fragment in epoch_tail {
-                    self.apply_block(anchored_fragment)?;
-                }
-            }
-
+        if self.volatile.is_draining_empty() {
             self.volatile.apply_transition(&self.stable)?;
             self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
+        } else if self.candidate_snapshot.is_none() {
+            self.create_candidate_snapshot()?;
         }
+
+        Ok(())
+    }
+
+    /// Take a candidate snapshot of the closing epoch, whose last blocks are still volatile.
+    ///
+    /// In a healthy chain that honors the Chain Growth property, this never happens: the ledger
+    /// sees `k` blocks before 3*k/f slots of the new epoch, so the last blocks of the closing
+    /// epoch are stable by then. Cardano does not necessarily honor Chain Growth; yet the ledger
+    /// needs a snapshot to compute the stake distribution that validates the upcoming headers.
+    ///
+    /// The candidate snapshot is a copy of the stable store, with the last blocks of the closing
+    /// epoch and the end of that epoch (rewards payment) written to it. The stable store and the
+    /// volatile state are unchanged, so a rollback through these blocks stays possible.
+    fn create_candidate_snapshot(&mut self) -> Result<(), StateError> {
+        let epoch = self.volatile.epoch() - 1;
+
+        let Some(last_block) = self.volatile.epoch_tail_view().last().map(|fragment| fragment.point()) else {
+            return Ok(());
+        };
+
+        warn!(
+            ledger::chain_growth::VIOLATE,
+            unstable_tail_length = self.volatile.epoch_tail_view().count(),
+            reason = format!(
+                "chain growth violation: less than k={k} blocks seen in a window of 3*k/f={stability_window} \
+                 slots; the ledger takes a candidate snapshot of epoch {epoch}, whose last blocks are still volatile.",
+                k = self.global_parameters().consensus_security_param,
+                stability_window = self.global_parameters().stability_window()
+            )
+        );
+
+        let protocol_parameters = self.protocol_parameters_for(epoch).unwrap_or_else(|| {
+            unreachable!("invariant violation: no protocol parameters for the closing epoch {epoch}")
+        });
+        let governance_activity = self.governance_activity_for(epoch).unwrap_or_else(|| {
+            unreachable!("invariant violation: no governance activity for the closing epoch {epoch}")
+        });
+
+        let candidate = self.stable.create_candidate_snapshot(epoch, &last_block.hash())?;
+
+        for fragment in self.volatile.epoch_tail_view() {
+            save_block(&candidate, &self.era_history, protocol_parameters, governance_activity, fragment.clone())?;
+        }
+
+        candidate.with_transaction(|batch| self.volatile.end_epoch(batch))?;
+
+        self.candidate_snapshot = Some(CandidateSnapshot { epoch, last_block });
+
+        Ok(())
+    }
+
+    /// Write the pending epoch transition to the stable store, with the last blocks of the closing
+    /// epoch that are still volatile. After this call, a rollback through these blocks fails.
+    fn flush_epoch_transition(&mut self) -> Result<(), StateError> {
+        if let Some((len, epoch_tail)) = self.volatile.epoch_tail() {
+            warn!(
+                ledger::chain_growth::VIOLATE,
+                unstable_tail_length = len,
+                reason = format!(
+                    "chain growth violation: less than k={k} blocks seen in a whole epoch; if this occurs \
+                     during historical sync, it may not be a big problem. However If this occurs at the tip, it \
+                     can be more serious. We will not be able to rollback through still-unstable blocks that \
+                     must now be persisted to disk.",
+                    k = self.global_parameters().consensus_security_param,
+                )
+            );
+
+            for anchored_fragment in epoch_tail {
+                self.apply_block(anchored_fragment)?;
+            }
+        }
+
+        self.volatile.apply_transition(&self.stable)?;
+        self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
 
         Ok(())
     }
@@ -747,10 +850,13 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// Roll the ledger forward given a new upcoming block. This roughly unwinds the following
     /// steps:
     ///
-    /// 1. **Rewards Calculations**
+    /// 1. **Rewards calculation, after the previous block**
     ///
-    ///    Begin the rewards calculation if we are now within the stability window (3 * k / f slots
-    ///    deep in the epoch).
+    ///    Start the background task if the ledger state before this block allows it: the snapshot
+    ///    of the previous epoch exists, and the tip is at least 3·k/f slots into its epoch. Usually
+    ///    step 8 of the previous block already started it. This step covers a ledger that has no
+    ///    task at this point, for example after a node restart. The task must start before step 2,
+    ///    because the epoch transition pays the rewards that it computes.
     ///
     /// 2. **Epoch Transition**
     ///
@@ -780,6 +886,14 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     ///
     ///    Before attempting to record the next block from a new epoch to disk, any pending epoch
     ///    transition must be fully flushed and a snapshot taken.
+    ///
+    /// 8. **Rewards calculation, after this block**
+    ///
+    ///    Start the background task if the ledger state after this block allows it: step 7 can take
+    ///    the snapshot of the previous epoch, and this block can be the first one 3·k/f slots into
+    ///    the epoch. The task also computes the stake distribution that the headers of the next
+    ///    epoch need. Consensus accepts no further block before it has this distribution, so the
+    ///    task cannot wait for step 1 of the next block.
     pub fn roll_forward(
         &mut self,
         block: &Block,
@@ -823,6 +937,9 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
             // 7. Flush the epoch transition
             BlockValidation::from(self.apply_transition())?;
+
+            // 8. Rewards calculation, from a snapshot taken by this block
+            BlockValidation::from(self.try_compute_rewards())?;
 
             if self.observers.wants_block_events() {
                 // Borrow UTxO DiffSet from the fragment we just pushed (still at the tip).
@@ -1228,14 +1345,21 @@ struct StakeDistributionRotation {
     retained: PoolSummaries,
 }
 
+/// A snapshot of an epoch, taken while the last blocks of that epoch are still volatile.
+struct CandidateSnapshot {
+    epoch: Epoch,
+    /// The last block of `epoch`. A rollback that removes it makes the snapshot invalid.
+    last_block: Point,
+}
+
 /// Snapshot-derived computations running on a background thread while the current epoch
 /// progresses. The thread receives everything it needs by value; results travel back through
 /// the [`JoinHandle`] consumed at the epoch transition.
-struct BackgroundTasks<Snap> {
+struct BackgroundTasks<Previous, Snap> {
     cancelled: Arc<AtomicBool>,
     /// Snapshot of the previous epoch; source of the rotated stake distribution as well as the
     /// block issuers and pots for the rewards calculation.
-    previous_epoch: Snap,
+    previous_epoch: Previous,
     /// Snapshot the rewards stake distribution is computed from, three epochs back.
     rewards_snapshot: Snap,
     /// Set when the in-memory stake distributions do not include the previous epoch yet.
@@ -1249,7 +1373,7 @@ struct BackgroundTasks<Snap> {
     on_ledger_snapshot: Option<Arc<dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync>>,
 }
 
-impl<Snap: Snapshot> BackgroundTasks<Snap> {
+impl<Previous: Snapshot, Snap: Snapshot> BackgroundTasks<Previous, Snap> {
     fn check_cancelled(&self) -> Result<(), StateError> {
         if self.cancelled.load(Ordering::Relaxed) { Err(StateError::BackgroundTaskCancelled) } else { Ok(()) }
     }
@@ -1321,6 +1445,48 @@ impl<Snap: Snapshot> BackgroundTasks<Snap> {
             ))
         })
     }
+}
+
+/// Write the changes of one block to `store`, in one transaction.
+///
+/// `store` is one of:
+///
+/// - The stable store, for a block that left the volatile window.
+/// - A candidate snapshot, for a block that is still volatile. On a sparse chain, the last blocks
+///   of an epoch are not stable yet when the ledger needs the snapshot of that epoch.
+///
+/// The caller gives the protocol parameters and the governance activity of the epoch of the block.
+fn save_block(
+    store: &impl Store,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    governance_activity: GovernanceActivity,
+    block: AnchoredVolatileFragment,
+) -> Result<(), StoreError> {
+    let StoreUpdate { point, issuer, fees, donations, add, remove, withdrawals } = block.into_store_update();
+
+    store.with_transaction(|batch| {
+        batch.save(
+            era_history,
+            protocol_parameters,
+            Some(governance_activity),
+            &point,
+            Some(&issuer),
+            add,
+            remove,
+            withdrawals,
+        )?;
+
+        batch.with_pots(|mut row| {
+            let row = row.borrow_mut();
+            row.fees += fees;
+            row.donations += donations;
+        })?;
+
+        batch.reset_epoch_transition_progress()?;
+
+        Ok(())
+    })
 }
 
 // NOTE: calculating current epoch from slot on block application.

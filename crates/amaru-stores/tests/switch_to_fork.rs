@@ -409,16 +409,16 @@ fn a_switch_to_fork_can_be_successful_across_an_epoch_transition() {
 // ----------------------------------------------------------------------------
 
 #[test]
-fn a_partial_switch_happens_when_a_snapshot_is_forced_during_the_replay() {
-    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, .. } =
+fn a_failed_switch_is_fully_restored_when_a_candidate_snapshot_is_taken_during_the_replay() {
+    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, block_after } =
         make_state_across_epoch_boundary();
     let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());
 
     // Switch to a fork starting below the boundary, whose first block sits a whole stability
     // window (3·k/f slots) into the new epoch — fewer than `k` blocks in that many slots is a
     // chain growth violation. Applying block3 re-runs the epoch transition and, with the
-    // pre-boundary tail still unstable, forces it to the stable store: the tail blocks are
-    // flushed and a snapshot is taken (see the note in `apply_transition`).
+    // pre-boundary tail still unstable, takes a candidate snapshot of epoch e. The stable store
+    // is unchanged.
     //
     //             epoch e            ╎        epoch e+1
     //     -------------------------- ╎ -------------------------------------------
@@ -427,27 +427,19 @@ fn a_partial_switch_happens_when_a_snapshot_is_forced_during_the_replay() {
     //                      └─────────╎ ── ... ── block3 ── block4 (invalid)  replayed
     //                                   3·k/f ──┘
     //
-    // block4 then fails, but the snapshot cannot be reverted: the switch keeps the applied
-    // prefix and reports a partial outcome.
+    // block4 then fails. Nothing reached the stable store, so the switch restores the chain it
+    // replaced.
     let block3 = empty_block_at(boundary_slot + stability_window);
     let block4 = invalid_block_at(boundary_slot + stability_window + 1);
-    let block3_tip = block3.point();
     let block4_tip = block4.point();
 
     let result = state.switch_to_fork(&block_before.point(), vec![block3, block4], &ArenaPool::new(1024, 0));
 
     match result {
-        Ok(ForkSwitchOutcome::Partial { applied_tip, failure, .. }) => {
-            assert_eq!(applied_tip, block3_tip);
-            assert_eq!(failure.tip, block4_tip);
-        }
-        other => panic!("expected a partial switch, got: {other:?}"),
+        Ok(ForkSwitchOutcome::Failed { failure, .. }) => assert_eq!(failure.tip, block4_tip),
+        other => panic!("expected a failed switch, got: {other:?}"),
     }
 
-    assert_eq!(*state.tip(), block3_tip, "the ledger stays on the last applied block");
-    assert_eq!(
-        *stable.lock().unwrap(),
-        vec![point(boundary_slot - 3), block_before.point()],
-        "the pre-boundary tail was force-flushed to the stable store, oldest first"
-    );
+    assert_eq!(*state.tip(), block_after.point(), "the ledger is back on the chain it had before the switch");
+    assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
