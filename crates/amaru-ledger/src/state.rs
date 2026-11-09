@@ -342,6 +342,18 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         self.volatile.view_back().map(|fragment| fragment.tip())
     }
 
+    /// The epoch and the last block of the candidate snapshot, if one exists.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn candidate_snapshot(&self) -> Option<(Epoch, Point)> {
+        self.candidate_snapshot.as_ref().map(|candidate| (candidate.epoch, candidate.last_block))
+    }
+
+    /// Points of the blocks of the closing epoch that are still volatile, oldest first.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn volatile_epoch_tail(&self) -> Vec<Point> {
+        self.volatile.epoch_tail_view().map(|fragment| fragment.tip()).collect()
+    }
+
     /// Get registered relay candidates from the stable store (sockets, hostnames, and SRV names).
     ///
     /// **NOTE:** This operation blocks the ledger for about 4ms (mainnet late
