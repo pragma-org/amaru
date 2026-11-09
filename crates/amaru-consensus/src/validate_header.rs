@@ -77,6 +77,21 @@ pub fn validate_header(
             .map_err(ConsensusError::GetPoolError)?
             .ok_or(ConsensusError::UnknownPool { pool_id })?;
 
+        // A stake distribution from a candidate snapshot depends on the last block of its epoch.
+        // A header on a fork without that block needs another stake distribution: it is not
+        // available, so the header waits instead of failing. The header itself is not stored yet,
+        // so the walk starts from its parent.
+        if let Some((epoch, last_block)) =
+            pool_summaries.candidate_for(header.slot(), era_history.as_ref()).map_err(ConsensusError::GetPoolError)?
+            && !header.parent().is_some_and(|parent| store.is_ancestor(&last_block, parent))
+        {
+            return Err(ConsensusError::GetPoolError(GetPoolError::StakeDistributionNotAvailable(
+                header.slot(),
+                Some(epoch),
+            ))
+            .into());
+        }
+
         praos::header::assert_all(
             consensus_parameters,
             header,
@@ -96,9 +111,11 @@ pub fn validate_header(
 
 #[cfg(test)]
 mod test {
-    use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, hash};
+    use std::collections::BTreeMap;
+
+    use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, hash, make_header};
     use amaru_ouroboros_traits::{
-        BaseReadChainStore, Nonces, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
+        BaseReadChainStore, Nonces, PoolSummary, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
     };
 
     use super::*;
@@ -142,5 +159,103 @@ mod test {
 
         assert!(result.is_err(), "the header should not validate");
         assert_eq!(store.get_nonces(&header.hash()), None);
+    }
+
+    #[test]
+    fn a_header_that_does_not_descend_from_the_last_block_of_a_candidate_distribution_waits() {
+        let Chain { store, sibling, header, .. } = make_chain();
+
+        let result = validate_with_candidate(store, &header, sibling.point());
+
+        assert_eq!(
+            result.as_ref().err().and_then(ValidateHeaderError::missing_stake_distribution),
+            Some(target_epoch(&header)),
+            "the header waits for another stake distribution: {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_header_that_descends_from_the_last_block_of_a_candidate_distribution_is_checked() {
+        let Chain { store, grandparent, header, .. } = make_chain();
+
+        let result = validate_with_candidate(store, &header, grandparent.point());
+
+        // The pool summary used here is made up, so the Praos checks fail: what matters is that
+        // the header got past the candidate check.
+        assert!(
+            matches!(result, Err(ValidateHeaderError::Assert(_))),
+            "the header is checked with the candidate distribution: {result:?}"
+        );
+    }
+
+    // HELPERS
+
+    /// A stored chain and a header to validate on top of it:
+    ///
+    /// ```text
+    /// grandparent ── parent ── header
+    ///      └──────── sibling
+    /// ```
+    struct Chain {
+        store: Arc<InMemoryChainStore>,
+        grandparent: Header,
+        sibling: Header,
+        header: Header,
+    }
+
+    fn make_chain() -> Chain {
+        let slot = 70_000_000;
+        let grandparent = make_header(1, slot, None);
+        let parent = make_header(2, slot + 1, Some(grandparent.hash()));
+        let sibling = make_header(3, slot + 1, Some(grandparent.hash()));
+        let header = make_header(3, slot + 2, Some(parent.hash()));
+
+        let store = Arc::new(InMemoryChainStore::default());
+        for stored in [&grandparent, &parent, &sibling] {
+            store.store_header(stored).expect("database failure");
+        }
+        let nonce = hash!("0000000000000000000000000000000000000000000000000000000000000000");
+        let epoch = PREPROD_ERA_HISTORY.slot_to_epoch_unchecked_horizon(header.slot()).expect("a known slot");
+        store
+            .put_nonces(
+                &parent.hash(),
+                &Nonces { epoch, active: nonce, candidate: nonce, evolving: nonce, tail: grandparent.hash() },
+            )
+            .expect("database failure");
+
+        Chain { store, grandparent, sibling, header }
+    }
+
+    /// Validate `header` with a stake distribution, for the epoch of `header`, computed from a
+    /// candidate snapshot that ends with `last_block`.
+    #[allow(clippy::result_large_err)]
+    fn validate_with_candidate(
+        store: Arc<InMemoryChainStore>,
+        header: &Header,
+        last_block: Point,
+    ) -> Result<Nonces, ValidateHeaderError> {
+        let epoch = target_epoch(header);
+        let pool = PoolSummary {
+            vrf: hash!("0000000000000000000000000000000000000000000000000000000000000000"),
+            active_stake: 1,
+            stake: 1,
+        };
+        let pool_summaries = PoolSummaries {
+            by_epoch: BTreeMap::from([(epoch, BTreeMap::from([(header.pool_id(), pool)]))]),
+            candidates: BTreeMap::from([(epoch, last_block)]),
+        };
+
+        validate_header(
+            header,
+            Arc::new(ConsensusParameters::new(PREPROD_GLOBAL_PARAMETERS.clone(), &PREPROD_ERA_HISTORY)),
+            store,
+            Arc::new(pool_summaries),
+            Arc::new(PREPROD_ERA_HISTORY.clone()),
+        )
+    }
+
+    /// The epoch of the stake distribution used to validate `header`.
+    fn target_epoch(header: &Header) -> Epoch {
+        PREPROD_ERA_HISTORY.slot_to_epoch_unchecked_horizon(header.slot()).expect("a known slot") - 2
     }
 }
