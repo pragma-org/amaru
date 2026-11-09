@@ -33,7 +33,9 @@ pub mod state;
 pub mod store;
 pub mod summary;
 
-pub use observers::{AdoptedBlock, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, UndoneBlock, UtxoDiff};
+pub use observers::{
+    AdoptedBlock, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, SnapshotFinality, UndoneBlock, UtxoDiff,
+};
 // Piece types for snapshot observers: clone these (not the aggregate StakeSummary).
 pub use summary::{
     AccountState, PoolState,
