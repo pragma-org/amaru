@@ -142,10 +142,7 @@ pub enum SnapshotFinality {
     /// Taken from blocks that are all stable: the snapshot does not change.
     Final,
     /// Taken while the last blocks of its epoch were still volatile, which happens on a chain
-    /// with fewer than `k` blocks in the first 3·k/f slots of an epoch. The snapshot is valid
-    /// only while `last_block`, the last block of its epoch, stays on the chain. If a fork switch
-    /// undoes `last_block`, the ledger computes the snapshot of the same epoch again, from the new
-    /// chain, and notifies it again.
+    /// with fewer than `k` blocks in the first 3·k/f slots of an epoch.
     Candidate { last_block: Point },
 }
 
