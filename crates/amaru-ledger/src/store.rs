@@ -27,6 +27,7 @@ use amaru_kernel::{
     Credential,
     Epoch,
     EraHistory,
+    HeaderHash,
     Lovelace,
     MemoizedTransactionOutput,
     Point,
@@ -186,6 +187,40 @@ pub trait Store: ReadStore {
     #[cfg(any(test, feature = "test-utils"))]
     fn next_snapshot(&self, epoch: Epoch) -> Result<()> {
         unimplemented!("Store.next_snapshot({epoch})");
+    }
+
+    /// A writable handle on a candidate snapshot.
+    type Candidate: Store;
+
+    /// Save on disk a candidate snapshot of the store for `epoch`, and open it with write access.
+    ///
+    /// A candidate snapshot starts as a copy of the store. The caller then writes to it the
+    /// blocks of `epoch` that are not stable yet, up to `last_block`. Thus, the snapshot depends on
+    /// a chain that a rollback can still remove. It stays apart from the final snapshots: neither
+    /// [`HistoricalStores::snapshots`] nor [`HistoricalStores::for_epoch`] sees it.
+    ///
+    /// If a candidate snapshot already exists for the same `epoch` and `last_block`, it is
+    /// replaced. Candidate snapshots for other blocks are kept.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Candidate>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn create_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Candidate> {
+        unimplemented!("Store.create_candidate_snapshot({epoch}, {last_block})");
+    }
+
+    /// Delete the candidate snapshot for `epoch` and `last_block`. Do nothing if this snapshot does
+    /// not exist. All handles on the candidate snapshot must be closed first.
+    ///
+    /// A candidate snapshot is never turned into a final snapshot: when `last_block` becomes
+    /// stable, [`Store::next_snapshot`] takes the final snapshot, and the candidate snapshot is
+    /// deleted once nothing reads it.
+    #[cfg(not(any(test, feature = "test-utils")))]
+    fn remove_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<()>;
+
+    #[cfg(any(test, feature = "test-utils"))]
+    fn remove_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<()> {
+        unimplemented!("Store.remove_candidate_snapshot({epoch}, {last_block})");
     }
 
     /// Create a new transaction context. This is used to perform updates on the store.
@@ -520,6 +555,10 @@ pub trait HistoricalStores {
     /// Access a `Snapshot` for a specific `Epoch`. The snapshot is an owned handle that can move
     /// to another thread (e.g. the rewards background computation).
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static>;
+
+    /// Access the candidate snapshot of `epoch` that ends with `last_block`, read-only. See
+    /// [`Store::create_candidate_snapshot`].
+    fn for_candidate_epoch(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<impl Snapshot + Send + 'static>;
 }
 
 // TransactionalContext
