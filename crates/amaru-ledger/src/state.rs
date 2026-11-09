@@ -46,7 +46,7 @@ use crate::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards,
     },
     governance::ratification::RatificationContext,
-    observers::LedgerObservers,
+    observers::{LedgerObservers, LedgerStateSnapshot, SnapshotFinality},
     rules::{
         self,
         block::{BlockValidation, TransactionInvalid},
@@ -1423,7 +1423,7 @@ fn compute_stake_distribution(
     snapshot: &impl Snapshot,
     network: NetworkName,
     era_history: &EraHistory,
-    notify_observer: Option<&(dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync)>,
+    notify_observer: Option<(&(dyn Fn(LedgerStateSnapshot<'_>) + Send + Sync), SnapshotFinality)>,
     notify_progress: impl FnMut(f64),
 ) -> Result<StakeDistribution, StateError> {
     info_span!(ledger::stake_distribution::COMPUTE, epoch = snapshot.epoch(),).in_scope(|| {
@@ -1433,8 +1433,8 @@ fn compute_stake_distribution(
 
         // Opt-in: show the full summary (incl. accounts) by reference before we only
         // retain the slim in-memory distribution. Observer clones individual fields if needed.
-        if let Some(notify) = &notify_observer {
-            notify(&summary);
+        if let Some((notify, finality)) = notify_observer {
+            notify(LedgerStateSnapshot { summary: &summary, finality });
         }
 
         Ok(summary.stake_distribution)
@@ -1511,7 +1511,7 @@ struct BackgroundTasks<Previous, Snap> {
     protocol_parameters: ProtocolParameters,
     era_history: EraHistory,
     on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
-    on_ledger_snapshot: Option<Arc<dyn Fn(&crate::observers::LedgerStateSnapshot) + Send + Sync>>,
+    on_ledger_snapshot: Option<Arc<dyn Fn(LedgerStateSnapshot<'_>) + Send + Sync>>,
     /// Set when `previous_epoch` is a candidate snapshot: its last block, and the published stake
     /// distribution, shared with the ledger.
     candidate: Option<(Point, Arc<Mutex<CandidateDistribution>>)>,
@@ -1545,11 +1545,15 @@ impl<Previous: Snapshot, Snap: Snapshot> BackgroundTasks<Previous, Snap> {
     /// Compute the stake distribution from the previous epoch now that it is stable, and notify
     /// consumers (e.g. header validation) with pool summaries covering the refreshed epochs.
     fn rotate_stake_distribution(&self, rotation: StakeDistributionRotation) -> Result<StakeDistribution, StateError> {
+        let finality = match &self.candidate {
+            Some((last_block, _)) => SnapshotFinality::Candidate { last_block: *last_block },
+            None => SnapshotFinality::Final,
+        };
         let distribution = compute_stake_distribution(
             &self.previous_epoch,
             self.network,
             &self.era_history,
-            self.on_ledger_snapshot.as_deref(),
+            self.on_ledger_snapshot.as_deref().map(|notify| (notify, finality)),
             |_| {},
         )?;
         self.check_cancelled()?;

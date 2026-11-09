@@ -30,7 +30,10 @@ use std::{
 };
 
 use amaru_kernel::{Epoch, PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::state::{ForkSwitchOutcome, PoolSummaries, State};
+use amaru_ledger::{
+    LedgerObservers, LedgerStateSnapshot, SnapshotFinality,
+    state::{ForkSwitchOutcome, PoolSummaries, State},
+};
 use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use amaru_uplc::arena_pool::ArenaPool;
 
@@ -235,6 +238,28 @@ fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_when_the_last_bl
     let summaries = next_publication(&published);
     assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is still available");
     assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
+}
+
+#[test]
+fn the_ledger_snapshot_observer_sees_a_candidate_snapshot_as_a_candidate() {
+    let StateAcrossEpochBoundary { mut state, boundary_slot, block_before, .. } = make_state_across_epoch_boundary();
+    let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());
+    let closing_epoch = epoch_of(block_before.point().slot_or_default().into());
+
+    let (sender, observed) = mpsc::channel();
+    state.set_observers(LedgerObservers::new().on_ledger_snapshot(move |snapshot: LedgerStateSnapshot<'_>| {
+        let _ = sender.send((snapshot.summary.stake_distribution.epoch, snapshot.finality));
+    }));
+
+    // The candidate snapshot of epoch e is taken at block3, and read by the background task
+    // started at block4.
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
+
+    let (epoch, finality) =
+        observed.recv_timeout(Duration::from_secs(60)).expect("the ledger snapshot of epoch e is observed");
+    assert_eq!(epoch, closing_epoch);
+    assert_eq!(finality, SnapshotFinality::Candidate { last_block: block_before.point() });
 }
 
 // HELPERS
