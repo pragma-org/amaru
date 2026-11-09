@@ -429,7 +429,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             // this epoch, or the forced flush above just took it. The rewards task, the only reader of the
             // candidate snapshot, is joined. So the candidate snapshot is no longer needed.
             if let Some(candidate) = self.candidate_snapshot.take() {
-                self.remove_candidate_snapshot_directory(&candidate)?;
+                self.remove_candidate_snapshot_directory(&candidate);
             }
             self.candidate_distribution = None;
 
@@ -715,6 +715,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         );
 
         self.write_candidate_snapshot()?;
+        if let Some(candidate) = &self.candidate_snapshot {
+            candidate.trace(CandidateSnapshotOutcome::Created);
+        }
+
         Ok(())
     }
 
@@ -776,6 +780,9 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn flush_overlay(&mut self) -> Result<(), StateError> {
         self.volatile.apply_transition(&self.stable)?;
         self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
+        if let Some(candidate) = &self.candidate_snapshot {
+            candidate.trace(CandidateSnapshotOutcome::Final);
+        }
         self.publish_candidate_distribution_as_final();
         Ok(())
     }
@@ -1133,7 +1140,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     }
 
                     warn_record!(ledger::state::SWITCH_TO_FORK, outcome = "partial");
-                    self.remove_replaced_candidate_snapshot(state_recovery.candidate_before)?;
+                    self.remove_replaced_candidate_snapshot(state_recovery.candidate_before);
                     return Ok(ForkSwitchOutcome::Partial { applied_tip, metrics, failure });
                 }
                 BlockValidation::Err(error) => {
@@ -1142,7 +1149,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     // If the error is a `RewardsSummaryNotReady` we might want to retry.
                     let stable_modified = self.immutable_tip() != initial_immutable_tip;
                     let error = if stable_modified {
-                        self.remove_replaced_candidate_snapshot(state_recovery.candidate_before)?;
+                        self.remove_replaced_candidate_snapshot(state_recovery.candidate_before);
                         error
                     } else {
                         // The first error is the cause: keep it, with the failed recovery as its
@@ -1174,7 +1181,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         // Remove the candidate snapshot if a new one has been computed
         let candidate_before = state_recovery.candidate_before.clone();
         drop(state_recovery);
-        self.remove_replaced_candidate_snapshot(candidate_before)?;
+        self.remove_replaced_candidate_snapshot(candidate_before);
 
         if self.observers.wants_block_events() {
             for block in &deferred_blocks {
@@ -1220,10 +1227,16 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         if self.candidate_snapshot != rollback_guard.candidate_before {
             self.cancel_background_tasks();
             if let Some(replayed) = self.candidate_snapshot.take() {
-                self.remove_candidate_snapshot_directory(&replayed)?;
+                self.remove_candidate_snapshot_directory(&replayed);
             }
             if rollback_guard.candidate_before.is_some() {
+                // The snapshot is written again from the restored volatile blocks. Trace the
+                // snapshot that was written, if any, not the one that was expected.
                 self.write_candidate_snapshot()?;
+                debug_assert_eq!(self.candidate_snapshot, rollback_guard.candidate_before);
+                if let Some(candidate) = &self.candidate_snapshot {
+                    candidate.trace(CandidateSnapshotOutcome::Restored);
+                }
             }
             self.publish_stake_distributions();
             self.try_compute_rewards()?;
@@ -1245,10 +1258,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// chain. Its directory stays on disk until the fork switch ends, so that a failed switch can
     /// restore it.
     fn discard_rolled_back_candidate_snapshot(&mut self) {
-        let Some(_) = self.candidate_snapshot.take_if(|candidate| !self.volatile.has_point(&candidate.last_block))
+        let Some(candidate) =
+            self.candidate_snapshot.take_if(|candidate| !self.volatile.has_point(&candidate.last_block))
         else {
             return;
         };
+        candidate.trace(CandidateSnapshotOutcome::Discarded);
 
         self.cancel_background_tasks();
         self.publish_stake_distributions();
@@ -1275,21 +1290,29 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// Delete the candidate snapshot recorded before a fork switch, unless it is still the current
     /// one. A fork point at or after its last block leaves it untouched. A fork point before its
     /// last block always discards it: the fork cannot contain the same last block.
-    fn remove_replaced_candidate_snapshot(
-        &self,
-        candidate_before: Option<CandidateSnapshot>,
-    ) -> Result<(), StoreError> {
-        match candidate_before {
-            Some(candidate) if self.candidate_snapshot.as_ref() != Some(&candidate) => {
-                self.remove_candidate_snapshot_directory(&candidate)
-            }
-            _ => Ok(()),
+    fn remove_replaced_candidate_snapshot(&self, candidate_before: Option<CandidateSnapshot>) {
+        if let Some(candidate) = candidate_before
+            && self.candidate_snapshot.as_ref() != Some(&candidate)
+        {
+            self.remove_candidate_snapshot_directory(&candidate);
         }
     }
 
-    /// Delete the directory of a candidate snapshot that no longer serves.
-    fn remove_candidate_snapshot_directory(&self, candidate: &CandidateSnapshot) -> Result<(), StoreError> {
-        self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash())
+    /// Delete the directory of a candidate snapshot that no longer serves. A failure only emits a
+    /// warning: nothing reads this directory, and the store deletes all candidate snapshots when it
+    /// opens.
+    fn remove_candidate_snapshot_directory(&self, candidate: &CandidateSnapshot) {
+        match self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash()) {
+            Ok(()) => candidate.trace(CandidateSnapshotOutcome::Removed),
+            Err(error) => {
+                warn!(
+                    ledger::candidate_snapshot::REMOVE_FAILED,
+                    epoch = candidate.epoch,
+                    last_block = candidate.last_block,
+                    reason = error.to_string()
+                );
+            }
+        }
     }
 
     fn rollback_volatile_to<'a>(&mut self, to: &'a Point) -> Result<StateRecovery<'a>, BackwardError> {
@@ -1491,6 +1514,45 @@ struct CandidateSnapshot {
     epoch: Epoch,
     /// The last block of `epoch`. A rollback that removes it makes the snapshot invalid.
     last_block: Point,
+}
+
+impl CandidateSnapshot {
+    /// Trace a change of state of this candidate snapshot.
+    fn trace(&self, outcome: CandidateSnapshotOutcome) {
+        info!(
+            ledger::candidate_snapshot::UPDATE,
+            epoch = self.epoch,
+            last_block = self.last_block,
+            outcome = outcome.as_str()
+        );
+    }
+}
+
+/// A change of state of a candidate snapshot, as reported in its trace.
+#[derive(Debug, Clone, Copy)]
+enum CandidateSnapshotOutcome {
+    /// The snapshot was taken at the first block after 3·k/f.
+    Created,
+    /// The last block of the snapshot became stable, so the snapshot is final.
+    Final,
+    /// A rollback removed the last block of the snapshot.
+    Discarded,
+    /// A failed fork switch put the snapshot back.
+    Restored,
+    /// The directory of the snapshot was deleted.
+    Removed,
+}
+
+impl CandidateSnapshotOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Final => "final",
+            Self::Discarded => "discarded",
+            Self::Restored => "restored",
+            Self::Removed => "removed",
+        }
+    }
 }
 
 /// Snapshot-derived computations running on a background thread while the current epoch
