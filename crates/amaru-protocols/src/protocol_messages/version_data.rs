@@ -24,6 +24,10 @@ use crate::protocol_messages::version_number::VersionNumber;
 /// Node-to-node handshake peer-sharing willingness (`0` disabled, `1` enabled on the wire).
 ///
 /// Combined with [`BitAnd`]: enabled only when both sides offer it.
+///
+/// Wire value `2` was the removed Haskell `PeerSharingPrivate` constructor (NtN v11/v12). Newer
+/// Haskell nodes treat it as enabled; gOuroboros/Dingo QueryReply tables still advertise `2` on
+/// those versions, so decode maps `2` → [`PeerSharing::Enabled`] for interoperability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum PeerSharing {
     Disabled,
@@ -93,8 +97,9 @@ impl<'b, C> cbor::Decode<'b, C> for PeerSharing {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         match d.u8()? {
             0 => Ok(Self::Disabled),
-            1 => Ok(Self::Enabled),
-            n => Err(cbor::decode::Error::message(format!("invalid peer sharing: expected 0 or 1, got {n}"))),
+            // 1 = Enabled; 2 = legacy PeerSharingPrivate (see type docs).
+            1 | 2 => Ok(Self::Enabled),
+            n => Err(cbor::decode::Error::message(format!("invalid peer sharing: expected 0, 1, or 2, got {n}"))),
         }
     }
 }
@@ -244,8 +249,13 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn accepts_legacy_peer_sharing_private_as_enabled() {
+        assert_eq!(cbor::decode::<PeerSharing>(&[0x02]).unwrap(), PeerSharing::Enabled);
+    }
+
+    #[test]
     fn rejects_unknown_peer_sharing_wire_value() {
-        let err = cbor::decode::<PeerSharing>(&[0x02]).unwrap_err();
+        let err = cbor::decode::<PeerSharing>(&[0x03]).unwrap_err();
         assert!(err.to_string().contains("invalid peer sharing"), "{err}");
     }
 }
