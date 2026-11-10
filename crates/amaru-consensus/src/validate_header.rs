@@ -53,7 +53,7 @@ impl ValidateHeaderError {
 ///
 /// Nothing is written to the store here. The returned nonces are meant to be stored atomically
 /// with the header itself, so that stored nonces always denote a fully validated header.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn validate_header(
     header: &Header,
     consensus_parameters: Arc<ConsensusParameters>,
@@ -72,15 +72,11 @@ pub fn validate_header(
         let last_opcert_sequence_number =
             store.get_latest_opcert_sequence_number(&pool_id, header).map_err(ConsensusError::StoreError)?;
 
-        let pool_summary = pool_summaries
-            .get_pool(header.slot(), &pool_id, era_history.as_ref())
-            .map_err(ConsensusError::GetPoolError)?
-            .ok_or(ConsensusError::UnknownPool { pool_id })?;
-
         // A stake distribution might have been computed from a candidate snapshot in case of a
         // sparse chain. In that case we need to check that the header that we are checking for the
         // given era is a descendant of the last block of that era because the blocks are not final
-        // and there could be several competing forks.
+        // and there could be several competing forks. This check comes before the pool lookup: the
+        // pools of another fork can be absent from this distribution.
         if let Some((epoch, last_block)) =
             pool_summaries.candidate_for(header.slot(), era_history.as_ref()).map_err(ConsensusError::GetPoolError)?
             && !header.parent().is_some_and(|parent| store.is_ancestor(&last_block, parent))
@@ -91,6 +87,11 @@ pub fn validate_header(
             ))
             .into());
         }
+
+        let pool_summary = pool_summaries
+            .get_pool(header.slot(), &pool_id, era_history.as_ref())
+            .map_err(ConsensusError::GetPoolError)?
+            .ok_or(ConsensusError::UnknownPool { pool_id })?;
 
         praos::header::assert_all(
             consensus_parameters,
@@ -113,7 +114,7 @@ pub fn validate_header(
 mod test {
     use std::collections::BTreeMap;
 
-    use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, hash, make_header};
+    use amaru_kernel::{Epoch, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point, PoolId, hash, make_header};
     use amaru_ouroboros_traits::{
         BaseReadChainStore, Nonces, PoolSummary, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
     };
@@ -186,6 +187,29 @@ mod test {
         );
     }
 
+    #[test]
+    fn a_header_from_a_pool_absent_from_a_candidate_distribution_waits_if_it_does_not_descend_from_its_last_block() {
+        let Chain { store, sibling, header, .. } = make_chain();
+        let result = validate_with_candidate_and_pool(store, &header, sibling.point(), another_pool(&header));
+
+        assert_eq!(
+            result.as_ref().err().and_then(ValidateHeaderError::missing_stake_distribution),
+            Some(target_epoch(&header)),
+            "the header waits for another stake distribution: {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_header_from_a_pool_absent_from_a_candidate_distribution_is_rejected_if_it_descends_from_its_last_block() {
+        let Chain { store, grandparent, header, .. } = make_chain();
+        let result = validate_with_candidate_and_pool(store, &header, grandparent.point(), another_pool(&header));
+
+        assert!(
+            matches!(result, Err(ValidateHeaderError::Consensus(ConsensusError::UnknownPool { .. }))),
+            "the issuer of the header is unknown: {result:?}"
+        );
+    }
+
     // HELPERS
 
     /// A stored chain and a header to validate on top of it:
@@ -226,11 +250,22 @@ mod test {
 
     /// Validate `header` with a stake distribution, for the epoch of `header`, computed from a
     /// candidate snapshot that ends with `last_block`.
-    #[allow(clippy::result_large_err)]
+    #[expect(clippy::result_large_err)]
     fn validate_with_candidate(
         store: Arc<InMemoryChainStore>,
         header: &Header,
         last_block: Point,
+    ) -> Result<Nonces, ValidateHeaderError> {
+        validate_with_candidate_and_pool(store, header, last_block, header.pool_id())
+    }
+
+    /// Same as [`validate_with_candidate`], but the stake distribution only holds `pool_id`.
+    #[expect(clippy::result_large_err)]
+    fn validate_with_candidate_and_pool(
+        store: Arc<InMemoryChainStore>,
+        header: &Header,
+        last_block: Point,
+        pool_id: PoolId,
     ) -> Result<Nonces, ValidateHeaderError> {
         let epoch = target_epoch(header);
         let pool = PoolSummary {
@@ -239,7 +274,7 @@ mod test {
             stake: 1,
         };
         let pool_summaries = PoolSummaries {
-            by_epoch: BTreeMap::from([(epoch, BTreeMap::from([(header.pool_id(), pool)]))]),
+            by_epoch: BTreeMap::from([(epoch, BTreeMap::from([(pool_id, pool)]))]),
             candidates: BTreeMap::from([(epoch, last_block)]),
         };
 
@@ -250,6 +285,13 @@ mod test {
             Arc::new(pool_summaries),
             Arc::new(PREPROD_ERA_HISTORY.clone()),
         )
+    }
+
+    /// A pool that did not issue `header`.
+    fn another_pool(header: &Header) -> PoolId {
+        let pool_id = PoolId::new([9; 28]);
+        assert_ne!(pool_id, header.pool_id());
+        pool_id
     }
 
     /// The epoch of the stake distribution used to validate `header`.
