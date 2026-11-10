@@ -1607,6 +1607,15 @@ define_schemas! {
                 required description: String
                 optional cause: String
             }
+            pool {
+                schedule {
+                    /// The requested leader schedule uses a nonce derived before the epoch was observed on-chain.
+                    public event SPECULATIVE_NONCE {
+                        levels: warn
+                        required epoch: amaru_kernel::Epoch
+                    }
+                }
+            }
             dev {
                 tags: cli
                 chain {

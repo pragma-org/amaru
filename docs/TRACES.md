@@ -885,6 +885,20 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::cli::pool::schedule`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `speculative_nonce` | `event` | warn | public | The requested leader schedule uses a nonce derived before the epoch was observed on-chain. | epoch |  |
+
+<details><summary>event: `speculative_nonce`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+
+</details>
+
 ## target: `amaru::cli::snapshot`
 
 | name | kind | levels | public | description | required fields | optional fields |

@@ -21,6 +21,7 @@ use tempfile::NamedTempFile;
 pub mod cert;
 pub mod id;
 pub mod kes;
+pub mod schedule;
 pub mod vrf;
 
 /// Stake pool operator tools.
@@ -36,6 +37,9 @@ pub(crate) enum PoolCommand {
     Id(id::IdCommand),
 
     #[command(subcommand)]
+    Schedule(schedule::ScheduleCommand),
+
+    #[command(subcommand)]
     Vrf(vrf::VrfCommand),
 }
 
@@ -45,6 +49,7 @@ impl PoolCommand {
             Self::Cert(cmd) => cmd.into_runnable(),
             Self::Kes(cmd) => cmd.into_runnable(),
             Self::Id(cmd) => cmd.into_runnable(),
+            Self::Schedule(cmd) => cmd.into_runnable(),
             Self::Vrf(cmd) => cmd.into_runnable(),
         }
     }
