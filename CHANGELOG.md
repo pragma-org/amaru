@@ -44,10 +44,12 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru-protocols**: handshake decode accepts legacy peer-sharing wire value `2` (`PeerSharingPrivate` on NtN v11/v12) as enabled, matching newer Haskell interop so gOuroboros/Dingo `QueryReply` tables no longer fail to decode.
 - **amaru-uplc**: rework uplc turbo benchmarks and uplc conformance to emit JSON results aggregated into a report. Both datasets have also been cleaned up and reorganised more logically.
 
 ### Fixed
 
+- **amaru**: `peer probe` Accept sessions offer full-duplex version data and pre-buffer both mux directions (same as an outbound node), so handshakes and follow-up tip/ping/peer-share against peers that return their local `VersionData` (for example gOuroboros/Dingo) no longer fail with `version data is not the agreed record` or an immediate mux exit.
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 - **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.

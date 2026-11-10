@@ -31,7 +31,8 @@ use amaru_protocols::{
     peer_sharing::{ShareResult, register_peer_sharing_initiator_oneshot},
     peer_tracking::InMemoryPeerTracking,
     protocol::{
-        Inputs, PROTO_HANDSHAKE, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE, PROTO_N2N_PEER_SHARE, Role, ingress_limit,
+        Inputs, PROTO_HANDSHAKE, PROTO_N2N_BLOCK_FETCH, PROTO_N2N_CHAIN_SYNC, PROTO_N2N_KEEP_ALIVE,
+        PROTO_N2N_PEER_SHARE, PROTO_N2N_TX_SUB, Role, ingress_limit,
     },
     protocol_messages::{version_data::PeerSharing, version_number::VersionNumber, version_table::VersionTable},
     store_effects::ResourceHeaderStore,
@@ -691,18 +692,33 @@ async fn driver_stage(mut state: Driver, msg: DriverMsg, eff: Effects<DriverMsg>
             mark(&mut state, "handshake_start");
             let muxer = eff.stage("mux", mux::stage).await;
             let muxer = eff.supervise(muxer, DriverMsg::MuxDied);
-            // Hold inbound SDUs for every mini-protocol this probe may register later.
-            let early = [
-                (PROTO_HANDSHAKE.erase(), ingress_limit(PROTO_HANDSHAKE)),
-                (PROTO_N2N_CHAIN_SYNC.erase(), ingress_limit(PROTO_N2N_CHAIN_SYNC)),
-                (PROTO_N2N_KEEP_ALIVE.erase(), ingress_limit(PROTO_N2N_KEEP_ALIVE)),
-                (PROTO_N2N_PEER_SHARE.erase(), ingress_limit(PROTO_N2N_PEER_SHARE)),
+            // Hold inbound SDUs until Register. Include both directions for the same set the
+            // outbound node pre-buffers: a full-duplex Accept lets the peer open initiator
+            // protocols toward us, and unknown protocol ids abort the mux.
+            let early_ids = [
+                PROTO_HANDSHAKE,
+                PROTO_N2N_CHAIN_SYNC,
+                PROTO_N2N_BLOCK_FETCH,
+                PROTO_N2N_TX_SUB,
+                PROTO_N2N_KEEP_ALIVE,
+                PROTO_N2N_PEER_SHARE,
             ];
+            let early: Vec<_> = early_ids
+                .into_iter()
+                .flat_map(|id| {
+                    [(id.erase(), ingress_limit(id)), (id.responder().erase(), ingress_limit(id.responder()))]
+                })
+                .collect();
             let muxer = eff.wire_up(muxer, mux::State::new(state.conn_id, &early, Role::Initiator, state.peer)).await;
 
+            // Accept offers match outbound node connections (`connection.rs`): full-duplex
+            // (`initiator_only = false`) with peer-sharing enabled. Some stacks (notably
+            // gOuroboros/Dingo) reply with their local VersionData rather than the agreed
+            // combination; offering initiator-only then fails Amaru's Accept verification
+            // (`version data is not the agreed record`) even though a full node connects.
             let versions = match state.handshake_mode {
                 HandshakeMode::Query => VersionTable::query_through(state.max_n2n_version, state.magic),
-                HandshakeMode::Accept => VersionTable::v11_through(state.max_n2n_version, state.magic, true, true),
+                HandshakeMode::Accept => VersionTable::v11_through(state.max_n2n_version, state.magic, false, true),
             };
 
             let hs_reply = eff.me_ref().contramap(DriverMsg::Handshake);
