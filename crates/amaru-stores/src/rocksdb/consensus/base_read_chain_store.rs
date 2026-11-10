@@ -33,6 +33,28 @@ impl<T> BaseReadChainStore for RocksDBStore<T>
 where
     T: DbOps + Send + Sync,
 {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.db
+            .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())?
+            .map(|bytes| decode_chain_point(bytes.as_ref()))
+            .transpose()
+            .map(|point| point.unwrap_or(Point::Origin))
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        let mut options = ReadOptions::default();
+        options.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+        let key = [&CHAIN_PREFIX[..], &u64::from(slot).to_be_bytes()].concat();
+        self.db
+            .iterator_opt(IteratorMode::From(&key, Direction::Forward), options)
+            .next()
+            .map(|entry| {
+                let (_, value) = entry.map_err(|error| StoreError::ReadError { error: error.to_string() })?;
+                decode_chain_point(&value).map(|point| point.to_network_point())
+            })
+            .transpose()
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db
@@ -221,6 +243,12 @@ where
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
     }
+}
+
+fn decode_chain_point(bytes: &[u8]) -> Result<Point, StoreError> {
+    from_cbor::<NetworkTip>(bytes)
+        .map(Point::from)
+        .ok_or_else(|| StoreError::ReadError { error: "malformed canonical chain point".into() })
 }
 
 /// Decode a slot || header_hash key used to store the opcert sequence numbers
