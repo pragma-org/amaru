@@ -277,6 +277,48 @@ fn a_rollback_past_the_last_block_of_an_epoch_discards_its_candidate_snapshot() 
 }
 
 #[test]
+fn a_rollback_into_the_epoch_of_a_candidate_snapshot_discards_it_even_if_its_last_block_stays() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // The fork starts at block1, so block1 stays on the chain. But the rollback goes back into
+    // epoch e: the background task, started at block3 in epoch e+1, computes the rewards that the
+    // transition out of epoch e+1 pays, and the replay of the boundary must not use them:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ -------------------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4             rolled back
+    //                      │         ╎
+    //                      └─────────╎ block2' ── block3' ── block4'                 replayed
+    //     slots                      ╎ b+1        b+2        b+3
+    let fork =
+        vec![empty_block_at(boundary_slot + 1), empty_block_at(boundary_slot + 2), empty_block_at(boundary_slot + 3)];
+    match state.switch_to_fork(&block1, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Completed { .. }) => (),
+        other => panic!("expected the switch to complete, got: {other:?}"),
+    }
+
+    assert_eq!(state.candidate_snapshot(), None, "the candidate snapshot of epoch e is discarded");
+    let summaries = next_publication(&published);
+    assert!(
+        !summaries.by_epoch.contains_key(&closing_epoch) && !summaries.candidates.contains_key(&closing_epoch),
+        "the stake distribution of epoch e is withdrawn"
+    );
+
+    // After the stability window, the fork takes a new candidate snapshot, which also ends at block1.
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
+    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
+
+    assert_eq!(state.candidate_snapshot(), Some((closing_epoch, block1)));
+    let summaries = next_publication(&published);
+    assert_eq!(
+        summaries.candidates.get(&closing_epoch),
+        Some(&block1),
+        "the stake distribution of epoch e is computed again from the new candidate snapshot"
+    );
+}
+
+#[test]
 fn a_rollback_that_keeps_the_last_block_of_an_epoch_keeps_its_candidate_snapshot() {
     let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block2, .. } =
         make_sparse_chain_with_candidate_snapshot();

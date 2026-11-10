@@ -16,7 +16,6 @@ use std::{
     borrow::Cow,
     cmp::max,
     collections::{BTreeMap, BTreeSet, VecDeque},
-    mem,
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -111,8 +110,8 @@ where
     /// Full stake distributions remain reconstructible from on-disk snapshots when rewards need
     /// them, which avoids retaining large account maps in steady-state memory.
     ///
-    /// New distributions are computed by the rewards background task and installed here when
-    /// its result is joined at the epoch transition.
+    /// New distributions are computed by the stake distribution and rewards computation, and
+    /// installed here when its result is joined at the epoch transition.
     stake_distributions: VecDeque<StakeDistribution>,
 
     /// The era history for the network this store is related to.
@@ -133,12 +132,12 @@ where
     /// epoch before its last blocks were stable. See [`Store::create_candidate_snapshot`].
     candidate_snapshot: Option<CandidateSnapshot>,
 
-    /// The stake distribution that the background task computes from the candidate snapshot, as
-    /// published. Shared with the task.
+    /// The stake distribution that the stake distribution and rewards computation computes from the
+    /// candidate snapshot, as published. Shared with that computation.
     candidate_distribution: Option<Arc<Mutex<CandidateDistribution>>>,
 
     /// Background computation calculating rewards and stake distributions
-    rewards_join_handle: Option<JoinHandle<RewardsComputation>>,
+    stake_distribution_and_rewards_task: Option<StakeDistributionAndRewardsTask>,
 
     rewards_cancelled: Arc<AtomicBool>,
 
@@ -279,7 +278,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             candidate_snapshot: None,
             candidate_distribution: None,
 
-            rewards_join_handle: None,
+            stake_distribution_and_rewards_task: None,
             rewards_cancelled: Arc::new(AtomicBool::new(false)),
 
             tip_update_emitter: TipUpdateEmitter::default(),
@@ -414,7 +413,16 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
     fn epoch_transition(&mut self, next_epoch: Epoch) -> Result<(), StateError> {
         info_span!(ledger::epoch_transition::COMPUTE, from = next_epoch - 1, into = next_epoch).in_scope(|| {
-            let computed_rewards = if let Some(handle) = mem::take(&mut self.rewards_join_handle) {
+            let computed_rewards = if let Some(StakeDistributionAndRewardsTask { epoch, handle }) =
+                self.stake_distribution_and_rewards_task.take()
+            {
+                assert_eq!(
+                    epoch,
+                    next_epoch - 1,
+                    "invariant violation: the rewards task was started in epoch {epoch}, but the epoch transition \
+                     ends epoch {}",
+                    next_epoch - 1
+                );
                 let (rotated, rewards) =
                     handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: "rewards".to_string() })??;
                 if let Some(distribution) = rotated {
@@ -544,7 +552,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         })
     }
 
-    fn try_compute_rewards(&mut self) -> Result<(), StateError> {
+    fn try_compute_stake_distribution_and_rewards(&mut self) -> Result<(), StateError> {
         let tip = self.tip().slot_or_default();
         let current_epoch = unsafe_slot_to_epoch(&self.era_history, tip);
         let is_previous_epoch_stable =
@@ -553,7 +561,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         // The overlay can still hold the effective rewards of the last epoch boundary: this
         // happens when the snapshot of the previous epoch is a candidate snapshot.
         if !self.volatile.has_computed_rewards()
-            && self.rewards_join_handle.is_none()
+            && self.stake_distribution_and_rewards_task.is_none()
             && Some(self.most_recent_snapshot()) == current_epoch.checked_sub(Epoch::ONE)
             && is_previous_epoch_stable
         {
@@ -586,16 +594,21 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
             match &self.candidate_snapshot {
                 // A candidate snapshot exists only until the next epoch boundary, and the final snapshot
-                // of the same epoch is taken after the background tasks start.
+                // of the same epoch is taken after the stake distribution and rewards computation starts.
                 Some(candidate) => {
                     debug_assert_eq!(candidate.epoch, current_epoch - 1);
                     let last_block = candidate.last_block;
                     let previous_epoch = self.snapshots.for_candidate_epoch(candidate.epoch, &last_block.hash())?;
-                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot, Some(last_block));
+                    self.spawn_stake_distribution_and_rewards(
+                        current_epoch,
+                        previous_epoch,
+                        rewards_snapshot,
+                        Some(last_block),
+                    );
                 }
                 None => {
                     let previous_epoch = self.snapshots.for_epoch(current_epoch - 1)?;
-                    self.spawn_background_tasks(current_epoch, previous_epoch, rewards_snapshot, None);
+                    self.spawn_stake_distribution_and_rewards(current_epoch, previous_epoch, rewards_snapshot, None);
                 }
             }
         }
@@ -606,7 +619,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// Compute the stake distribution of `previous_epoch` (when not held yet), then the rewards
     /// of `current_epoch`, in a background thread. `candidate_last_block` is set when
     /// `previous_epoch` is a candidate snapshot.
-    fn spawn_background_tasks(
+    fn spawn_stake_distribution_and_rewards(
         &mut self,
         current_epoch: Epoch,
         previous_epoch: impl Snapshot + Send + 'static,
@@ -624,7 +637,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 front => Some(StakeDistributionRotation { retained: pool_summaries_for(front.into_iter()) }),
             };
 
-            let tasks = BackgroundTasks {
+            let tasks = StakeDistributionAndRewards {
                 cancelled: self.rewards_cancelled.clone(),
                 previous_epoch,
                 rewards_snapshot,
@@ -641,8 +654,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
             // The rewards task is a fresh thread, so it does not inherit the caller's subscriber.
             let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
-            self.rewards_join_handle =
-                Some(std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())))
+            self.stake_distribution_and_rewards_task = Some(StakeDistributionAndRewardsTask {
+                epoch: current_epoch,
+                handle: std::thread::spawn(move || tracing::dispatcher::with_default(&dispatch, || tasks.run())),
+            })
         }
     }
 
@@ -800,8 +815,9 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     }
 
     /// Mark the stake distribution computed from the candidate snapshot as final, now that the
-    /// last block of its epoch is stable. If the background task already published it, publish it
-    /// again without the candidate tag; otherwise, the task publishes it without the tag.
+    /// last block of its epoch is stable. If the stake distribution and rewards computation already
+    /// published it, publish it again without the candidate tag; otherwise, the computation
+    /// publishes it without the tag.
     fn publish_candidate_distribution_as_final(&self) {
         let Some(shared) = &self.candidate_distribution else {
             return;
@@ -913,11 +929,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     ///
     /// 1. **Rewards calculation, after the previous block**
     ///
-    ///    Start the background task if the ledger state before this block allows it: the snapshot
-    ///    of the previous epoch exists, and the tip is at least 3·k/f slots into its epoch. Usually
-    ///    step 8 of the previous block already started it. This step covers a ledger that has no
-    ///    task at this point, for example after a node restart. The task must start before step 2,
-    ///    because the epoch transition pays the rewards that it computes.
+    ///    Start the stake distribution and rewards computation if the ledger state before this block
+    ///    allows it: the snapshot of the previous epoch exists, and the tip is at least 3·k/f slots
+    ///    into its epoch. Usually step 8 of the previous block already started it. This step covers
+    ///    a ledger that has no computation running at this point, for example after a node restart.
+    ///    The computation must start before step 2, because the epoch transition pays the rewards
+    ///    that it computes.
     ///
     /// 2. **Epoch Transition**
     ///
@@ -950,11 +967,11 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     ///
     /// 8. **Rewards calculation, after this block**
     ///
-    ///    Start the background task if the ledger state after this block allows it: step 7 can take
-    ///    the snapshot of the previous epoch, and this block can be the first one 3·k/f slots into
-    ///    the epoch. The task also computes the stake distribution that the headers of the next
-    ///    epoch need. Consensus accepts no further block before it has this distribution, so the
-    ///    task cannot wait for step 1 of the next block.
+    ///    Start the stake distribution and rewards computation if the ledger state after this block
+    ///    allows it: step 7 can take the snapshot of the previous epoch, and this block can be the
+    ///    first one 3·k/f slots into the epoch. The headers of the next epoch need the stake
+    ///    distribution that it computes. Consensus accepts no further block before it has this
+    ///    distribution, so the computation cannot wait for step 1 of the next block.
     pub fn roll_forward(
         &mut self,
         block: &Block,
@@ -964,7 +981,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             let point = block.point();
 
             // 1. Rewards calculation
-            BlockValidation::from(self.try_compute_rewards())?;
+            BlockValidation::from(self.try_compute_stake_distribution_and_rewards())?;
 
             // 2. Epoch transition
             BlockValidation::from(self.try_epoch_transition(point))?;
@@ -1000,7 +1017,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             BlockValidation::from(self.apply_transition())?;
 
             // 8. Rewards calculation, from a snapshot taken by this block
-            BlockValidation::from(self.try_compute_rewards())?;
+            BlockValidation::from(self.try_compute_stake_distribution_and_rewards())?;
 
             if self.observers.wants_block_events() {
                 // Borrow UTxO DiffSet from the fragment we just pushed (still at the tip).
@@ -1233,11 +1250,11 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         }
 
         // The replay discarded, created or removed a candidate snapshot: bring back the one that
-        // matches the restored chain, and restart the background tasks from it now. The next
-        // header can need the stake distribution that they compute, and no block can arrive
+        // matches the restored chain, and restart the stake distribution and rewards computation
+        // from it now. The next header can need the stake distribution, and no block can arrive
         // before that header is accepted.
         if self.candidate_snapshot != rollback_guard.candidate_before {
-            self.cancel_background_tasks();
+            self.cancel_stake_distribution_and_rewards();
             if let Some(replayed) = self.candidate_snapshot.take() {
                 self.remove_candidate_snapshot_directory(&replayed);
             }
@@ -1251,7 +1268,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 }
             }
             self.publish_stake_distributions();
-            self.try_compute_rewards()?;
+            self.try_compute_stake_distribution_and_rewards()?;
         }
 
         Ok(())
@@ -1269,30 +1286,35 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// stake distribution computed from it, and the rewards computed from it no longer match the
     /// chain. Its directory stays on disk until the fork switch ends, so that a failed switch can
     /// restore it.
+    ///
+    /// Also forget it when the rollback goes back into its epoch, even if its last block stays: the
+    /// stake distribution and rewards computation was started in the next epoch, and the
+    /// transition out of that next epoch pays the rewards that it computes. The replay of the
+    /// epoch boundary must not use them.
     fn discard_rolled_back_candidate_snapshot(&mut self) {
-        let Some(candidate) =
-            self.candidate_snapshot.take_if(|candidate| !self.volatile.has_point(&candidate.last_block))
-        else {
+        let Some(candidate) = self.candidate_snapshot.take_if(|candidate| {
+            !self.volatile.has_point(&candidate.last_block) || self.volatile.epoch() <= candidate.epoch
+        }) else {
             return;
         };
         candidate.trace(CandidateSnapshotOutcome::Discarded);
 
-        self.cancel_background_tasks();
+        self.cancel_stake_distribution_and_rewards();
         self.publish_stake_distributions();
     }
 
     /// Stop the background computation of the stake distribution and the rewards, and wait for it.
-    fn cancel_background_tasks(&mut self) {
-        if let Some(handle) = self.rewards_join_handle.take() {
+    fn cancel_stake_distribution_and_rewards(&mut self) {
+        if let Some(task) = self.stake_distribution_and_rewards_task.take() {
             self.rewards_cancelled.store(true, Ordering::Relaxed);
-            let _ = handle.join();
+            let _ = task.handle.join();
             self.rewards_cancelled.store(false, Ordering::Relaxed);
         }
         self.candidate_distribution = None;
     }
 
-    /// Publish the stake distributions held in memory, for example after a background task
-    /// published one that is no longer valid.
+    /// Publish the stake distributions held in memory, for example after a stake distribution and
+    /// rewards computation published one that is no longer valid.
     fn publish_stake_distributions(&self) {
         if let Some(notify) = &self.on_stake_dist_updated {
             notify(pool_summaries_for(self.stake_distributions.iter()));
@@ -1498,8 +1520,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Cancel and join background rewards work. Call only after ledger processing has stopped.
     pub fn shutdown_rewards(&mut self) {
         self.rewards_cancelled.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.rewards_join_handle.take() {
-            let _ = handle.join();
+        if let Some(task) = self.stake_distribution_and_rewards_task.take() {
+            let _ = task.handle.join();
         }
     }
 }
@@ -1510,9 +1532,16 @@ impl<S: Store, HS: HistoricalStores> Drop for State<S, HS> {
     }
 }
 
-/// Result of the rewards background task: the rotated stake distribution, when one was due, and
-/// the rewards for the upcoming epoch transition.
+/// Result of the stake distribution and rewards computation: the rotated stake distribution, when
+/// one was due, and the rewards for the upcoming epoch transition.
 type RewardsComputation = Result<(Option<StakeDistribution>, RewardsSummary), StateError>;
+
+/// The background computation that starts during `epoch`. The transition out of `epoch` pays the
+/// rewards that it computes.
+struct StakeDistributionAndRewardsTask {
+    epoch: Epoch,
+    handle: JoinHandle<RewardsComputation>,
+}
 
 /// Inputs for rotating the in-memory stake distributions: the pool summaries of the distribution
 /// that remains held after the rotation, re-published together with the freshly computed one.
@@ -1570,7 +1599,7 @@ impl CandidateSnapshotOutcome {
 /// Snapshot-derived computations running on a background thread while the current epoch
 /// progresses. The thread receives everything it needs by value; results travel back through
 /// the [`JoinHandle`] consumed at the epoch transition.
-struct BackgroundTasks<Previous, Snap> {
+struct StakeDistributionAndRewards<Previous, Snap> {
     cancelled: Arc<AtomicBool>,
     /// Snapshot of the previous epoch; source of the rotated stake distribution as well as the
     /// block issuers and pots for the rewards calculation.
@@ -1591,7 +1620,8 @@ struct BackgroundTasks<Previous, Snap> {
     candidate: Option<(Point, Arc<Mutex<CandidateDistribution>>)>,
 }
 
-/// The stake distribution that a background task computed from a candidate snapshot.
+/// The stake distribution that a stake distribution and rewards computation computed from a
+/// candidate snapshot.
 #[derive(Default)]
 struct CandidateDistribution {
     /// Set by the ledger when the last block of the epoch became stable.
@@ -1601,7 +1631,7 @@ struct CandidateDistribution {
     published: Option<PoolSummaries>,
 }
 
-impl<Previous: Snapshot, Snap: Snapshot> BackgroundTasks<Previous, Snap> {
+impl<Previous: Snapshot, Snap: Snapshot> StakeDistributionAndRewards<Previous, Snap> {
     fn check_cancelled(&self) -> Result<(), StateError> {
         if self.cancelled.load(Ordering::Relaxed) { Err(StateError::BackgroundTaskCancelled) } else { Ok(()) }
     }
