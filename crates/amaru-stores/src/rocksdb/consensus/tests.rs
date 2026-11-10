@@ -16,6 +16,7 @@ use std::{
     collections::BTreeMap,
     fmt::{Display, Formatter},
     fs, io,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -30,10 +31,10 @@ use amaru_kernel::{
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, BestChainError, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
-    FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore, best_chain_point_at_or_before,
-    in_memory_chain_store::InMemoryChainStore, next_best_chain_point,
+    BaseReadChainStore, BestChainError, BlockRange, BlockReadError, BlockReadLimits, ChainStore, ChildTipsMode,
+    DiagnosticChainStore, FindAncestorOnBestChainResult, FindCommonAncestorResult, FullChainStore, MissingBlocks,
+    MissingBlocksResult, NextBestChainHeader, Nonces, OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError,
+    WriteChainStore, best_chain_point_at_or_before, in_memory_chain_store::InMemoryChainStore, next_best_chain_point,
 };
 use proptest::prelude::{any, any_with};
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
@@ -432,6 +433,54 @@ fn best_chain_successor_reports_incomplete_history_and_honors_the_read_budget() 
             Ok::<(), anyhow::Error>(())
         });
         assert_eq!(result.unwrap_err().to_string(), "read budget exhausted");
+    });
+}
+
+#[test]
+fn immutable_batches_resume_at_a_fixed_same_slot_boundary() {
+    with_db(|store| {
+        let first = encoded(&make_header(1, 0, None));
+        let second = encoded(&make_header(2, 0, Some(first.header.hash())));
+        let third = encoded(&make_header(3, 0, Some(second.header.hash())));
+        for block in [&first, &second, &third] {
+            store.store_block(&block.header.hash(), &block.raw).unwrap();
+            store.roll_forward_chain(&block.header.point()).unwrap();
+        }
+
+        let first_point = first.header.point().into();
+        let second_point = second.header.point().into();
+        let third_point = third.header.point().into();
+        store.set_anchor_point(&second.header.point()).unwrap();
+
+        let limits = BlockReadLimits { max_blocks: NonZeroUsize::MIN, ..Default::default() };
+        let range = store.open_block_range(BlockRange::default(), limits, &|| false).unwrap();
+        assert_eq!(range.through, second_point);
+        assert!(matches!(
+            store.open_block_range(BlockRange { after: None, through: Some(third_point) }, limits, &|| false),
+            Err(BlockReadError::InvalidPosition { point }) if point == third_point
+        ));
+
+        let initial = BlockRange { after: Some(range.after), through: Some(range.through) };
+        let first_batch = store.read_block_batch(initial, limits, &|| false).unwrap();
+        assert_eq!(first_batch.blocks[0].raw_block, first.raw);
+        assert_eq!(first_batch.last_point, first_point);
+        assert!(!first_batch.complete);
+
+        store.set_anchor_point(&third.header.point()).unwrap();
+        let resume = BlockRange { after: Some(first_batch.last_point), ..initial };
+        let last_batch = store.read_block_batch(resume, limits, &|| false).unwrap();
+        assert_eq!(last_batch.blocks[0].raw_block, second.raw);
+        assert_eq!(last_batch.last_point, second_point);
+        assert!(last_batch.complete);
+
+        let reversed = BlockRange { after: Some(third_point), ..initial };
+        assert!(matches!(
+            store.read_block_batch(reversed, limits, &|| false),
+            Err(BlockReadError::InvalidRange { after, through }) if after == third_point && through == second_point
+        ));
+        assert!(matches!(store.read_block_batch(resume, limits, &|| true), Err(BlockReadError::Cancelled)));
+        let short_budget = BlockReadLimits { max_steps: NonZeroUsize::MIN, ..limits };
+        assert!(matches!(store.read_block_batch(resume, short_budget, &|| false), Err(BlockReadError::WorkLimit)));
     });
 }
 

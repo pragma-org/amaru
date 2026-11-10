@@ -91,6 +91,10 @@ impl OverridingChainStoreBuilder {
 }
 
 impl BaseReadChainStore for OverridingChainStore {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }
@@ -155,6 +159,10 @@ impl ReadChainStore for OverridingChainStore {
 }
 
 impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }

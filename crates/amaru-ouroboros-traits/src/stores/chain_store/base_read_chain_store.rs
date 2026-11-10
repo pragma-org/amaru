@@ -31,6 +31,11 @@ pub trait BaseReadChainStore: Send + Sync {
     /// An empty store reports [`Point::Origin`].
     fn get_anchor_point(&self) -> Point;
 
+    /// Fallible immutable boundary read for historical scans.
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        Ok(self.get_anchor_point())
+    }
+
     /// Hash of the immutable-horizon point.
     fn get_anchor_hash(&self) -> HeaderHash {
         self.get_anchor_point().hash()
@@ -80,6 +85,10 @@ pub trait BaseReadChainStore: Send + Sync {
 }
 
 impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.as_ref().read_anchor_point()
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }

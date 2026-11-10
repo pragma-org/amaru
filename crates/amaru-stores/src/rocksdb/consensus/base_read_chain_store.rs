@@ -33,6 +33,18 @@ impl<T> BaseReadChainStore for RocksDBStore<T>
 where
     T: DbOps + Send + Sync,
 {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.db
+            .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())?
+            .map(|bytes| {
+                from_cbor::<NetworkTip>(bytes.as_ref())
+                    .map(Point::from)
+                    .ok_or_else(|| StoreError::ReadError { error: "malformed chain anchor".to_owned() })
+            })
+            .transpose()
+            .map(|point| point.unwrap_or(Point::Origin))
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db
@@ -74,12 +86,7 @@ where
     }
 
     fn get_anchor_point(&self) -> Point {
-        self.db
-            .get_pinned(&ANCHOR_PREFIX, ReadOptions::default())
-            .ok()
-            .flatten()
-            .and_then(|bytes| from_cbor::<NetworkTip>(bytes.as_ref()).map(Point::from))
-            .unwrap_or(Point::Origin)
+        self.read_anchor_point().unwrap_or(Point::Origin)
     }
 
     fn get_best_chain_tip(&self) -> Point {
