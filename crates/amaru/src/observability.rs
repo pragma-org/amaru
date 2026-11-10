@@ -17,8 +17,8 @@
 use std::{env::var, io::IsTerminal, str::FromStr};
 
 use amaru_node::telemetry::{
-    LocalTelemetry, LogFormat, LogOutput, OtelSignal, OtelSignals, OtlpConfig, TelemetryConfig, TelemetryHandle,
-    TraceOutputSpec, filter_from_env, resource,
+    LocalTelemetry, LogFormat, LogOutput, OtelSignal, OtelSignals, OtlpConfig, StartupNotice, TelemetryConfig,
+    TelemetryHandle, TraceOutputSpec, filter_from_env, resource,
 };
 use amaru_observability::{
     info,
@@ -32,6 +32,9 @@ use opentelemetry_sdk::Resource;
 
 const DEFAULT_AMARU_LOG_FILTER: &str = "error,amaru=info,amaru_pure_stage=warn";
 const DEFAULT_AMARU_TRACE_FILTER: &str = "error,amaru=debug,amaru_pure_stage=warn";
+
+#[cfg(test)]
+mod tests;
 
 /// Context hints supplied by the product binary to refine observability defaults.
 pub trait ObservabilityHints {
@@ -62,6 +65,34 @@ pub fn try_setup_observability(
     hints: &impl ObservabilityHints,
     trace_outputs: &[TraceOutputSpec],
 ) -> anyhow::Result<TelemetryHandle> {
+    let (config, notices) = observability_config(
+        with_open_telemetry,
+        open_telemetry_signals,
+        with_json_traces,
+        local,
+        color,
+        hints,
+        trace_outputs,
+    );
+    let handle = config.install()?;
+    for notice in notices {
+        notice();
+    }
+    info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color);
+    Ok(handle)
+}
+
+/// Resolve CLI telemetry settings without installing a subscriber.
+/// Startup notices must be emitted only after installation succeeds.
+fn observability_config(
+    with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
+    with_json_traces: bool,
+    local: Option<LocalTelemetry>,
+    color: bool,
+    hints: &impl ObservabilityHints,
+    trace_outputs: &[TraceOutputSpec],
+) -> (TelemetryConfig, Vec<StartupNotice>) {
     let mut notices = Vec::new();
     let mut trace_filter = || {
         let (filter, notice) = filter_from_env("AMARU_TRACE", DEFAULT_AMARU_TRACE_FILTER);
@@ -99,7 +130,7 @@ pub fn try_setup_observability(
             span_events: FmtSpan::NEW | FmtSpan::CLOSE,
         })
     };
-    let handle = TelemetryConfig {
+    let config = TelemetryConfig {
         otlp,
         output,
         local,
@@ -107,13 +138,8 @@ pub fn try_setup_observability(
         files: trace_outputs.to_vec(),
         report_export_errors: true,
         ..TelemetryConfig::default()
-    }
-    .install()?;
-    for notice in notices {
-        notice();
-    }
-    info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color);
-    Ok(handle)
+    };
+    (config, notices)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

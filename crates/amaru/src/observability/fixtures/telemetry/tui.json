@@ -1,0 +1,110 @@
+{
+  "output": [
+    {
+      "duration": "<duration>",
+      "fields": {
+        "approved_by_constitutional_committee": "Bool(false)",
+        "proposal_id": "Str(\"abababababababababababababababababababababababababababababababab#0\")",
+        "proposal_kind": "Str(\"nice-poll\")"
+      },
+      "id": 1,
+      "level": "DEBUG",
+      "name": "governance.ratifying",
+      "parent_id": 2,
+      "parents": [
+        "epoch_transition.new_governance_updates",
+        "governance.ratify_proposals"
+      ],
+      "span_name": "governance.ratifying",
+      "target": "amaru::ledger"
+    },
+    {
+      "duration": "<duration>",
+      "fields": {
+        "epoch": "U64(200)",
+        "roots_constitution": "Str(\"none\")",
+        "roots_constitutional_committee": "Str(\"none\")",
+        "roots_hard_fork": "Str(\"none\")",
+        "roots_protocol_parameters": "Str(\"none\")"
+      },
+      "id": 2,
+      "level": "INFO",
+      "name": "governance.ratify_proposals",
+      "parent_id": 3,
+      "parents": [
+        "epoch_transition.new_governance_updates"
+      ],
+      "span_name": "governance.ratify_proposals",
+      "target": "amaru::ledger"
+    },
+    {
+      "duration": null,
+      "fields": {
+        "expired": "Bool(true)",
+        "id": "Str(\"abababababababababababababababababababababababababababababababab#0\")",
+        "message": "Str(\"proposal.drop\")",
+        "proposals_count": "U64(1)",
+        "ratified_or_evicted": "Bool(true)"
+      },
+      "id": null,
+      "level": "INFO",
+      "name": "proposal.drop",
+      "parent_id": null,
+      "parents": [],
+      "span_name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    {
+      "duration": null,
+      "fields": {
+        "message": "Str(\"proposal_roots.summarize\")",
+        "proposals_count": "U64(1)"
+      },
+      "id": null,
+      "level": "DEBUG",
+      "name": "proposal_roots.summarize",
+      "parent_id": null,
+      "parents": [],
+      "span_name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    {
+      "duration": null,
+      "fields": {
+        "is_dormant_epoch": "Bool(true)",
+        "message": "Str(\"ratification.summarize\")",
+        "proposals_count": "U64(1)",
+        "pruned_proposals": "Str(\"abababababababababababababababababababababababababababababababab#0\")",
+        "refunds": "Str(\"key(cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd)=100000000000\")"
+      },
+      "id": null,
+      "level": "INFO",
+      "name": "ratification.summarize",
+      "parent_id": null,
+      "parents": [],
+      "span_name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    {
+      "duration": "<duration>",
+      "fields": {
+        "proposals_count": "U64(1)"
+      },
+      "id": 3,
+      "level": "INFO",
+      "name": "epoch_transition.new_governance_updates",
+      "parent_id": null,
+      "parents": [],
+      "span_name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    }
+  ],
+  "text_file": [
+    "<timestamp> DEBUG amaru::ledger: e.n:g.r:governance.ratifying close time.busy=<duration> time.idle=<duration> proposal_id=\"abababababababababababababababababababababababababababababababab#0\" proposal_kind=\"nice-poll\" approved_by_constitutional_committee=false id=1 parent_id=2",
+    "<timestamp>  INFO amaru::ledger: e.n:governance.ratify_proposals close time.busy=<duration> time.idle=<duration> epoch=200 roots_protocol_parameters=\"none\" roots_hard_fork=\"none\" roots_constitutional_committee=\"none\" roots_constitution=\"none\" id=2 parent_id=3",
+    "<timestamp>  INFO amaru::ledger: epoch_transition.new_governance_updates proposal.drop id=\"abababababababababababababababababababababababababababababababab#0\" expired=true ratified_or_evicted=true proposals_count=1",
+    "<timestamp> DEBUG amaru::ledger: epoch_transition.new_governance_updates proposal_roots.summarize proposals_count=1",
+    "<timestamp>  INFO amaru::ledger: epoch_transition.new_governance_updates ratification.summarize pruned_proposals=\"abababababababababababababababababababababababababababababababab#0\" refunds=\"key(cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd)=100000000000\" is_dormant_epoch=true proposals_count=1",
+    "<timestamp>  INFO amaru::ledger: epoch_transition.new_governance_updates close time.busy=<duration> time.idle=<duration> proposals_count=1 id=3"
+  ]
+}
