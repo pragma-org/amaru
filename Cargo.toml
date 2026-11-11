@@ -110,7 +110,7 @@ tikv-jemallocator = { version = "0.6.1" }
 tokio = { version = "1.53.0", features = ["sync"] }
 tokio-stream = { version = "0.1.18", features = ["net"] }
 tokio-util = "0.7.18"
-tonic = "0.14.6"
+tonic = { version = "0.14.6", features = ["gzip"] }
 toml = "1.1.3"
 tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.33.0"

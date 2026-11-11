@@ -14,6 +14,7 @@
 
 //! A single-process OTLP contract test. The custom harness configures the environment before starting threads.
 //! Expected exports were captured before the telemetry refactor at bd286c86357333144b0c565ad68f95a539c40d37.
+//! With `--collector`, an existing Collector receives on port 4319 and forwards to this test on port 4320.
 
 #![expect(
     clippy::unwrap_used,
@@ -25,7 +26,7 @@
 #[path = "../src/observability/telemetry_fixture.rs"]
 mod telemetry_fixture;
 
-use std::{collections::BTreeMap, env, sync::mpsc};
+use std::{collections::BTreeMap, env, sync::mpsc, time::Duration};
 
 use amaru::observability::{ObservabilityHints, try_setup_observability};
 use amaru_metrics::{LedgerMetrics, MetricRecorder};
@@ -48,7 +49,7 @@ use serde_json::{Value, json};
 use telemetry_fixture::{FILTER, run_ledger_fixture};
 use tokio::{net::TcpListener, runtime::Builder};
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{Request, Response, Status, transport::Server};
+use tonic::{Request, Response, Status, codec::CompressionEncoding, transport::Server};
 
 struct NoListenAddress;
 
@@ -95,9 +96,14 @@ impl MetricsService for Collector {
 }
 
 fn main() {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let through_collector = env::args().any(|arg| arg == "--collector");
+    let listener = std::net::TcpListener::bind(if through_collector { "0.0.0.0:4320" } else { "127.0.0.1:0" }).unwrap();
     listener.set_nonblocking(true).unwrap();
-    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let endpoint = if through_collector {
+        "http://127.0.0.1:4319".to_string()
+    } else {
+        format!("http://{}", listener.local_addr().unwrap())
+    };
     let inherited: Vec<_> =
         env::vars_os().map(|(key, _)| key).filter(|key| key.to_string_lossy().starts_with("OTEL_")).collect();
     // SAFETY: harness=false runs this main directly; no test harness or runtime threads have started.
@@ -127,9 +133,9 @@ fn main() {
     let collector = Collector(sender);
     let server = runtime.spawn(
         Server::builder()
-            .add_service(TraceServiceServer::new(collector.clone()))
-            .add_service(LogsServiceServer::new(collector.clone()))
-            .add_service(MetricsServiceServer::new(collector))
+            .add_service(TraceServiceServer::new(collector.clone()).accept_compressed(CompressionEncoding::Gzip))
+            .add_service(LogsServiceServer::new(collector.clone()).accept_compressed(CompressionEncoding::Gzip))
+            .add_service(MetricsServiceServer::new(collector).accept_compressed(CompressionEncoding::Gzip))
             .serve_with_incoming(TcpListenerStream::new(listener)),
     );
     let handle =
@@ -154,12 +160,16 @@ fn main() {
         "records must remain buffered until shutdown"
     );
     handle.teardown.shutdown().unwrap();
-    server.abort();
 
     let mut actual = json!({"traces": [], "logs": [], "metrics": []});
+    for _ in 0..3 {
+        let (signal, request) = receiver.recv_timeout(Duration::from_secs(10)).expect("all three OTLP signals");
+        actual[signal].as_array_mut().unwrap().push(request);
+    }
     for (signal, request) in receiver.try_iter() {
         actual[signal].as_array_mut().unwrap().push(request);
     }
+    server.abort();
     normalize(&mut actual, &mut BTreeMap::new());
     let expected: Value =
         serde_json::from_str(include_str!("../src/observability/fixtures/telemetry/otlp.json")).unwrap();
