@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, mpsc},
+    time::Duration,
+};
 
 use amaru_consensus::{
     block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
@@ -25,7 +31,7 @@ use amaru_consensus::{
     stages::track_peers::TrackPeersMsg,
 };
 use amaru_kernel::{
-    ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
+    ConsensusParameters, Epoch, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
@@ -497,18 +503,18 @@ pub fn build_node(
     // Weak: the callback is stored on `block_validator`, which lives in these same
     // resources. A strong capture would leak every node (RocksDB FDs included).
     let resources = stage_builder.resources().downgrade();
+    // The ledger thread runs this callback, sometimes while `track_peers` waits for an answer from
+    // the ledger thread. A send to `track_peers` waits when its mailbox is full, so the callback must
+    // never send: it hands the epoch to a dedicated thread, which forwards it.
+    let (stake_dist_updates, pending_stake_dist_updates) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("stake-dist-notifier".to_string())
+        .spawn(move || forward_stake_dist_updates(&pending_stake_dist_updates, &track_peers_sender))?;
     block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
         let max_epoch = summaries.max_epoch();
         resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
-        let send = async {
-            if track_peers_sender.send(TrackPeersMsg::StakeDistUpdated(max_epoch)).await.is_err() {
-                amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
-            }
-        };
-        // The callback runs on the ledger thread; its join also covers notification delivery.
-        #[expect(clippy::expect_used)]
-        let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
-        rt.block_on(send);
+        // The receiver only stops when this callback is dropped.
+        let _ = stake_dist_updates.send(max_epoch);
     }));
 
     // Open a port to listen for downstream peers
@@ -525,6 +531,22 @@ pub fn build_node(
 /// header is an error. A missing parent header also yields [`Point::Origin`]: bootstrap
 /// stores the snapshot tip, and forging reads this parent only when minting in that
 /// tip's own slot. That lead is missed.
+/// Forward each stake distribution update to `track_peers`, until the sender of `updates` is
+/// dropped. Pending updates merge into one message with the latest epoch: `track_peers` reads the
+/// current summaries from the resources, so only the latest epoch matters.
+fn forward_stake_dist_updates(updates: &mpsc::Receiver<Epoch>, track_peers: &Sender<TrackPeersMsg>) {
+    #[expect(clippy::expect_used)]
+    let rt = tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
+    while let Ok(mut max_epoch) = updates.recv() {
+        while let Ok(later) = updates.try_recv() {
+            max_epoch = later;
+        }
+        if rt.block_on(track_peers.send(TrackPeersMsg::StakeDistUpdated(max_epoch))).is_err() {
+            amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
+        }
+    }
+}
+
 fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     if *tip == Point::Origin {
         return Ok(Point::Origin);
