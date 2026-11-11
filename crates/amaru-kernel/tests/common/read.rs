@@ -27,6 +27,9 @@ pub const INPUT_SUFFIX: &str = ".input.cbor";
 /// Suffix of the reference re-encoding of a sample, which sits beside it under the same name.
 const EXPECTED_SUFFIX: &str = ".expected.cbor";
 
+/// This files provides metadata about the cbor dataset, including how many samples it contains.
+const COVERAGE_FILE: &str = "coverage.json";
+
 /// Return every sample below a rule directory, ordered by category then file name so runs are reproducible.
 ///
 /// A rule directory holds one directory per category: `valid`, and `invalid-zap-<n>` per mutation severity. A
@@ -76,13 +79,62 @@ pub fn read_expected_canonical_cbor(path: &Path) -> anyhow::Result<Option<Vec<u8
 }
 
 /// Return the root of the corpus, if it exists, and check that there are no unknown rules.
+///
+/// The totals declared by the corpus metadata are compared with the samples on disk. A mismatch is reported on
+/// stderr rather than failing the run, since it is a defect of the dataset and not of amaru.
 pub fn read_corpus_root(corpus: Corpus) -> anyhow::Result<Option<PathBuf>> {
     let root = corpus_root(corpus);
     if !root.is_dir() {
         return Ok(None);
     }
     check_no_unknown_rules(&root)?;
+    for mismatch in coverage_mismatches(&read_coverage_totals(&root)?, &count_samples(&root)?) {
+        eprintln!("warning: stale coverage metadata in {}: {mismatch}", root.join(COVERAGE_FILE).display());
+    }
     Ok(Some(root))
+}
+
+/// Sample counts: either declared by the corpus metadata, or found on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SampleTotals {
+    /// Every sample of the corpus.
+    pub samples: u64,
+    /// The hand-written samples, a subset of `samples`.
+    pub manual: u64,
+}
+
+/// Read the sample totals declared by the corpus metadata.
+pub fn read_coverage_totals(root: &Path) -> anyhow::Result<SampleTotals> {
+    let path = root.join(COVERAGE_FILE);
+    let coverage: serde_json::Value = serde_json::from_slice(&read_file(&path)?).context(path.display().to_string())?;
+    let field =
+        |name: &str| coverage[name].as_u64().ok_or_else(|| anyhow!("{} has no numeric `{name}` field", path.display()));
+    Ok(SampleTotals { samples: field("samples")?, manual: field("manual")? })
+}
+
+/// Count the samples found below the rules of a corpus (including the manual ones).
+pub fn count_samples(root: &Path) -> anyhow::Result<SampleTotals> {
+    let mut totals = SampleTotals { samples: 0, manual: 0 };
+    for rule in read_directory(root)?.into_iter().filter(|entry| entry.path().is_dir()) {
+        for category in read_directory(&rule.path())?.into_iter().filter(|entry| entry.path().is_dir()) {
+            let is_manual = category.file_name().to_string_lossy().starts_with("manual-");
+            let count = read_directory(&category.path())?.iter().filter(|f| sample_name(&f.path()).is_some()).count();
+            totals.samples += count as u64;
+            if is_manual {
+                totals.manual += count as u64;
+            }
+        }
+    }
+    Ok(totals)
+}
+
+/// Describe each way the declared totals disagree with the discovered ones. Empty when they agree.
+pub fn coverage_mismatches(declared: &SampleTotals, discovered: &SampleTotals) -> Vec<String> {
+    [("samples", declared.samples, discovered.samples), ("manual samples", declared.manual, discovered.manual)]
+        .into_iter()
+        .filter(|(_, declared, discovered)| declared != discovered)
+        .map(|(name, declared, discovered)| format!("declares {declared} {name} but the corpus contains {discovered}"))
+        .collect()
 }
 
 /// Normalize a corpus rule name escaped by Cygwin for a Windows filesystem.
@@ -149,7 +201,26 @@ fn io_error(path: &Path, e: std::io::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_rule_name;
+    use super::{SampleTotals, coverage_mismatches, normalize_rule_name};
+
+    #[test]
+    fn matching_totals_have_no_mismatch() {
+        let totals = SampleTotals { samples: 10, manual: 2 };
+        assert!(coverage_mismatches(&totals, &totals).is_empty());
+    }
+
+    #[test]
+    fn differing_totals_are_each_described() {
+        let declared = SampleTotals { samples: 43430, manual: 1871 };
+        let discovered = SampleTotals { samples: 43434, manual: 1875 };
+        assert_eq!(
+            coverage_mismatches(&declared, &discovered),
+            vec![
+                "declares 43430 samples but the corpus contains 43434".to_string(),
+                "declares 1871 manual samples but the corpus contains 1875".to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn normalize_cygwin_escaped_rule_name() {
