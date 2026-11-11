@@ -12,9 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
-use amaru_kernel::{Transaction, cbor::WithOriginalBytes, to_cbor};
+use amaru_kernel::{
+    NonEmptyVec, Transaction, VerificationKeyWitness, WitnessSet,
+    cbor::{WithOriginalBytes, WithSize},
+    to_cbor,
+};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
 use amaru_observability::tracing::Level;
@@ -27,6 +34,7 @@ use amaru_pure_stage::StageRef;
 use crate::stages::{
     mempool::{
         MempoolStageState,
+        stage::{RejectedTxs, tx_digest},
         test_setup::{
             TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_record_metrics, te_send,
             te_validate_tx,
@@ -64,7 +72,13 @@ fn insert_batch_returns_one_result_per_transaction() {
             te_mempool_state("mempool-1"),
             te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedDuplicate)),
             te_send("mempool-1", "caller", expected_results(&txs)),
-            te_state("mempool-1", &MempoolStageState::default()),
+            te_state(
+                "mempool-1",
+                &MempoolStageState::with_rejected(RejectedTxs::of([(
+                    tx_digest(&txs[1]),
+                    expected_results(&txs).remove(1),
+                )])),
+            ),
         ],
     );
 
@@ -102,6 +116,77 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
     logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
     logs.assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+#[test]
+fn the_oldest_result_is_dropped_when_too_many_invalid_transactions_are_cached() {
+    let result = |index: u16| {
+        let tx = create_transaction(index);
+        (
+            tx_digest(&tx),
+            TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(anyhow::anyhow!("invalid").into())),
+        )
+    };
+    let mut rejected = RejectedTxs::default();
+
+    for index in 0..=RejectedTxs::CAPACITY as u16 {
+        let (digest, result) = result(index);
+        rejected.remember(digest, &result);
+    }
+
+    assert_eq!(rejected.get(&tx_digest(&create_transaction(0))), None);
+    assert!(rejected.get(&tx_digest(&create_transaction(1))).is_some());
+    assert!(rejected.get(&tx_digest(&create_transaction(RejectedTxs::CAPACITY as u16))).is_some());
+}
+
+#[test]
+fn an_invalid_transaction_is_validated_only_once_per_tip() {
+    let caller = StageRef::named_for_tests("caller");
+    let tx_1 = create_transaction(1);
+    let validations = Arc::new(AtomicUsize::new(0));
+    let counter = validations.clone();
+    let prep = TestPrep {
+        msg: MempoolMsg::InsertBatch { txs: vec![tx_1.clone(), tx_1.clone()], origin: TxOrigin::Local, caller },
+        rt: crate::stages::test_utils::test_runtime(),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
+        validator: Arc::new(move |tx: &Transaction| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            reject_tx_1(tx)
+        }),
+        chain_store: Arc::new(InMemoryChainStore::default()),
+    };
+
+    let (_running, _guards, _logs) = setup(&prep);
+
+    assert_eq!(validations.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn an_invalid_transaction_does_not_reject_the_same_body_with_other_witnesses() {
+    let caller = StageRef::named_for_tests("caller");
+    let invalid_witness = create_transaction_with_signature(2, 0xAA);
+    let valid_witness = create_transaction_with_signature(2, 0xBB);
+    assert_eq!(invalid_witness.tx_id(), valid_witness.tx_id());
+
+    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
+    let prep = TestPrep {
+        msg: MempoolMsg::InsertBatch {
+            txs: vec![invalid_witness.clone(), valid_witness.clone()],
+            origin: TxOrigin::Local,
+            caller,
+        },
+        rt: crate::stages::test_utils::test_runtime(),
+        mempool: mempool.clone(),
+        validator: Arc::new(|tx: &Transaction| {
+            let signature = tx.witnesses.verification_key_witness.as_ref().map(|witnesses| witnesses.first().signature);
+            if signature == Some([0xAA; 64].into()) { Err(anyhow::anyhow!("invalid witness").into()) } else { Ok(()) }
+        }),
+        chain_store: Arc::new(InMemoryChainStore::default()),
+    };
+
+    let (_running, _guards, _logs) = setup(&prep);
+
+    assert_eq!(mempool.read().get(&[valid_witness.tx_id()]), vec![&valid_witness]);
 }
 
 #[test]
@@ -165,6 +250,18 @@ pub fn make_insert_batch_example() -> TestPrep {
 }
 
 /// Return a transaction as invalid if its index is 1
+/// Return a transaction with the same body as `create_transaction(input_index)`, and a witness that only
+/// differs by its signature.
+fn create_transaction_with_signature(input_index: u16, signature: u8) -> WithOriginalBytes<Transaction> {
+    let mut tx: Transaction = (*create_transaction(input_index)).clone();
+    let witness = VerificationKeyWitness { verification_key: [0; 32].into(), signature: [signature; 64].into() };
+    tx.witnesses = WithSize::new(
+        WitnessSet { verification_key_witness: Some(NonEmptyVec::singleton(witness)), ..WitnessSet::default() },
+        1,
+    );
+    tx.into()
+}
+
 fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
     if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
         Err(anyhow::anyhow!("transaction rejected for testing").into())

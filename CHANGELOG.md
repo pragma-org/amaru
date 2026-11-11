@@ -44,6 +44,8 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
+- **amaru-consensus**: don't revalidate invalid transactions received by the node unless the ledger tip changes.
+- **amaru-protocols**: log an invalid transaction from a peer at the `DEBUG` level.
 
 ## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
 
