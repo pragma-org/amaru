@@ -1,0 +1,851 @@
+{
+  "traces": [
+    {
+      "resourceSpans": [
+        {
+          "resource": {
+            "attributes": [],
+            "droppedAttributesCount": 0,
+            "entityRefs": []
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "amaru-telemetry-test",
+                "version": "",
+                "attributes": [],
+                "droppedAttributesCount": 0
+              },
+              "spans": [
+                {
+                  "traceId": 1,
+                  "spanId": 2,
+                  "traceState": "",
+                  "parentSpanId": 3,
+                  "flags": 257,
+                  "name": "governance.ratifying",
+                  "kind": 1,
+                  "startTimeUnixNano": "<timestamp>",
+                  "endTimeUnixNano": "<timestamp>",
+                  "attributes": [
+                    {
+                      "key": "amaru.tag.cpu",
+                      "value": {
+                        "boolValue": true
+                      }
+                    },
+                    {
+                      "key": "approved_by_constitutional_committee",
+                      "value": {
+                        "boolValue": false
+                      }
+                    },
+                    {
+                      "key": "busy_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "code.file.path",
+                      "value": {
+                        "stringValue": "crates/amaru-ledger/src/governance/ratification.rs"
+                      }
+                    },
+                    {
+                      "key": "code.line.number",
+                      "value": {
+                        "intValue": "231"
+                      }
+                    },
+                    {
+                      "key": "code.module.name",
+                      "value": {
+                        "stringValue": "amaru_ledger::governance::ratification"
+                      }
+                    },
+                    {
+                      "key": "idle_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "level",
+                      "value": {
+                        "stringValue": "DEBUG"
+                      }
+                    },
+                    {
+                      "key": "proposal_id",
+                      "value": {
+                        "stringValue": "abababababababababababababababababababababababababababababababab#0"
+                      }
+                    },
+                    {
+                      "key": "proposal_kind",
+                      "value": {
+                        "stringValue": "nice-poll"
+                      }
+                    },
+                    {
+                      "key": "target",
+                      "value": {
+                        "stringValue": "amaru::ledger"
+                      }
+                    },
+                    {
+                      "key": "thread.id",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "thread.name",
+                      "value": {
+                        "stringValue": "<variable>"
+                      }
+                    }
+                  ],
+                  "droppedAttributesCount": 0,
+                  "events": [],
+                  "droppedEventsCount": 0,
+                  "links": [],
+                  "droppedLinksCount": 0,
+                  "status": {
+                    "message": "",
+                    "code": 0
+                  }
+                },
+                {
+                  "traceId": 1,
+                  "spanId": 3,
+                  "traceState": "",
+                  "parentSpanId": 4,
+                  "flags": 257,
+                  "name": "governance.ratify_proposals",
+                  "kind": 1,
+                  "startTimeUnixNano": "<timestamp>",
+                  "endTimeUnixNano": "<timestamp>",
+                  "attributes": [
+                    {
+                      "key": "amaru.tag.cpu",
+                      "value": {
+                        "boolValue": true
+                      }
+                    },
+                    {
+                      "key": "busy_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "code.file.path",
+                      "value": {
+                        "stringValue": "crates/amaru-ledger/src/governance/ratification.rs"
+                      }
+                    },
+                    {
+                      "key": "code.line.number",
+                      "value": {
+                        "intValue": "135"
+                      }
+                    },
+                    {
+                      "key": "code.module.name",
+                      "value": {
+                        "stringValue": "amaru_ledger::governance::ratification"
+                      }
+                    },
+                    {
+                      "key": "epoch",
+                      "value": {
+                        "intValue": "200"
+                      }
+                    },
+                    {
+                      "key": "idle_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "level",
+                      "value": {
+                        "stringValue": "INFO"
+                      }
+                    },
+                    {
+                      "key": "roots_constitution",
+                      "value": {
+                        "stringValue": "none"
+                      }
+                    },
+                    {
+                      "key": "roots_constitutional_committee",
+                      "value": {
+                        "stringValue": "none"
+                      }
+                    },
+                    {
+                      "key": "roots_hard_fork",
+                      "value": {
+                        "stringValue": "none"
+                      }
+                    },
+                    {
+                      "key": "roots_protocol_parameters",
+                      "value": {
+                        "stringValue": "none"
+                      }
+                    },
+                    {
+                      "key": "target",
+                      "value": {
+                        "stringValue": "amaru::ledger"
+                      }
+                    },
+                    {
+                      "key": "thread.id",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "thread.name",
+                      "value": {
+                        "stringValue": "<variable>"
+                      }
+                    }
+                  ],
+                  "droppedAttributesCount": 0,
+                  "events": [],
+                  "droppedEventsCount": 0,
+                  "links": [],
+                  "droppedLinksCount": 0,
+                  "status": {
+                    "message": "",
+                    "code": 0
+                  }
+                },
+                {
+                  "traceId": 1,
+                  "spanId": 4,
+                  "traceState": "",
+                  "parentSpanId": "",
+                  "flags": 257,
+                  "name": "epoch_transition.new_governance_updates",
+                  "kind": 1,
+                  "startTimeUnixNano": "<timestamp>",
+                  "endTimeUnixNano": "<timestamp>",
+                  "attributes": [
+                    {
+                      "key": "amaru.tag.cpu",
+                      "value": {
+                        "boolValue": true
+                      }
+                    },
+                    {
+                      "key": "busy_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "code.file.path",
+                      "value": {
+                        "stringValue": "crates/amaru-ledger/src/epoch_transition/ratification.rs"
+                      }
+                    },
+                    {
+                      "key": "code.line.number",
+                      "value": {
+                        "intValue": "158"
+                      }
+                    },
+                    {
+                      "key": "code.module.name",
+                      "value": {
+                        "stringValue": "amaru_ledger::epoch_transition::ratification"
+                      }
+                    },
+                    {
+                      "key": "idle_ns",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "level",
+                      "value": {
+                        "stringValue": "INFO"
+                      }
+                    },
+                    {
+                      "key": "proposals_count",
+                      "value": {
+                        "stringValue": "1"
+                      }
+                    },
+                    {
+                      "key": "target",
+                      "value": {
+                        "stringValue": "amaru::ledger"
+                      }
+                    },
+                    {
+                      "key": "thread.id",
+                      "value": {
+                        "intValue": "<variable>"
+                      }
+                    },
+                    {
+                      "key": "thread.name",
+                      "value": {
+                        "stringValue": "<variable>"
+                      }
+                    }
+                  ],
+                  "droppedAttributesCount": 0,
+                  "events": [
+                    {
+                      "timeUnixNano": "<timestamp>",
+                      "name": "proposal.drop",
+                      "attributes": [
+                        {
+                          "key": "code.file.path",
+                          "value": {
+                            "stringValue": "crates/amaru-ledger/src/epoch_transition/ratification.rs"
+                          }
+                        },
+                        {
+                          "key": "code.line.number",
+                          "value": {
+                            "intValue": "186"
+                          }
+                        },
+                        {
+                          "key": "code.module.name",
+                          "value": {
+                            "stringValue": "amaru_ledger::epoch_transition::ratification"
+                          }
+                        },
+                        {
+                          "key": "expired",
+                          "value": {
+                            "boolValue": true
+                          }
+                        },
+                        {
+                          "key": "id",
+                          "value": {
+                            "stringValue": "abababababababababababababababababababababababababababababababab#0"
+                          }
+                        },
+                        {
+                          "key": "level",
+                          "value": {
+                            "stringValue": "INFO"
+                          }
+                        },
+                        {
+                          "key": "ratified_or_evicted",
+                          "value": {
+                            "boolValue": true
+                          }
+                        },
+                        {
+                          "key": "target",
+                          "value": {
+                            "stringValue": "amaru::ledger"
+                          }
+                        }
+                      ],
+                      "droppedAttributesCount": 0
+                    },
+                    {
+                      "timeUnixNano": "<timestamp>",
+                      "name": "proposal_roots.summarize",
+                      "attributes": [
+                        {
+                          "key": "code.file.path",
+                          "value": {
+                            "stringValue": "crates/amaru-ledger/src/epoch_transition/ratification.rs"
+                          }
+                        },
+                        {
+                          "key": "code.line.number",
+                          "value": {
+                            "intValue": "242"
+                          }
+                        },
+                        {
+                          "key": "code.module.name",
+                          "value": {
+                            "stringValue": "amaru_ledger::epoch_transition::ratification"
+                          }
+                        },
+                        {
+                          "key": "level",
+                          "value": {
+                            "stringValue": "DEBUG"
+                          }
+                        },
+                        {
+                          "key": "target",
+                          "value": {
+                            "stringValue": "amaru::ledger"
+                          }
+                        }
+                      ],
+                      "droppedAttributesCount": 0
+                    },
+                    {
+                      "timeUnixNano": "<timestamp>",
+                      "name": "ratification.summarize",
+                      "attributes": [
+                        {
+                          "key": "code.file.path",
+                          "value": {
+                            "stringValue": "crates/amaru-ledger/src/epoch_transition/ratification.rs"
+                          }
+                        },
+                        {
+                          "key": "code.line.number",
+                          "value": {
+                            "intValue": "250"
+                          }
+                        },
+                        {
+                          "key": "code.module.name",
+                          "value": {
+                            "stringValue": "amaru_ledger::epoch_transition::ratification"
+                          }
+                        },
+                        {
+                          "key": "is_dormant_epoch",
+                          "value": {
+                            "boolValue": true
+                          }
+                        },
+                        {
+                          "key": "level",
+                          "value": {
+                            "stringValue": "INFO"
+                          }
+                        },
+                        {
+                          "key": "pruned_proposals",
+                          "value": {
+                            "stringValue": "abababababababababababababababababababababababababababababababab#0"
+                          }
+                        },
+                        {
+                          "key": "refunds",
+                          "value": {
+                            "stringValue": "key(cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd)=100000000000"
+                          }
+                        },
+                        {
+                          "key": "target",
+                          "value": {
+                            "stringValue": "amaru::ledger"
+                          }
+                        }
+                      ],
+                      "droppedAttributesCount": 0
+                    }
+                  ],
+                  "droppedEventsCount": 0,
+                  "links": [],
+                  "droppedLinksCount": 0,
+                  "status": {
+                    "message": "",
+                    "code": 0
+                  }
+                }
+              ],
+              "schemaUrl": ""
+            }
+          ],
+          "schemaUrl": ""
+        }
+      ]
+    }
+  ],
+  "logs": [
+    {
+      "resourceLogs": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.instance.id",
+                "value": {
+                  "stringValue": "ledger-fixture"
+                }
+              },
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "amaru-telemetry-test"
+                }
+              },
+              {
+                "key": "telemetry.sdk.language",
+                "value": {
+                  "stringValue": "rust"
+                }
+              },
+              {
+                "key": "telemetry.sdk.name",
+                "value": {
+                  "stringValue": "opentelemetry"
+                }
+              },
+              {
+                "key": "telemetry.sdk.version",
+                "value": {
+                  "stringValue": "0.32.1"
+                }
+              },
+              {
+                "key": "test.fixture",
+                "value": {
+                  "stringValue": "ledger"
+                }
+              }
+            ],
+            "droppedAttributesCount": 0,
+            "entityRefs": []
+          },
+          "scopeLogs": [
+            {
+              "scope": {
+                "name": "amaru::ledger",
+                "version": "",
+                "attributes": [],
+                "droppedAttributesCount": 0
+              },
+              "logRecords": [
+                {
+                  "timeUnixNano": "0",
+                  "observedTimeUnixNano": "<timestamp>",
+                  "severityNumber": 9,
+                  "severityText": "INFO",
+                  "body": {
+                    "stringValue": "proposal.drop"
+                  },
+                  "attributes": [
+                    {
+                      "key": "expired",
+                      "value": {
+                        "boolValue": true
+                      }
+                    },
+                    {
+                      "key": "id",
+                      "value": {
+                        "stringValue": "abababababababababababababababababababababababababababababababab#0"
+                      }
+                    },
+                    {
+                      "key": "ratified_or_evicted",
+                      "value": {
+                        "boolValue": true
+                      }
+                    }
+                  ],
+                  "droppedAttributesCount": 0,
+                  "flags": 1,
+                  "traceId": 1,
+                  "spanId": 4,
+                  "eventName": "proposal.drop"
+                },
+                {
+                  "timeUnixNano": "0",
+                  "observedTimeUnixNano": "<timestamp>",
+                  "severityNumber": 5,
+                  "severityText": "DEBUG",
+                  "body": {
+                    "stringValue": "proposal_roots.summarize"
+                  },
+                  "attributes": [],
+                  "droppedAttributesCount": 0,
+                  "flags": 1,
+                  "traceId": 1,
+                  "spanId": 4,
+                  "eventName": "proposal_roots.summarize"
+                },
+                {
+                  "timeUnixNano": "0",
+                  "observedTimeUnixNano": "<timestamp>",
+                  "severityNumber": 9,
+                  "severityText": "INFO",
+                  "body": {
+                    "stringValue": "ratification.summarize"
+                  },
+                  "attributes": [
+                    {
+                      "key": "is_dormant_epoch",
+                      "value": {
+                        "boolValue": true
+                      }
+                    },
+                    {
+                      "key": "pruned_proposals",
+                      "value": {
+                        "stringValue": "abababababababababababababababababababababababababababababababab#0"
+                      }
+                    },
+                    {
+                      "key": "refunds",
+                      "value": {
+                        "stringValue": "key(cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd)=100000000000"
+                      }
+                    }
+                  ],
+                  "droppedAttributesCount": 0,
+                  "flags": 1,
+                  "traceId": 1,
+                  "spanId": 4,
+                  "eventName": "ratification.summarize"
+                }
+              ],
+              "schemaUrl": ""
+            }
+          ],
+          "schemaUrl": ""
+        }
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "resourceMetrics": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.instance.id",
+                "value": {
+                  "stringValue": "ledger-fixture"
+                }
+              },
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "amaru-telemetry-test"
+                }
+              },
+              {
+                "key": "telemetry.sdk.language",
+                "value": {
+                  "stringValue": "rust"
+                }
+              },
+              {
+                "key": "telemetry.sdk.name",
+                "value": {
+                  "stringValue": "opentelemetry"
+                }
+              },
+              {
+                "key": "telemetry.sdk.version",
+                "value": {
+                  "stringValue": "0.32.1"
+                }
+              },
+              {
+                "key": "test.fixture",
+                "value": {
+                  "stringValue": "ledger"
+                }
+              }
+            ],
+            "droppedAttributesCount": 0,
+            "entityRefs": []
+          },
+          "scopeMetrics": [
+            {
+              "scope": {
+                "name": "cardano_node_metrics",
+                "version": "",
+                "attributes": [],
+                "droppedAttributesCount": 0
+              },
+              "metrics": [
+                {
+                  "name": "cardano_node_metrics_blockNum_int",
+                  "description": "block height of latest processed block",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 42
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_currentKESPeriod_int",
+                  "description": "current KES (Key Evolving Signature) period",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 7
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_density_real",
+                  "description": "chain density over the last k blocks or since genesis, whichever is shorter",
+                  "unit": "real",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asDouble": 0.75
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_epoch_int",
+                  "description": "the epoch of the latest processed block",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 200
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_remainingKESPeriods_int",
+                  "description": "number of remaining KES periods before the key becomes invalid",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 8
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_slotInEpoch_int",
+                  "description": "the relative slot in the epoch of the latest processed block",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 123
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_slotNum_int",
+                  "description": "latest slot number with a block",
+                  "unit": "int",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 86400
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "cardano_node_metrics_tipBlock",
+                  "description": "current chain tip block info",
+                  "unit": "",
+                  "metadata": [],
+                  "gauge": {
+                    "dataPoints": [
+                      {
+                        "attributes": [
+                          {
+                            "key": "hash",
+                            "value": {
+                              "stringValue": "abababababababababababababababababababababababababababababababab"
+                            }
+                          },
+                          {
+                            "key": "issuer_verification_key_hash",
+                            "value": {
+                              "stringValue": "efefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+                            }
+                          },
+                          {
+                            "key": "parent_hash",
+                            "value": {
+                              "stringValue": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+                            }
+                          }
+                        ],
+                        "startTimeUnixNano": "<timestamp>",
+                        "timeUnixNano": "<timestamp>",
+                        "exemplars": [],
+                        "flags": 0,
+                        "asInt": 1
+                      }
+                    ]
+                  }
+                }
+              ],
+              "schemaUrl": ""
+            }
+          ],
+          "schemaUrl": ""
+        }
+      ]
+    }
+  ]
+}
