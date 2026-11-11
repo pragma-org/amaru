@@ -51,13 +51,13 @@ use amaru_pure_stage::{
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
 };
-use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
+use amaru_stores::rocksdb::{MetricsProbe, RocksDB, RocksDBHistoricalStores, RocksDbConfig, consensus::RocksDBStore};
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
 use futures_util::FutureExt;
 use parking_lot::Mutex;
 use thiserror::Error;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, task::JoinHandle};
 
 use crate::{
     ClearValidity,
@@ -67,6 +67,7 @@ use crate::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
         config::{Config, LedgerConfig, StoreType},
     },
+    store_metrics::{StoreMetricsProbes, track_store_metrics},
 };
 
 const LEDGER_THREAD_STOP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -254,11 +255,13 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let node_stages = build_node(&config, config.global_parameters(), meter.clone(), &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
+    let store_probes = stage_builder.resources().take::<StoreMetricsProbes>()?;
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+    let store_metrics = track_store_metrics(runtime, meter, store_probes);
+    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, store_metrics, listen_address })
 }
 
 async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
@@ -327,6 +330,7 @@ pub struct NodeRunning {
     tokio_running: TokioRunning,
     mempool_sender: Sender<MempoolMsg>,
     lifecycle: NodeLifecycle,
+    store_metrics: JoinHandle<()>,
     listen_address: SocketAddr,
 }
 
@@ -373,10 +377,13 @@ impl NodeRunning {
 
     /// Like [`Self::shutdown`], with an explicit ledger-worker wait budget.
     pub async fn shutdown_with_timeout(self, timeout: Duration) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
+        let Self { tokio_running, mempool_sender, lifecycle, store_metrics, listen_address: _ } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
         tokio_running.request_abort();
+        // Joined first, so that the sampler cannot be holding a store while the stores are closed below.
+        store_metrics.abort();
+        let _ = store_metrics.await;
         drop(mempool_sender);
         let mut unexpected_exits = match tokio_running.join().await {
             Ok(report) => {
@@ -421,10 +428,13 @@ pub fn build_node(
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
     // NOTE: Open the chain store first so incompatible DB versions fail before the slower ledger open.
-    let chain_store = make_chain_store(config)?;
+    let (chain_store, chain_store_probe) = make_chain_store(config)?;
 
     // Make the ledger state and get its tip
-    let mut state = make_state(&config.ledger_config, Some(with_startup_hook::<RocksDB>), chain_store.clone())?;
+    let ledger_store = open_ledger_store(&config.ledger_config, chain_store.clone())?;
+    let store_probes = chain_store_probe.into_iter().chain([ledger_store.metrics_probe()]).collect();
+    stage_builder.resources().put(StoreMetricsProbes(store_probes));
+    let mut state = make_state_from(ledger_store, &config.ledger_config, Some(with_startup_hook::<RocksDB>))?;
     state.set_observers(config.observers.clone());
     let ledger_tip = state.tip().into_owned();
     amaru_observability::info!(node::build::LEDGER_OPENED, tip = ledger_tip);
@@ -605,15 +615,15 @@ fn register_resources(
 }
 
 /// This function migrates the database if necessary
-fn make_chain_store(config: &Config) -> anyhow::Result<Arc<dyn ChainStore>> {
-    let chain_store: Arc<dyn ChainStore> = match config.chain_store {
-        StoreType::InMem(ref chain_store) => chain_store.clone(),
+fn make_chain_store(config: &Config) -> anyhow::Result<(Arc<dyn ChainStore>, Option<MetricsProbe>)> {
+    Ok(match config.chain_store {
+        StoreType::InMem(ref chain_store) => (chain_store.clone(), None),
         StoreType::RocksDb(ref rocks_db_config) => {
-            Arc::new(open_chain_store(rocks_db_config, config.migrate_chain_db)?)
+            let chain_store = Arc::new(open_chain_store(rocks_db_config, config.migrate_chain_db)?);
+            let probe = chain_store.metrics_probe();
+            (chain_store, Some(probe))
         }
-    };
-
-    Ok(chain_store)
+    })
 }
 
 pub(crate) fn open_chain_store(config: &RocksDbConfig, migrate: bool) -> Result<RocksDBStore, NodeStartError> {
@@ -650,9 +660,24 @@ pub fn make_state(
     on_startup: Option<StartupHook<RocksDB>>,
     chain_store: Arc<dyn BaseReadChainStore>,
 ) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
+    make_state_from(open_ledger_store(config, chain_store)?, config, on_startup)
+}
+
+fn open_ledger_store(
+    config: &LedgerConfig,
+    chain_store: Arc<dyn BaseReadChainStore>,
+) -> Result<RocksDB, NodeStartError> {
     let store = RocksDB::new(&config.ledger_store)
         .map_err(|error| ledger_store_error(error, StoreOpenOperation::LedgerWritable))?;
     store.set_chain_store(chain_store);
+    Ok(store)
+}
+
+fn make_state_from(
+    store: RocksDB,
+    config: &LedgerConfig,
+    on_startup: Option<StartupHook<RocksDB>>,
+) -> anyhow::Result<State<RocksDB, RocksDBHistoricalStores>> {
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_store, u64::from(config.max_extra_ledger_snapshots));
     Ok(State::new(
         store,
@@ -859,6 +884,68 @@ mod tests {
             }
         }
 
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn running_node_reports_store_metrics() -> anyhow::Result<()> {
+        use opentelemetry::metrics::MeterProvider as _;
+        use opentelemetry_sdk::metrics::{
+            InMemoryMetricExporter, PeriodicReader, SdkMeterProvider,
+            data::{AggregatedMetrics, MetricData},
+        };
+
+        let stores = tempfile::tempdir()?;
+        let test_config = lifecycle_test_config(NetworkName::Preprod, "127.0.0.1:0".parse()?)?;
+        let seeded = test_config.make_node_configuration()?;
+        let chain_config = RocksDbConfig::new(stores.path().join("chain"));
+        let chain_store = RocksDBStore::open_and_migrate(&chain_config)?;
+        let header = test_config.chain_store.load_header(&test_config.chain_store.get_anchor_hash()).unwrap();
+        chain_store.store_header(&header)?;
+        drop(chain_store);
+        let test_config = test_config.with_store_dirs(chain_config.dir.clone(), seeded.ledger_config.ledger_store.dir);
+
+        let exporter = InMemoryMetricExporter::default();
+        let provider =
+            SdkMeterProvider::builder().with_reader(PeriodicReader::builder(exporter.clone()).build()).build();
+        let mut config = test_config.make_node_configuration()?;
+        config.migrate_chain_db = true;
+        config.meter = Some(Arc::new(Meter::from(provider.meter(amaru_metrics::METRICS_METER_NAME))));
+        let ledger_config = config.ledger_config.ledger_store.clone();
+
+        // Levels reported for each store, by the sample taken at startup.
+        let levels = |db: &str| {
+            provider.force_flush().expect("flush metrics");
+            let exported = exporter.get_finished_metrics().expect("finished metrics");
+            exported
+                .iter()
+                .flat_map(|resource| resource.scope_metrics())
+                .flat_map(|scope| scope.metrics())
+                .filter(|metric| metric.name() == amaru_metrics::rocksdb::NUM_FILES_AT_LEVEL)
+                .flat_map(|metric| {
+                    let AggregatedMetrics::U64(MetricData::Gauge(gauge)) = metric.data() else {
+                        panic!("{} is not a u64 gauge", metric.name());
+                    };
+                    gauge.data_points()
+                })
+                .filter(|point| point.attributes().any(|kv| kv.key.as_str() == "db" && kv.value.as_str() == db))
+                .flat_map(|point| point.attributes().filter(|kv| kv.key.as_str() == "level"))
+                .map(|kv| kv.value.as_str().into_owned())
+                .collect::<BTreeSet<_>>()
+        };
+
+        let running = build_and_run_node(config, &Handle::current()).await?;
+        timeout(Duration::from_secs(15), async {
+            while levels("chain").len() < 7 || levels("ledger").len() < 7 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await?;
+
+        let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
+        assert!(report.is_clean(), "{report:?}");
+        drop(RocksDB::new(&ledger_config)?);
+        drop(RocksDBStore::open(&chain_config)?);
         Ok(())
     }
 
