@@ -139,10 +139,12 @@ conformance-uplc-turbo: ## &test Generate a conformance report for the uplc-turb
 conformance-ledger-rules: ## &test Generate a conformance report for the ledger transaction-rule corpus
 	@set -eu; \
 	report="$$(mktemp -t amaru-ledger-rules.XXXXXX)"; \
+	dataset_commit="$$(git log -1 --format='%H' -- crates/amaru-ledger/tests/data/transaction/scenarios)"; \
 	AMARU_LEDGER_CONFORMANCE_REPORT="$$report" cargo test --locked -p amaru-ledger --lib rules::transaction::tests::conformance 1>&2; \
 	jq -s \
 		--arg generated_at "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-		'{version: "1", scenario: "ledger-rules", generated_at: $$generated_at, implementation: {name: "amaru"}, scenarios: (sort_by(.id) | map({id, result}))}' \
+		--arg dataset_commit "$$dataset_commit" \
+		'{version: "1", scenario: "ledger-rules", generated_at: $$generated_at, dataset_commit: $$dataset_commit, implementation: {name: "amaru"}, scenarios: (sort_by(.id) | map({id, result}))}' \
 		"$$report"
 
 conformance-uplc: ## &test Generate a conformance report for the uplc functional corpus
@@ -197,7 +199,7 @@ generate-debian-env: ## &dist Generate Debian and RPM environment configuration
 		--override AMARU_DB_LEDGER=/var/lib/amaru/ledger.mainnet.db \
 		--override AMARU_NETWORK=mainnet \
 		--override AMARU_PID_EXPORT=/run/amaru/amaru.pid \
-		--override AMARU_WITH_JSON_TRACES=true \
+		--override AMARU_LOG_JSON=true \
 		> .github/debian/amaru.env
 
 cli-assets: clean-dist ## &dist Generate clap-derived man page and shell completions into $(DIST_DIR)

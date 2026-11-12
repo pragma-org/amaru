@@ -2172,6 +2172,30 @@
         "warn"
       ]
     },
+    "amaru::cli::pool::schedule::SPECULATIVE_NONCE": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "title": "uint64",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "speculative_nonce",
+      "kind": "event",
+      "target": "amaru::cli::pool::schedule",
+      "description": "The requested leader schedule uses a nonce derived before the epoch was observed on-chain.",
+      "public": true,
+      "levels": [
+        "warn"
+      ]
+    },
     "amaru::cli::snapshot::CREATE": {
       "type": "object",
       "properties": {
@@ -6697,15 +6721,6 @@
         "certificates_micros": {
           "type": "integer"
         },
-        "collateral_micros": {
-          "type": "integer"
-        },
-        "collateral_return_micros": {
-          "type": "integer"
-        },
-        "donation_micros": {
-          "type": "integer"
-        },
         "fees_micros": {
           "type": "integer"
         },
@@ -6730,6 +6745,9 @@
         "signatures_micros": {
           "type": "integer"
         },
+        "treasury_micros": {
+          "type": "integer"
+        },
         "validity_interval_micros": {
           "type": "integer"
         },
@@ -6744,9 +6762,6 @@
       "optional": [
         "preflight_micros",
         "certificates_micros",
-        "collateral_micros",
-        "collateral_return_micros",
-        "donation_micros",
         "fees_micros",
         "inputs_micros",
         "metadata_micros",
@@ -6755,6 +6770,7 @@
         "proposals_micros",
         "scripts_micros",
         "signatures_micros",
+        "treasury_micros",
         "validity_interval_micros",
         "votes_micros",
         "withdrawals_micros"

@@ -292,25 +292,31 @@ fn color_option_accepts_all_variants() -> anyhow::Result<()> {
 }
 
 #[test]
-fn with_open_telemetry_option_is_global_and_accepts_signals() -> anyhow::Result<()> {
+fn legacy_global_log_otlp_option_accepts_signals() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
-    let output =
-        Command::new(amaru).args(["dev", "traces", "dump", "--with-open-telemetry=traces,logs", "--help"]).output()?;
+    let output = Command::new(amaru).args(["--with-open-telemetry=traces,logs", "node", "run", "--help"]).output()?;
 
-    assert!(output.status.success(), "global --with-open-telemetry should accept signals after a subcommand");
+    assert!(output.status.success(), "legacy global --with-open-telemetry should accept signals");
     Ok(())
 }
 
 #[test]
-fn with_open_telemetry_option_keeps_boolean_environment_values() -> anyhow::Result<()> {
+fn node_run_log_otlp_option_accepts_signals() -> anyhow::Result<()> {
+    let amaru = cargo_bin("amaru");
+    let output = Command::new(amaru).args(["node", "run", "--log-otlp=traces,logs", "--help"]).output()?;
+
+    assert!(output.status.success(), "node run --log-otlp should accept signals");
+    Ok(())
+}
+
+#[test]
+fn node_run_log_otlp_keeps_boolean_environment_values() -> anyhow::Result<()> {
     let amaru = cargo_bin("amaru");
     for value in ["true", "false"] {
-        let output = Command::new(&amaru)
-            .args(["dev", "traces", "dump", "--compact"])
-            .env("AMARU_WITH_OPEN_TELEMETRY", value)
-            .output()?;
+        let output =
+            Command::new(&amaru).args(["node", "run", "--help"]).env("AMARU_WITH_OPEN_TELEMETRY", value).output()?;
 
-        assert!(output.status.success(), "AMARU_WITH_OPEN_TELEMETRY={value} should be accepted");
+        assert!(output.status.success(), "AMARU_WITH_OPEN_TELEMETRY={value} should be accepted by node run");
     }
     Ok(())
 }

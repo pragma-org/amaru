@@ -1,0 +1,63 @@
+{
+  "title": "drep deregistration with an incorrect refund",
+  "description": "A transaction that deregisters a DRep. The refund in the certificate differs from the deposit paid at registration.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123,
+      "delegate_representative_deposit": 100
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258209c88d479c9aeb1d1e24cdd9b6eef6d9b7c3688d3a3b7bc383a145d0c1874a67500",
+        "output": "8258390093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8ff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6e1e0e3"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64",
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 100,
+        "registered_at": {
+          "transaction": {
+            "slot": 3883681,
+            "transaction_index": 0
+          },
+          "certificate_index": 0
+        },
+        "valid_until": 1000
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258209c88d479c9aeb1d1e24cdd9b6eef6d9b7c3688d3a3b7bc383a145d0c1874a67500018182583900de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f598593f1e760111aba8c48f249d58250062f5baf3d163350f2d3f55ec7b3971b009fdf42f6df42ba021a00029e8d04d901028183118200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8186ea100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584013d853c6462e8448cfa62c3feed9c6c2976d1efef5789c2406c275a618e41207063e62192875c0028c5e4197fa3b78604c2971778a18bea0c2c91c32d66bae09f5f6",
+  "expected": {
+    "predicate": "IncorrectDepositDRep"
+  }
+}

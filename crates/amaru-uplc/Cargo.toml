@@ -11,7 +11,7 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
-publish = false
+readme.workspace = true
 
 [build-dependencies]
 indoc.workspace = true

@@ -99,6 +99,10 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for MemoizedTransactio
         let data_type = d.datatype()?;
         let start_pos = d.position();
 
+        if cbor::is_map_len64(d) {
+            return Err(cbor::decode::Error::message("transaction output map length must not be written on 8 bytes"));
+        }
+
         let mut output = if matches!(data_type, cbor::Type::MapIndef | cbor::Type::Map) {
             decode_modern_output(d, ctx)?
         } else if matches!(data_type, cbor::Type::ArrayIndef | cbor::Type::Array) {
@@ -462,5 +466,20 @@ mod tests {
         let mut version = crate::protocol_version::PROTOCOL_VERSION_10;
         let decoded: Result<MemoizedTransactionOutput, _> = cbor::from_cbor_no_leftovers_with(&input, &mut version);
         assert!(decoded.is_err(), "expected a decoding failure, got {decoded:?}");
+    }
+
+    /// The ledger picks the map encoding of an output only when cborg reports `TypeMapLen` or
+    /// `TypeMapLenIndef`. A map length written on 8 bytes is `TypeMapLen64`, so it is read as a list
+    /// and rejected, while 1, 2 and 4-byte length heads are accepted.
+    #[cfg(test)]
+    #[test_case::test_case(&[0xa2] => true                                     ; "short head")]
+    #[test_case::test_case(&[0xb8, 0x02] => true                               ; "1-byte length")]
+    #[test_case::test_case(&[0xb9, 0x00, 0x02] => true                         ; "2-byte length")]
+    #[test_case::test_case(&[0xba, 0x00, 0x00, 0x00, 0x02] => true             ; "4-byte length")]
+    #[test_case::test_case(&[0xbb, 0, 0, 0, 0, 0, 0, 0, 0x02] => false         ; "8-byte length")]
+    fn decode_map_length_heads(map_head: &[u8]) -> bool {
+        let input = [map_head, &[0x00, 0x58, 0x1d, 0x61], &[0x42; 28], &[0x01, 0x00]].concat();
+        let mut version = crate::protocol_version::PROTOCOL_VERSION_10;
+        cbor::from_cbor_no_leftovers_with::<_, MemoizedTransactionOutput>(&input, &mut version).is_ok()
     }
 }

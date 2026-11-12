@@ -157,8 +157,8 @@ impl<'b, C> cbor::Decode<'b, C> for ByronAddress {
     }
 }
 
-/// Decode an item whose canonical encoding fits in its initial byte, as is the case for array
-/// lengths and unsigned integers below 24, and reject the same value spelled out over more bytes.
+/// Decode an item whose canonical encoding fits in its initial byte, as is the case for unsigned
+/// integers below 24, and reject the same value spelled out over more bytes.
 fn decode_single_byte<'b, T>(
     d: &mut cbor::Decoder<'b>,
     decode: impl FnOnce(&mut cbor::Decoder<'b>) -> Result<T, cbor::decode::Error>,
@@ -226,7 +226,9 @@ impl<C: cbor::HasProtocolVersion> cbor::Encode<C> for AddressPayload {
 
 impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for AddressPayload {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        if decode_single_byte(d, |d| d.array())? != Some(3) {
+        // Conformance: the Haskell node reads this triple with `decodeListLenOf`, which accepts a length written
+        // with a longer head than needed, but not an indefinite-length array.
+        if d.array()? != Some(3) {
             return Err(cbor::decode::Error::message("Byron address payload must be an array of 3"));
         }
 
@@ -295,8 +297,14 @@ impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
             attributes.push((
                 k,
                 match k {
-                    1 => AddressAttribute::DerivationPath(bytes),
-                    2 => AddressAttribute::NetworkTag(bytes),
+                    1 => {
+                        check_derivation_path(&bytes)?;
+                        AddressAttribute::DerivationPath(bytes)
+                    }
+                    2 => {
+                        check_network_magic(&bytes)?;
+                        AddressAttribute::NetworkTag(bytes)
+                    }
                     _ => AddressAttribute::Unknown(bytes),
                 },
             ));
@@ -304,6 +312,44 @@ impl<'b, C> cbor::Decode<'b, C> for AddressAttributes {
 
         Ok(Self(attributes))
     }
+}
+
+/// Check that the derivation path attribute holds one definite-length byte string with the shortest head.
+///
+/// The Haskell node reads it with `decodeFull` and `decodeBytesCanonical`.
+fn check_derivation_path(value: &[u8]) -> Result<(), cbor::decode::Error> {
+    check_canonical_value(value, |d| {
+        #[allow(clippy::disallowed_methods)]
+        let len = d.bytes()?.len() as u64;
+        Ok((len, len))
+    })
+    .map_err(|e| cbor::decode::Error::message(format!("invalid Byron address derivation path: {e}")))
+}
+
+/// Check that the network magic attribute holds one unsigned 32-bit integer with the shortest head.
+///
+/// The Haskell node reads it with `decodeFullDecoder` and `decodeWord32Canonical`.
+fn check_network_magic(value: &[u8]) -> Result<(), cbor::decode::Error> {
+    check_canonical_value(value, |d| Ok((u64::from(d.u32()?), 0)))
+        .map_err(|e| cbor::decode::Error::message(format!("invalid Byron address network magic: {e}")))
+}
+
+/// Decode the single CBOR item held by an attribute value, and reject a head longer than needed or any byte after it.
+///
+/// `decode` returns the argument of the item's head (the value or the length) and the size of its content.
+fn check_canonical_value(
+    value: &[u8],
+    decode: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<(u64, u64), cbor::decode::Error>,
+) -> Result<(), cbor::decode::Error> {
+    let mut d = cbor::Decoder::new(value);
+    let (argument, content_len) = decode(&mut d)?;
+    if d.position() as u64 - content_len != cbor::shortest_head_len(argument) {
+        return Err(cbor::decode::Error::message("non-canonical head"));
+    }
+    if d.position() != value.len() {
+        return Err(cbor::decode::Error::message("bytes left after the value"));
+    }
+    Ok(())
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -509,12 +555,12 @@ mod tests {
     }
 
     #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x00]) => matches Ok(_))]
-    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x00, 0x02, 0x41, 0x00], &[0x02]) => matches Ok(_))]
+    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x40, 0x02, 0x41, 0x00], &[0x02]) => matches Ok(_))]
     #[test_case(payload(&[0x9f], &root(), &[0xa0], &[0x00, 0xff]) => matches Err(e) if e.to_string().contains("array of 3"))]
-    #[test_case(payload(&[0x98, 0x03], &root(), &[0xa0], &[0x00]) => matches Err(e) if e.to_string().contains("non-canonical"))]
+    #[test_case(payload(&[0x98, 0x03], &root(), &[0xa0], &[0x00]) => matches Ok(_))]
     #[test_case(payload(&[0x83], &chunked_root(), &[0xa0], &[0x00]) => matches Err(_))]
     #[test_case(payload(&[0x83], &root(), &[0xbf, 0xff], &[0x00]) => matches Err(e) if e.to_string().contains("definite-length map"))]
-    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x00, 0x01, 0x41, 0x00], &[0x00]) => matches Err(e) if e.to_string().contains("strictly increasing"))]
+    #[test_case(payload(&[0x83], &root(), &[0xa2, 0x01, 0x41, 0x40, 0x01, 0x41, 0x40], &[0x00]) => matches Err(e) if e.to_string().contains("strictly increasing"))]
     #[test_case(payload(&[0x83], &root(), &[0xa2, 0x02, 0x41, 0x00, 0x01, 0x41, 0x00], &[0x00]) => matches Err(e) if e.to_string().contains("strictly increasing"))]
     #[test_case(payload(&[0x83], &root(), &[0xa1, 0x01, 0x5f, 0x41, 0x00, 0xff], &[0x00]) => matches Err(_))]
     #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x18, 0x00]) => matches Err(e) if e.to_string().contains("non-canonical"))]
@@ -522,6 +568,29 @@ mod tests {
     #[test_case(payload(&[0x83], &root(), &[0xa0], &[0x00, 0x00]) => matches Err(e) if e.to_string().contains("leftovers"))]
     fn decode_payload(bytes: Vec<u8>) -> Result<AddressPayload, cbor::decode::Error> {
         cbor::from_cbor_no_leftovers(&bytes)
+    }
+
+    /// The derivation path (key 1) and the network magic (key 2) hold CBOR in a byte string. The
+    /// Haskell node reads them with `decodeBytesCanonical` and `decodeWord32Canonical`, with no
+    /// byte left after the value.
+    #[test_case(&[0x01, 0x41, 0x40] => true                                      ; "empty derivation path")]
+    #[test_case(&[0x01, 0x43, 0x42, 0x01, 0x02] => true                          ; "derivation path")]
+    #[test_case(&[0x01, 0x41, 0xff] => false                                     ; "derivation path not a value")]
+    #[test_case(&[0x01, 0x41, 0x01] => false                                     ; "derivation path not bytes")]
+    #[test_case(&[0x01, 0x42, 0x58, 0x00] => false                               ; "derivation path wide head")]
+    #[test_case(&[0x01, 0x42, 0x5f, 0xff] => false                               ; "derivation path indefinite")]
+    #[test_case(&[0x01, 0x43, 0x41, 0x01, 0x00] => false                         ; "derivation path with a byte after")]
+    #[test_case(&[0x02, 0x41, 0x00] => true                                      ; "small network magic")]
+    #[test_case(&[0x02, 0x45, 0x1a, 0xff, 0xff, 0xff, 0xff] => true              ; "largest network magic")]
+    #[test_case(&[0x02, 0x41, 0xff] => false                                     ; "network magic not a value")]
+    #[test_case(&[0x02, 0x41, 0x40] => false                                     ; "network magic not unsigned")]
+    #[test_case(&[0x02, 0x42, 0x18, 0x01] => false                               ; "network magic wide head")]
+    #[test_case(&[0x02, 0x49, 0x1b, 0, 0, 0, 1, 0, 0, 0, 0] => false             ; "network magic above 32 bits")]
+    #[test_case(&[0x02, 0x46, 0x1a, 0x2d, 0x96, 0x4a, 0x09, 0x00] => false       ; "network magic with a byte after")]
+    #[test_case(&[0x03, 0x41, 0xff] => true                                      ; "unknown attribute")]
+    fn decode_attribute(attribute: &[u8]) -> bool {
+        let attributes = [&[0xa1], attribute].concat();
+        cbor::from_cbor_no_leftovers::<AddressPayload>(&payload(&[0x83], &root(), &attributes, &[0x00])).is_ok()
     }
 
     #[test_case(envelope(&[0x82], &payload(&[0x83], &root(), &[0xa0], &[0x00]), &[]) => matches Ok(_))]

@@ -68,6 +68,11 @@ impl<'b, C: cbor::HasProtocolVersion> cbor::Decode<'b, C> for Redeemers {
                 Ok(RedeemersInner::Array(redeemers))
             }
             minicbor::data::Type::Map | minicbor::data::Type::MapIndef => {
+                if cbor::is_map_len64(d) {
+                    return Err(minicbor::decode::Error::message(
+                        "redeemers map length must not be written on 8 bytes",
+                    ));
+                }
                 let redeemers: BTreeMap<RedeemerKey, RedeemerValue> = d.decode_with(ctx)?;
                 if redeemers.is_empty() {
                     return Err(minicbor::decode::Error::message("expected redeemers map to be non-empty"));
@@ -212,6 +217,19 @@ mod tests {
         bytes: &[u8],
     ) -> Result<Redeemers, cbor::decode::Error> {
         from_cbor_no_leftovers_with(bytes, &mut version)
+    }
+
+    /// The ledger picks the map encoding of redeemers only when cborg reports `TypeMapLen` or
+    /// `TypeMapLenIndef`. A map length written on 8 bytes is `TypeMapLen64`, so it is read as a list
+    /// and rejected, while 1, 2 and 4-byte length heads are accepted.
+    #[test_case(&[0xb8, 0x01] => true                           ; "1-byte length")]
+    #[test_case(&[0xb9, 0x00, 0x01] => true                     ; "2-byte length")]
+    #[test_case(&[0xba, 0x00, 0x00, 0x00, 0x01] => true         ; "4-byte length")]
+    #[test_case(&[0xbb, 0, 0, 0, 0, 0, 0, 0, 0x01] => false     ; "8-byte length")]
+    fn decode_map_length_heads(map_head: &[u8]) -> bool {
+        let bytes = [map_head, &MAP_WITH_ONE_REDEEMER[1..]].concat();
+        let mut version = PROTOCOL_VERSION_10;
+        from_cbor_no_leftovers_with::<_, Redeemers>(&bytes, &mut version).is_ok()
     }
 
     #[test]

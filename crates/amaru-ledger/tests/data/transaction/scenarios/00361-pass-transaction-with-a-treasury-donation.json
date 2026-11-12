@@ -1,0 +1,25 @@
+{
+  "title": "transaction with a treasury donation",
+  "description": "A transaction donating 1 ADA to the treasury from a single vkey-locked input.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203805dc83ee7b4e82ad2feed3ef5fdd14337250b163520abc36bbc7fe5f0229c300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d90102818258203805dc83ee7b4e82ad2feed3ef5fdd14337250b163520abc36bbc7fe5f0229c3000181a200581d60c3f9920656fdbfe2842e2c5671e0a2b0c1c84c497d42879de5376d7b011a0039fbc0021a00030d400f00161a000f4240a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840784011f217f0d6dedf8575852d2a8e46d9f464d6b777b705abf5231f42618511826a5eca239e3f6eb0daa69a47f0a68e294c64382b3a3dde6cc08c14b6b9a40bf5f6",
+  "expected": "Pass"
+}

@@ -1,0 +1,422 @@
+// Copyright 2026 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! CIP-0203 block producer identifier; Amaru's payload is specified in `docs/cip-0203/README.md`.
+
+use std::fmt;
+
+use serde::ser::SerializeStruct;
+use time::{Date, Duration, Month, macros::date};
+
+/// Block producer identifier carried in the minor component of a header's `protocol_version`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoftwareTag {
+    NoSignal,
+    OptOut,
+    Attributed { id: ProducerId, payload: Payload },
+}
+
+impl serde::Serialize for SoftwareTag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::NoSignal => serializer.serialize_str("no_signal"),
+            Self::OptOut => serializer.serialize_str("opt_out"),
+            Self::Attributed { id, payload } => {
+                let mut state = serializer.serialize_struct("SoftwareTag", 2)?;
+                state.serialize_field("id", id)?;
+                state.serialize_field("payload", payload)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl SoftwareTag {
+    const SCHEME_SHIFT: u32 = 30;
+
+    const OPT_OUT_ID: u8 = 255;
+}
+
+impl TryFrom<u32> for SoftwareTag {
+    type Error = SoftwareTagError;
+
+    fn try_from(minor: u32) -> Result<Self, Self::Error> {
+        let scheme = (minor >> Self::SCHEME_SHIFT) as u8;
+        if scheme != 0 {
+            return Err(SoftwareTagError::ReservedScheme(scheme));
+        }
+        match minor as u8 {
+            0 => Ok(Self::NoSignal),
+            Self::OPT_OUT_ID => Ok(Self::OptOut),
+            id => Ok(Self::Attributed { id: ProducerId(id), payload: Payload((minor >> 8) & Payload::MASK) }),
+        }
+    }
+}
+
+impl From<SoftwareTag> for u32 {
+    fn from(tag: SoftwareTag) -> Self {
+        match tag {
+            SoftwareTag::NoSignal => 0,
+            SoftwareTag::OptOut => SoftwareTag::OPT_OUT_ID as u32,
+            SoftwareTag::Attributed { id, payload } => (payload.0 << 8) | id.0 as u32,
+        }
+    }
+}
+
+impl fmt::Display for SoftwareTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoSignal => write!(f, "no signal"),
+            Self::OptOut => write!(f, "operator opted out"),
+            Self::Attributed { id, payload } => write!(f, "producer {id}, payload {payload}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SoftwareTagError {
+    #[error("scheme {0} is reserved")]
+    ReservedScheme(u8),
+}
+
+/// Registered producer id; `0` and `255` are not ids.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[repr(transparent)]
+pub struct ProducerId(u8);
+
+impl ProducerId {
+    pub const fn legacy_cardano_node(&self) -> bool {
+        self.0 <= 15
+    }
+}
+
+impl TryFrom<u8> for ProducerId {
+    type Error = ProducerIdError;
+
+    fn try_from(id: u8) -> Result<Self, Self::Error> {
+        match id {
+            0 | SoftwareTag::OPT_OUT_ID => Err(ProducerIdError(id)),
+            id => Ok(Self(id)),
+        }
+    }
+}
+
+impl From<ProducerId> for u8 {
+    fn from(id: ProducerId) -> Self {
+        id.0
+    }
+}
+
+impl fmt::Display for ProducerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if *self == AmaruTag::ID {
+            write!(f, "{} (Amaru)", self.0)
+        } else if self.legacy_cardano_node() {
+            write!(f, "{} (legacy cardano-node)", self.0)
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("{0} is not a producer id")]
+pub struct ProducerIdError(u8);
+
+/// Implementation-defined 22 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[repr(transparent)]
+pub struct Payload(u32);
+
+impl Payload {
+    const MASK: u32 = (1 << 22) - 1;
+}
+
+impl TryFrom<u32> for Payload {
+    type Error = PayloadError;
+
+    fn try_from(payload: u32) -> Result<Self, Self::Error> {
+        if payload > Self::MASK {
+            return Err(PayloadError(payload));
+        }
+        Ok(Self(payload))
+    }
+}
+
+impl From<Payload> for u32 {
+    fn from(payload: Payload) -> Self {
+        payload.0
+    }
+}
+
+impl fmt::Display for Payload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} (0x{:06x})", self.0, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("payload {0} does not fit in 22 bits")]
+pub struct PayloadError(u32);
+
+/// Amaru's [`Payload`]:
+///
+/// ```text
+///  21 20 | 19                    6 | 5         0
+/// +------+-------------------------+------------+
+/// | ver  |  days since 2026-01-01  |   flags    |
+/// +------+-------------------------+------------+
+/// ```
+///
+/// No flags are assigned: they are written as `0` and ignored when read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct AmaruTag {
+    release_day: ReleaseDay,
+}
+
+impl AmaruTag {
+    pub const ID: ProducerId = ProducerId(65);
+
+    const LAYOUT_VERSION: u32 = 0;
+
+    const LAYOUT_VERSION_SHIFT: u32 = 20;
+
+    const RELEASE_DAY_SHIFT: u32 = 6;
+
+    const RELEASE_DAY_MASK: u32 = (1 << (Self::LAYOUT_VERSION_SHIFT - Self::RELEASE_DAY_SHIFT)) - 1;
+
+    pub const fn new(release_day: ReleaseDay) -> Self {
+        Self { release_day }
+    }
+
+    pub const fn release_day(&self) -> ReleaseDay {
+        self.release_day
+    }
+
+    pub const fn software_tag(&self) -> SoftwareTag {
+        let payload = (Self::LAYOUT_VERSION << Self::LAYOUT_VERSION_SHIFT)
+            | ((self.release_day.0 as u32) << Self::RELEASE_DAY_SHIFT);
+        SoftwareTag::Attributed { id: Self::ID, payload: Payload(payload) }
+    }
+}
+
+impl fmt::Display for AmaruTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "layout {}, release day {} ({})", Self::LAYOUT_VERSION, self.release_day.0, self.release_day)
+    }
+}
+
+impl TryFrom<SoftwareTag> for AmaruTag {
+    type Error = AmaruTagError;
+
+    fn try_from(tag: SoftwareTag) -> Result<Self, Self::Error> {
+        let payload = match tag {
+            SoftwareTag::NoSignal => return Err(AmaruTagError::NoSignal),
+            SoftwareTag::OptOut => return Err(AmaruTagError::OptOut),
+            SoftwareTag::Attributed { id, .. } if id != Self::ID => return Err(AmaruTagError::Id(id)),
+            SoftwareTag::Attributed { payload, .. } => payload.0,
+        };
+        let layout_version = payload >> Self::LAYOUT_VERSION_SHIFT;
+        if layout_version != Self::LAYOUT_VERSION {
+            return Err(AmaruTagError::LayoutVersion(layout_version));
+        }
+        let days = (payload >> Self::RELEASE_DAY_SHIFT) & Self::RELEASE_DAY_MASK;
+        Ok(Self::new(ReleaseDay(days as u16)))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AmaruTagError {
+    #[error("no signal")]
+    NoSignal,
+    #[error("operator opted out")]
+    OptOut,
+    #[error("id {0} is not Amaru's")]
+    Id(ProducerId),
+    #[error("payload layout version {0} is unknown")]
+    LayoutVersion(u32),
+}
+
+/// Days since 2026-01-01 (UTC); `0` is an unreleased build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[repr(transparent)]
+#[serde(into = "String")]
+pub struct ReleaseDay(u16);
+
+impl ReleaseDay {
+    pub const UNRELEASED: Self = Self(0);
+
+    pub const MAX: Self = Self(AmaruTag::RELEASE_DAY_MASK as u16);
+
+    const EPOCH: Date = date!(2026 - 01 - 01);
+
+    pub const fn from_version_patch(patch: &str) -> Result<Self, ReleaseDayError> {
+        if matches!(patch.as_bytes(), b"0") {
+            return Ok(Self::UNRELEASED);
+        }
+
+        let Ok(yyyymmdd) = u32::from_str_radix(patch, 10) else {
+            return Err(ReleaseDayError::Malformed);
+        };
+
+        let (year, month, day) = (yyyymmdd / 10_000, (yyyymmdd / 100 % 100) as u8, (yyyymmdd % 100) as u8);
+        if patch.len() != 8 || month < 1 || month > 12 {
+            return Err(ReleaseDayError::Malformed);
+        }
+
+        let Ok(date) = Date::from_calendar_date(year as i32, Month::January.nth_next(month - 1), day) else {
+            return Err(ReleaseDayError::Malformed);
+        };
+
+        Self::from_date(date)
+    }
+
+    pub const fn from_date(date: Date) -> Result<Self, ReleaseDayError> {
+        let days = date.to_julian_day() - Self::EPOCH.to_julian_day();
+        if days < 1 || days > Self::MAX.0 as i32 {
+            return Err(ReleaseDayError::OutOfRange(date));
+        }
+        Ok(Self(days as u16))
+    }
+
+    pub fn date(&self) -> Option<Date> {
+        (self.0 != 0).then(|| Self::EPOCH + Duration::days(i64::from(self.0)))
+    }
+
+    pub const fn days(&self) -> u16 {
+        self.0
+    }
+}
+
+impl From<ReleaseDay> for String {
+    fn from(release_day: ReleaseDay) -> Self {
+        release_day.to_string()
+    }
+}
+
+impl fmt::Display for ReleaseDay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.date() {
+            Some(date) => write!(f, "{date}"),
+            None => write!(f, "unreleased"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ReleaseDayError {
+    #[error("expected 0 or a YYYYMMDD day")]
+    Malformed,
+    #[error("{0} is outside the representable range, 2026-01-02 to 2070-11-09")]
+    OutOfRange(Date),
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+
+    #[test_case("0" => Ok(ReleaseDay::UNRELEASED); "unreleased")]
+    #[test_case("20260611" => Ok(ReleaseDay(161)); "first release")]
+    #[test_case("20260925" => Ok(ReleaseDay(267)); "later release")]
+    #[test_case("20701109" => Ok(ReleaseDay::MAX); "last representable day")]
+    #[test_case("20701110" => Err(ReleaseDayError::OutOfRange(date!(2070 - 11 - 10))); "past the last day")]
+    #[test_case("20260101" => Err(ReleaseDayError::OutOfRange(date!(2026 - 01 - 01))); "epoch day would read as unreleased")]
+    #[test_case("20251231" => Err(ReleaseDayError::OutOfRange(date!(2025 - 12 - 31))); "before the epoch")]
+    #[test_case("20260230" => Err(ReleaseDayError::Malformed); "no such day")]
+    #[test_case("20261301" => Err(ReleaseDayError::Malformed); "no such month")]
+    #[test_case("202606110" => Err(ReleaseDayError::Malformed); "too long")]
+    #[test_case("2026061" => Err(ReleaseDayError::Malformed); "too short")]
+    #[test_case("00" => Err(ReleaseDayError::Malformed); "zero padded")]
+    #[test_case("2026-6-1" => Err(ReleaseDayError::Malformed); "not digits")]
+    fn release_day_from_version_patch(patch: &str) -> Result<ReleaseDay, ReleaseDayError> {
+        ReleaseDay::from_version_patch(patch)
+    }
+
+    #[test_case(0 => None; "unreleased")]
+    #[test_case(161 => Some(date!(2026 - 06 - 11)); "first release")]
+    #[test_case(267 => Some(date!(2026 - 09 - 25)); "later release")]
+    #[test_case(16383 => Some(date!(2070 - 11 - 09)); "last representable day")]
+    fn release_day_to_date(days: u16) -> Option<Date> {
+        ReleaseDay(days).date()
+    }
+
+    #[test]
+    fn every_representable_day_round_trips() {
+        for days in 1..=ReleaseDay::MAX.0 {
+            let day = ReleaseDay(days);
+            let date = day.date().unwrap();
+            assert_eq!(ReleaseDay::from_date(date), Ok(day), "{date}");
+        }
+    }
+
+    #[test_case(ReleaseDay::UNRELEASED => 0x0000_0041; "unreleased")]
+    #[test_case(ReleaseDay(161) => 0x0028_4041; "release 20260611")]
+    #[test_case(ReleaseDay(267) => 0x0042_C041; "release 20260925")]
+    #[test_case(ReleaseDay::MAX => 0x0FFF_C041; "last representable day")]
+    fn amaru_tag_minor(release_day: ReleaseDay) -> u32 {
+        u32::from(AmaruTag::new(release_day).software_tag())
+    }
+
+    #[test_case(0x0000_0041 => Ok(AmaruTag::new(ReleaseDay::UNRELEASED)); "unreleased")]
+    #[test_case(0x0042_C041 => Ok(AmaruTag::new(ReleaseDay(267))); "release 20260925")]
+    #[test_case(0x0042_C141 => Ok(AmaruTag::new(ReleaseDay(267))); "flag bit 0 ignored")]
+    #[test_case(0x0042_FF41 => Ok(AmaruTag::new(ReleaseDay(267))); "all flags ignored")]
+    #[test_case(0x1042_C041 => Err(AmaruTagError::LayoutVersion(1)); "layout version 1")]
+    #[test_case(0x0000_00FF => Err(AmaruTagError::OptOut); "opted out")]
+    #[test_case(0x0000_0000 => Err(AmaruTagError::NoSignal); "no signal")]
+    #[test_case(0x0000_0045 => Err(AmaruTagError::Id(ProducerId(69))); "another producer")]
+    fn amaru_tag_from_minor(minor: u32) -> Result<AmaruTag, AmaruTagError> {
+        AmaruTag::try_from(SoftwareTag::try_from(minor).unwrap())
+    }
+
+    #[test_case(0x0000_0000 => Ok(SoftwareTag::NoSignal); "no signal")]
+    #[test_case(0x0000_00FF => Ok(SoftwareTag::OptOut); "opted out")]
+    #[test_case(0x0000_0045 => Ok(SoftwareTag::Attributed { id: ProducerId(69), payload: Payload(0) }); "attributed")]
+    #[test_case(0x3FFF_FF45 => Ok(SoftwareTag::Attributed { id: ProducerId(69), payload: Payload(Payload::MASK) }); "full payload")]
+    #[test_case(0x4000_0041 => Err(SoftwareTagError::ReservedScheme(1)); "reserved scheme")]
+    #[test_case(0xC000_0000 => Err(SoftwareTagError::ReservedScheme(3)); "top scheme")]
+    fn software_tag_from_minor(minor: u32) -> Result<SoftwareTag, SoftwareTagError> {
+        SoftwareTag::try_from(minor)
+    }
+
+    #[test]
+    fn software_tag_round_trips() {
+        for minor in [0, 255, 0x45, 0x0042_C041, 0x3FFF_FF45] {
+            assert_eq!(u32::from(SoftwareTag::try_from(minor).unwrap()), minor);
+        }
+    }
+
+    #[test]
+    fn software_tag_serializes_special_values_as_distinct_strings() {
+        assert_eq!(serde_json::to_value(SoftwareTag::NoSignal).unwrap(), serde_json::json!("no_signal"));
+        assert_eq!(serde_json::to_value(SoftwareTag::OptOut).unwrap(), serde_json::json!("opt_out"));
+        assert_eq!(
+            serde_json::to_value(SoftwareTag::Attributed { id: ProducerId(69), payload: Payload(7) }).unwrap(),
+            serde_json::json!({"id": 69, "payload": 7})
+        );
+    }
+
+    #[test]
+    fn amaru_tag_round_trips() {
+        for days in [0, 1, 161, 267, ReleaseDay::MAX.0] {
+            let tag = AmaruTag::new(ReleaseDay(days));
+            assert_eq!(AmaruTag::try_from(tag.software_tag()), Ok(tag));
+        }
+    }
+}

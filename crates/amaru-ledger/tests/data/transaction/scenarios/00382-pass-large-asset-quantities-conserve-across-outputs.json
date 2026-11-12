@@ -1,0 +1,29 @@
+{
+  "title": "large asset quantities conserve across outputs",
+  "description": "Two inputs each carry the maximum positive asset quantity for the same asset, and the transaction preserves both quantities across two outputs. The aggregate quantity exceeds u64 while remaining valid because the quantities are kept in separate outputs.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582096015bdb45b36387b9c3202061bf7ac103b317c2246af2e917c2064089d79e2e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801821a002625a0a1581ccde2f65b42f8e81cea3baea55a39485a0b29607e34da517ab9bb4464a143746f6b1bffffffffffffffff"
+      },
+      {
+        "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801821a002625a0a1581ccde2f65b42f8e81cea3baea55a39485a0b29607e34da517ab9bb4464a143746f6b1bffffffffffffffff"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028282582096015bdb45b36387b9c3202061bf7ac103b317c2246af2e917c2064089d79e2e008258201111111111111111111111111111111111111111111111111111111111111111000182a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801821a00249f00a1581ccde2f65b42f8e81cea3baea55a39485a0b29607e34da517ab9bb4464a143746f6b1bffffffffffffffffa200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd801821a00249f00a1581ccde2f65b42f8e81cea3baea55a39485a0b29607e34da517ab9bb4464a143746f6b1bffffffffffffffff021a00030d400f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584093d3285485cb8bad26b60992431e7f5b38ed00908f8f158db2bc9baeeee1c7874caa62e44dc6e76fa38325364ea4f5c0cbc5fec9c67f7a4dac85d96aa32d5f01f5f6",
+  "expected": "Pass"
+}

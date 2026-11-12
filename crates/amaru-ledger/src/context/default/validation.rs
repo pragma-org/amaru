@@ -21,18 +21,18 @@ use std::{
 
 use amaru_kernel::{
     Anchor, Ballot, BallotId, CertificatePointer, ConstitutionalCommitteeMemberStatus, Credential, DRep,
-    DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, Mint, PoolId, PoolParams, ProposalId, ProposalsRoots, RequiredScript, TransactionInput,
-    Value, Vote, Voter,
+    DRepRegistration, Epoch, GovernanceAction, Hash, Lovelace, MemoizedScript, MemoizedTransactionOutput, Mint, PoolId,
+    PoolParams, ProposalId, ProposalsRoots, RequiredScript, TransactionInput, Value, Vote, Voter,
     cardano::value::Balance,
     size::{DATUM, KEY, SCRIPT},
 };
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, BalanceSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, PoolsSlice,
-        PotsSlice, ProposalState, ProposalStateSlim, ProposalsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums, blanket_known_scripts,
+        AccountState, AccountsSlice, AccountsSliceMut, BalanceSlice, CCMember, CommitteeSlice, CommitteeSliceMut,
+        DRepsSlice, DRepsSliceMut, DelegateError, PoolsSlice, PoolsSliceMut, PotsSlice, PotsSliceMut, ProposalState,
+        ProposalStateSlim, ProposalsSlice, ProposalsSliceMut, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+        UtxoSliceMut, ValidationContext, WitnessSlice, blanket_known_scripts,
     },
     state::volatile::{BindError, Existence, VolatileFragment},
 };
@@ -49,7 +49,6 @@ pub struct DefaultValidationContext {
     treasury: Lovelace,
     state: VolatileFragment,
     known_scripts: BTreeMap<Hash<SCRIPT>, TransactionInput>,
-    known_datums: BTreeMap<Hash<DATUM>, TransactionInput>,
     required_signers: BTreeSet<Hash<KEY>>,
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<DATUM>>,
@@ -91,7 +90,9 @@ impl PotsSlice for DefaultValidationContext {
     fn treasury(&self) -> Lovelace {
         self.treasury
     }
+}
 
+impl PotsSliceMut for DefaultValidationContext {
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
@@ -105,7 +106,9 @@ impl UtxoSlice for DefaultValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.get(input).or_else(|| self.state.utxo.produced.get(input).map(|output| output.as_ref()))
     }
+}
 
+impl UtxoSliceMut for DefaultValidationContext {
     fn consume(&mut self, input: TransactionInput) {
         self.utxo.remove(&input);
         self.state.utxo.consume(input)
@@ -122,7 +125,9 @@ impl PoolsSlice for DefaultValidationContext {
     fn exists(&self, pool: PoolId) -> bool {
         self.pools.contains(&pool) || self.state.pools.registered.contains_key(&pool)
     }
+}
 
+impl PoolsSliceMut for DefaultValidationContext {
     /// FIXME: In ProtocolVersion 11, we must also check for uniqueness of the VRF key when registering pools
     ///
     /// A `PoolId` isn't going to be sufficient context; we'll also need a way to resolve and
@@ -179,7 +184,9 @@ impl AccountsSlice for DefaultValidationContext {
 
         Some(account)
     }
+}
 
+impl AccountsSliceMut for DefaultValidationContext {
     fn register(
         &mut self,
         credential: Credential,
@@ -263,7 +270,9 @@ impl DRepsSlice for DefaultValidationContext {
             None => self.dreps.get(credential),
         }
     }
+}
 
+impl DRepsSliceMut for DefaultValidationContext {
     fn register(
         &mut self,
         drep: Credential,
@@ -355,7 +364,9 @@ impl CommitteeSlice for DefaultValidationContext {
                 }
             })
     }
+}
 
+impl CommitteeSliceMut for DefaultValidationContext {
     fn delegate_cold_key(
         &mut self,
         cold_credential: Credential,
@@ -409,7 +420,9 @@ impl ProposalsSlice for DefaultValidationContext {
     fn roots(&self) -> &ProposalsRoots {
         &self.proposals_roots
     }
+}
 
+impl ProposalsSliceMut for DefaultValidationContext {
     fn acknowledge(&mut self, id: ProposalId, state: ProposalState) {
         // NOTE: Candidate CC Members
         //
@@ -447,10 +460,6 @@ impl WitnessSlice for DefaultValidationContext {
         self.known_scripts.insert(script_hash, location);
     }
 
-    fn acknowledge_datum(&mut self, datum_hash: Hash<DATUM>, location: TransactionInput) {
-        self.known_datums.insert(datum_hash, location);
-    }
-
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_roots.insert(root);
     }
@@ -478,11 +487,6 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_scripts(&mut self) -> BTreeMap<Hash<SCRIPT>, &MemoizedScript> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
-    }
-
-    fn known_datums(&mut self) -> BTreeMap<Hash<DATUM>, &MemoizedPlutusData> {
-        let known_datums = mem::take(&mut self.known_datums);
-        blanket_known_datums(self, known_datums.into_iter())
     }
 }
 
@@ -549,14 +553,14 @@ mod tests {
     #[test]
     fn lookup_reflects_an_in_block_registration() {
         let mut ctx = ctx_with(BTreeMap::new());
-        AccountsSlice::register(&mut ctx, cred(1), account(0)).unwrap();
+        AccountsSliceMut::register(&mut ctx, cred(1), account(0)).unwrap();
         assert_eq!(AccountsSlice::lookup(&ctx, &cred(1)).map(|a| a.deposit), Some(2_000_000));
     }
 
     #[test]
     fn lookup_is_none_after_an_in_block_deregistration() {
         let mut ctx = ctx_with(BTreeMap::from([(cred(1), account(7))]));
-        AccountsSlice::unregister(&mut ctx, cred(1)).unwrap();
+        AccountsSliceMut::unregister(&mut ctx, cred(1)).unwrap();
         assert!(AccountsSlice::lookup(&ctx, &cred(1)).is_none());
     }
 
@@ -573,9 +577,9 @@ mod tests {
         let drep = cred(1);
         let registration =
             DRepRegistration { deposit: 500_000_000, registered_at: pointer(), valid_until: Epoch::from(10) };
-        DRepsSlice::register(&mut ctx, drep, registration, None).unwrap();
+        DRepsSliceMut::register(&mut ctx, drep, registration, None).unwrap();
         let deregistration = CertificatePointer { certificate_index: 1, ..pointer() };
-        DRepsSlice::unregister(&mut ctx, drep, deregistration).unwrap();
+        DRepsSliceMut::unregister(&mut ctx, drep, deregistration).unwrap();
         assert!(DRepsSlice::lookup(&ctx, &drep).is_none());
 
         let update = VolatileFragment::from(ctx).anchor(Point::Origin, PoolId::new([0; 28])).into_store_update();

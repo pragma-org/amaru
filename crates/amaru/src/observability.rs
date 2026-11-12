@@ -65,6 +65,30 @@ pub fn try_setup_observability(
     hints: &impl ObservabilityHints,
     trace_outputs: &[TraceOutputSpec],
 ) -> anyhow::Result<TelemetryHandle> {
+    try_setup_observability_reporting(
+        with_open_telemetry,
+        open_telemetry_signals,
+        with_json_traces,
+        local,
+        color,
+        hints,
+        trace_outputs,
+        true,
+    )
+}
+
+/// Configure observability while optionally suppressing startup configuration events.
+#[expect(clippy::too_many_arguments)]
+pub fn try_setup_observability_reporting(
+    with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
+    with_json_traces: bool,
+    local: Option<LocalTelemetry>,
+    color: bool,
+    hints: &impl ObservabilityHints,
+    trace_outputs: &[TraceOutputSpec],
+    report_setup_logs: bool,
+) -> anyhow::Result<TelemetryHandle> {
     let (config, notices) = observability_config(
         with_open_telemetry,
         open_telemetry_signals,
@@ -75,10 +99,12 @@ pub fn try_setup_observability(
         trace_outputs,
     );
     let handle = config.install()?;
-    for notice in notices {
-        notice();
+    if report_setup_logs {
+        for notice in notices {
+            notice();
+        }
+        info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color);
     }
-    info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color);
     Ok(handle)
 }
 

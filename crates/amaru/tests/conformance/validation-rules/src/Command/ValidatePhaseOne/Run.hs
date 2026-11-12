@@ -122,9 +122,13 @@ import System.Directory
     ( doesDirectoryExist
     , listDirectory
     )
+import System.Process
+    ( readProcess
+    )
 import System.FilePath
     ( dropExtension
     , takeExtension
+    , takeDirectory
     , takeFileName
     , (</>)
     )
@@ -149,7 +153,7 @@ run Options{target, jsonReport} =
 runSingleTestCase :: FilePath -> Maybe FilePath -> ExceptT Error IO ()
 runSingleTestCase testCasePath jsonReport = do
     result <- liftIO (runExceptT (validateTestCaseAt testCasePath))
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath [(testCasePath, result)])
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath (takeDirectory testCasePath) [(testCasePath, result)])
     case result of
         Right (label, validationLabel) -> liftIO (putTextLn (label <> ": " <> validationLabel))
         Left validationError -> ExceptT (pure (Left validationError))
@@ -161,21 +165,28 @@ runTestCaseDirectory directory jsonReport = do
         result <- runExceptT (validateTestCaseAt testCasePath)
         putLBSLn (encode (testCaseResult testCasePath result))
         pure (testCasePath, result)
-    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath results)
+    forM_ jsonReport $ \reportPath -> liftIO (writeReport reportPath directory results)
     liftIO (Text.IO.hPutStr stderr (renderRunSummary directory results))
     when (any (isLeft . snd) results) (liftIO exitFailure)
 
-writeReport :: FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
-writeReport reportPath results = do
+writeReport :: FilePath -> FilePath -> [(FilePath, Either Error (Text, Text))] -> IO ()
+writeReport reportPath datasetPath results = do
     generatedAt <- getCurrentTime
-    LazyByteString.writeFile reportPath (encode (report generatedAt results))
+    datasetCommit <- gitDatasetCommit datasetPath
+    LazyByteString.writeFile reportPath (encode (report generatedAt datasetCommit results))
 
-report :: UTCTime -> [(FilePath, Either Error (Text, Text))] -> Value
-report generatedAt results =
+gitDatasetCommit :: FilePath -> IO Text
+gitDatasetCommit datasetPath =
+    Text.strip . Text.pack
+        <$> readProcess "git" ["log", "-1", "--format=%H", "--", datasetPath] ""
+
+report :: UTCTime -> Text -> [(FilePath, Either Error (Text, Text))] -> Value
+report generatedAt datasetCommit results =
     object
         [ "version" .= ("1" :: Text)
         , "scenario" .= ("ledger-rules" :: Text)
         , "generated_at" .= generatedAt
+        , "dataset_commit" .= datasetCommit
         , "implementation" .= object ["name" .= ("cardano-node" :: Text)]
         , "scenarios" .= map scenarioResult results
         ]
@@ -375,7 +386,14 @@ renderActualPredicates predicates =
 
 normalizeApplyTxError :: Bool -> Maybe Text -> ApplyTxError ConwayEra -> [Text]
 normalizeApplyTxError emptyInputs expectedHint (ConwayApplyTxError failures) =
-    map (normalizeLedgerFailure emptyInputs expectedHint) (filter isBlockValidationFailure (NonEmpty.toList failures))
+    let blockFailures = filter isBlockValidationFailure (NonEmpty.toList failures)
+        predicates = map (normalizeLedgerFailure emptyInputs expectedHint) blockFailures
+     in case expectedHint of
+            Just predicateName
+                | any (Text.isInfixOf predicateName . showText) blockFailures ->
+                    [predicateName]
+            _ ->
+                predicates
 
 -- Amaru's phase-one rules validate a transaction as part of a block, so failures 'applyTx' raises
 -- that block application would not are dropped.
@@ -415,9 +433,11 @@ normalizeLedgerFailure emptyInputs expectedHint = \case
         "unsupported:" <> showText otherFailure
 
 normalizeUtxowFailure :: Maybe Text -> ConwayUtxowPredFailure ConwayEra -> Text
-normalizeUtxowFailure expectedHint = \case
+normalizeUtxowFailure (Just expectedHint) utxowFailure
+    | expectedHint `Text.isInfixOf` showText utxowFailure = expectedHint
+normalizeUtxowFailure expectedHint utxowFailure = case utxowFailure of
     UtxoFailure failure ->
-        normalizeUtxoFailure failure
+        normalizeUtxoFailure expectedHint failure
     InvalidWitnessesUTXOW{} ->
         "InvalidWitnessesUTXOW"
     ExtraneousScriptWitnessesUTXOW{} ->
@@ -426,6 +446,8 @@ normalizeUtxowFailure expectedHint = \case
         "MissingVerificationKeyWitnessesUTXOW"
     MissingScriptWitnessesUTXOW{} ->
         "MissingScriptWitnessesUTXOW"
+    MissingRequiredDatums{} ->
+        "MissingRequiredDatums"
     MissingTxBodyMetadataHash{} ->
         "MissingTxBodyMetadataHash"
     MissingTxMetadata{} ->
@@ -439,8 +461,8 @@ normalizeUtxowFailure expectedHint = \case
     otherFailure ->
         "unsupported:" <> showText expectedHint <> ":" <> showText otherFailure
 
-normalizeUtxoFailure :: ConwayUtxoPredFailure ConwayEra -> Text
-normalizeUtxoFailure = \case
+normalizeUtxoFailure :: Maybe Text -> ConwayUtxoPredFailure ConwayEra -> Text
+normalizeUtxoFailure expectedHint = \case
     BadInputsUTxO{} ->
         "BadInputsUTxO"
     OutsideValidityIntervalUTxO{} ->
@@ -482,6 +504,11 @@ normalizeUtxoFailure = \case
     NoCollateralInputs{} ->
         "NoCollateralInputs"
     UtxosFailure failure
+        | Just hint <- expectedHint
+        , hint `Text.isInfixOf` showText failure ->
+            hint
+        | "NoCostModel" `Text.isInfixOf` showText failure ->
+            "MissingCostModel"
         | "TimeTranslationPastHorizon" `Text.isInfixOf` showText failure ->
             "OutsideForecast"
         | "ValidationTagMismatch" `Text.isInfixOf` showText failure ->
@@ -528,12 +555,14 @@ normalizeGovCertFailure = \case
         "DRepAlreadyRegistered"
     ConwayDRepNotRegistered{} ->
         "DRepNotRegistered"
+    ConwayDRepIncorrectDeposit{} ->
+        "IncorrectDepositDRep"
+    ConwayDRepIncorrectRefund{} ->
+        "IncorrectDepositDRep"
     ConwayCommitteeIsUnknown{} ->
         "CommitteeIsUnknown"
     ConwayCommitteeHasPreviouslyResigned{} ->
         "CommitteeHasPreviouslyResigned"
-    otherFailure ->
-        "unsupported:" <> showText otherFailure
 
 normalizePoolFailure :: ShelleyPoolPredFailure ConwayEra -> Text
 normalizePoolFailure = \case
@@ -552,6 +581,14 @@ normalizePoolFailure = \case
 
 normalizeGovFailure :: ConwayGovPredFailure ConwayEra -> Text
 normalizeGovFailure = \case
+    MalformedProposal{} ->
+        "MalformedProposal"
+    ExpirationEpochTooSmall{} ->
+        "ExpirationEpochTooSmall"
+    ProposalDepositIncorrect{} ->
+        "ProposalDepositIncorrect"
+    ConflictingCommitteeUpdate{} ->
+        "ConflictingCommitteeUpdate"
     ProposalReturnAccountDoesNotExist{} ->
         "ProposalReturnAccountDoesNotExist"
     ProposalProcedureNetworkIdMismatch{} ->

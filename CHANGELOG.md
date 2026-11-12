@@ -39,19 +39,54 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
+
+### Changed
+
+- **amaru**: logging options are now scoped to `node run` and `mithril sync`. Use `--log-json`, `--log-export`, and `--log-otlp` (or `AMARU_LOG_JSON`, `AMARU_LOG_EXPORT`, and `AMARU_LOG_OTLP`); the previous option and environment names remain accepted as (now deprecated) aliases.
+- **amaru**: commands without logging options no longer emit startup filter, observability, or build-version events.
+
+### Fixed
+
+- **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
+
+## [v10.11.20261105](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261105)
+
+### Added
+
 - **amaru**: `amaru node run` warns at startup when the operating system does not report the wall clock as NTP-synchronized, or when its error bound exceeds 500 ms. Linux and macOS only. ([#1369](https://github.com/pragma-org/amaru/issues/1369))
 - **amaru**: block forging now selects transactions from the mempool in insertion order. A transaction is skipped when it would exceed a block constraint (maximum body size, maximum execution units, or maximum reference script size). ([#1568](https://github.com/pragma-org/amaru/pull/1568))
+- **amaru**: implement CIP-203, using producer ID 65 with a custom payload defined in [edr-040](engineering-decision-records/040-cip-0203-block-producer-identifer.md). [#1360][]
+- **amaru**: forged block headers identify Amaru and its release day in the protocol version minor, following CIP-0203 (producer id `65`, payload defined in `docs/cip-0203/README.md`). Pass `--software-tag-off` (or set `AMARU_SOFTWARE_TAG_OFF=true`) to emit the CIP-0203 opt-out value `255` instead. [#1360][]
+- **amaru**: add a new CLI dev command `software-tag` that can be used to decode a protocol version, or display the current tag this binary would forge blocks with. [#1360][]
 
 ### Changed
 
 - **amaru**: incoming peer connections now listen on port 3001 by default (previously 3000). Set `--peers-listen-on` or `AMARU_PEERS_LISTEN_ON` to retain a different port.
 - **amaru**: with OpenTelemetry enabled, metrics are now exported every second by default (previously every 60 seconds), including when running interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (milliseconds) to use a different interval. The generated environment files (`/etc/default/amaru`, `/etc/sysconfig/amaru`, `.env.example`) now list it.
+- **amaru-ledger**: the `phase_one` trace no longer has the `collateral_micros`, `collateral_return_micros` and `donation_micros` fields. Collateral checks are now timed under `inputs_micros` and `fees_micros`, the collateral return under `outputs_micros`, and the treasury donation under the new `treasury_micros` field, together with the declared treasury value check. `votes_micros` is now also recorded for transactions marked as failing phase-two validation.
+- **amaru**: block forging is no longer restricted to test networks.
 
 ### Fixed
 
 - **amaru-metrics**: the `amaru_consensus_*_duration_microseconds` histograms have buckets from 0.5 ms to 30 s. They used the OpenTelemetry default boundaries (0 to 10,000), meant for milliseconds, so nearly every header and block timing fell in the overflow bucket and percentiles could not be computed.
 - **amaru-ledger**: a transaction or block carrying a witness whose verification key is not a valid Ed25519 point no longer crashes the node.
 - **amaru-ouroboros**: align leader eligibility with the Cardano node at fixed-point rounding and threshold boundaries, for both block production and header validation. ([#1577](https://github.com/pragma-org/amaru/issues/1577))
+- **amaru-ledger**: transactions whose witness set includes the datum for a collateral-return datum hash are accepted.
+- **amaru-ledger**: transactions marked as failing phase-two validation now require the same signatures and scripts for their certificates, votes and proposals as any other transaction. ([#1004][])
+- **amaru-ledger**: blocks are no longer rejected when a transaction marked as failing phase-two validation withdraws from an unregistered account, withdraws less than the full reward balance, or withdraws from an account with no DRep delegation.
+- **amaru-ledger**: accept valid reference scripts whose UPLC version is not yet executable under the current protocol, while retaining version checks during execution. But, reject unavailable Plutus version upon deserialising.
+- **amaru-kernel**: blocks and transactions that the Cardano node rejects are now rejected too, when a Plutus integer writes its bignum tag on more than one byte, when a reference script is followed by extra bytes, or when a transaction output or its redeemers write their map length on 8 bytes.
+- **amaru-kernel**: Byron addresses are rejected when their derivation path or network magic attribute is malformed, and accepted when their payload writes its array length on more bytes than needed, as the Cardano node does.
+- **amaru-kernel**: from protocol version 9, pointer addresses are rejected when the slot does not fit in 32 bits, when the transaction or certificate index does not fit in 16 bits, or when bytes follow the pointer, as the Cardano node does.
+- **amaru-protocols**: the connection manager reports `cardano_node_metrics_connectionManager_inboundConns_int`, `_outboundConns_int` and `_unidirectionalConns_int`. The gauges were defined but never recorded, so dashboards and tools such as gLiveView could not show how many peers a node is connected to.
+- **amaru-consensus**: block producers report `cardano_node_metrics_remainingKESPeriods_int`, `cardano_node_metrics_operationalCertificateStartKESPeriod_int` and `cardano_node_metrics_operationalCertificateExpiryKESPeriod_int` from their operational certificate and the wall-clock KES period, as cardano-node does. The ledger used to report `maxKESEvolutions` minus the absolute KES period, which read 0 on every public network. Nodes without forging credentials no longer export these metrics. ([#1561](https://github.com/pragma-org/amaru/issues/1561))
+- **amaru-plutus**: a transaction that runs a Plutus script is now rejected when an input, a reference input or an output is at a Byron address. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-plutus**: a transaction that runs a Plutus V1 script is now rejected when a reference input carries an inline datum. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a governance proposal that sets the desired number of stake pools to zero is now rejected from protocol version 11, as the Cardano node does. It used to be accepted. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a governance proposal that sets the cost of UTxO storage per byte to zero is now accepted at protocol version 9, the Conway bootstrap phase, as the Cardano node does. It used to be rejected. ([#1550](https://github.com/pragma-org/amaru/pull/1550))
+- **amaru-ledger**: a transaction spending a script-locked input by datum hash is rejected when that datum is missing from its witness set, even if a reference input carries the same datum inline.
+- **amaru-ledger**: potential integer overflow around fee and asset quantities, when summing up user-provided values.
 
 ## [v10.11.20261029](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261029)
 
@@ -662,6 +697,7 @@ Other guiding principles:
 [#988]: https://github.com/pragma-org/amaru/pull/988
 [#996]: https://github.com/pragma-org/amaru/pull/996
 [#1000]: https://github.com/pragma-org/amaru/pull/1000
+[#1004]: https://github.com/pragma-org/amaru/issues/1004
 [#1005]: https://github.com/pragma-org/amaru/pull/1005
 [#1009]: https://github.com/pragma-org/amaru/pull/1009
 [#1010]: https://github.com/pragma-org/amaru/pull/1010
@@ -703,4 +739,5 @@ Other guiding principles:
 [#1138]: https://github.com/pragma-org/amaru/pull/1138
 [#1139]: https://github.com/pragma-org/amaru/pull/1139
 [#1143]: https://github.com/pragma-org/amaru/pull/1143
+[#1360]: https://github.com/pragma-org/amaru/issues/1360
 [#1453]: https://github.com/pragma-org/amaru/issues/1453

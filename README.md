@@ -49,7 +49,7 @@ Alternatively, Amaru also comes pre-packaged for a few platforms.
 #### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/docker.svg" height=18 /> Docker Image
 
 ```console
-docker pull ghcr.io/pragma-org/amaru:v10.11.20261029
+docker pull ghcr.io/pragma-org/amaru:v10.11.20261105
 ```
 
 > [!IMPORTANT]
@@ -71,8 +71,8 @@ nix profile install --no-write-lock-file github:pragma-org/amaru#amaru
 #### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/debian.webp" height=18 /> Debian
 
 ```console
-VERSION=10.11.20261029 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
-VERSION=10.11.20261029 ARCH=x86_64; sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
+VERSION=10.11.20261105 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
+VERSION=10.11.20261105 ARCH=x86_64; sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
 ```
 
 Also available for `ARCH=aarch64`.
@@ -81,8 +81,8 @@ The Debian package installs a systemd unit and reads overrides from `/etc/defaul
 #### <img src="https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/.github/icons/red-hat.webp" height=18 /> RPM
 
 ```console
-VERSION=10.11.20261029 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
-VERSION=10.11.20261029 ARCH=x86_64; sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
+VERSION=10.11.20261105 ARCH=x86_64; curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
+VERSION=10.11.20261105 ARCH=x86_64; sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 ```
 
 Also available for `ARCH=aarch64`.
@@ -120,10 +120,10 @@ amaru node run --network=mainnet
 ```
 
 > [!TIP]
-> To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
+> To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_LOG_OTLP=true`:
 >
 > ```console
-> amaru --with-open-telemetry node run --network=mainnet
+> amaru node run --log-otlp --network=mainnet
 > ```
 >
 > See also `amaru node run --help` for more options.

@@ -14,13 +14,14 @@
 
 use amaru_kernel::{
     Address, HasScriptHash, Hash, Lovelace, MemoizedDatum, MemoizedScript, MemoizedTransactionOutput, Network,
-    ProtocolParameters, ProtocolVersion, TransactionInput, Value, size::SCRIPT, utils::string::display_collection,
+    ProtocolParameters, ProtocolVersion, TransactionId, TransactionInput, size::SCRIPT,
+    utils::string::display_collection,
 };
 use amaru_uplc::{arena::Arena, arena_pool::ArenaPool, flat::decode_plutus_script};
 use thiserror::Error;
 
 use crate::{
-    context::{BalanceSlice, UtxoSlice, WitnessSlice},
+    context::{BalanceSlice, UtxoSliceMut, WitnessSlice},
     rules::WithPosition,
 };
 
@@ -50,62 +51,112 @@ pub enum InvalidOutput {
     BootAddrAttrsTooBig { size: usize },
 }
 
-/// Enum that is used to determine whether or not to allow a datum as supplemental in the context.
-/// In the case of a collateral return output, datums should not be allowed as supplemental.
-pub enum SupplementalDatumPolicy {
-    Allow,
-    Disallow,
-}
-
-#[expect(clippy::too_many_arguments)]
-pub fn execute<C>(
+/// Validates every output, including the collateral return. The regular outputs become UTxOs.
+pub(crate) fn when_valid<C>(
     context: &mut C,
     arena_pool: &ArenaPool,
     protocol_parameters: &ProtocolParameters,
     network: Network,
+    transaction_id: TransactionId,
     outputs: Vec<MemoizedTransactionOutput>,
-    supplemental_datum_policy: SupplementalDatumPolicy,
-    first_index: u16,
-    construct_utxo: impl Fn(&mut C, u16, &Value) -> Option<TransactionInput>,
+    collateral_return: Option<MemoizedTransactionOutput>,
 ) -> Result<(), InvalidOutputs>
 where
-    C: WitnessSlice + UtxoSlice + BalanceSlice,
+    C: WitnessSlice + UtxoSliceMut + BalanceSlice,
 {
     let mut invalid_outputs = Vec::new();
     let arena = arena_pool.acquire();
+    let collateral_return_index = outputs.len();
 
     for (position, output) in outputs.into_iter().enumerate() {
-        inherent_value::execute(protocol_parameters, &output)
-            .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
-
-        validate_network(&output, network)
-            .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
-
-        validate_bootstrap_attributes(&output)
-            .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
-
-        if matches!(supplemental_datum_policy, SupplementalDatumPolicy::Allow)
-            && let MemoizedDatum::Hash(hash) = &output.datum
-        {
-            context.allow_supplemental_datum(*hash.as_ref());
-        }
-
-        if let Some(script) = output.script.as_ref() {
-            validate_reference_script(script, protocol_parameters.protocol_version, &arena)
-                .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
-        }
-
-        let index = first_index + position as u16;
-        if let Some(input) = construct_utxo(context, index, &output.value) {
-            context.produce(input, output);
-        }
+        validate(&output, position, protocol_parameters, network, &arena, &mut invalid_outputs);
+        count_output(context, &output);
+        context.produce(TransactionInput { transaction_id: *transaction_id, index: position as u16 }, output);
     }
 
-    if !invalid_outputs.is_empty() {
-        return Err(InvalidOutputs { invalid_outputs });
+    if let Some(output) = collateral_return {
+        validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
+        allow_supplemental_datum(context, &output);
     }
 
-    Ok(())
+    InvalidOutputs::from_vec(invalid_outputs)
+}
+
+/// Validates every output, including the collateral return. The collateral return becomes a UTxO, at the index
+/// following the regular outputs.
+pub(crate) fn when_invalid<C>(
+    context: &mut C,
+    arena_pool: &ArenaPool,
+    protocol_parameters: &ProtocolParameters,
+    network: Network,
+    transaction_id: TransactionId,
+    outputs: Vec<MemoizedTransactionOutput>,
+    collateral_return: Option<MemoizedTransactionOutput>,
+) -> Result<(), InvalidOutputs>
+where
+    C: WitnessSlice + UtxoSliceMut + BalanceSlice,
+{
+    let mut invalid_outputs = Vec::new();
+    let arena = arena_pool.acquire();
+    let collateral_return_index = outputs.len();
+
+    for (position, output) in outputs.into_iter().enumerate() {
+        validate(&output, position, protocol_parameters, network, &arena, &mut invalid_outputs);
+        count_output(context, &output);
+    }
+
+    if let Some(output) = collateral_return {
+        validate(&output, collateral_return_index, protocol_parameters, network, &arena, &mut invalid_outputs);
+        allow_supplemental_datum(context, &output);
+        context.produce(
+            TransactionInput { transaction_id: *transaction_id, index: collateral_return_index as u16 },
+            output,
+        );
+    }
+
+    InvalidOutputs::from_vec(invalid_outputs)
+}
+
+impl InvalidOutputs {
+    fn from_vec(invalid_outputs: Vec<WithPosition<InvalidOutput>>) -> Result<(), Self> {
+        if invalid_outputs.is_empty() { Ok(()) } else { Err(InvalidOutputs { invalid_outputs }) }
+    }
+}
+
+fn count_output<C>(context: &mut C, output: &MemoizedTransactionOutput)
+where
+    C: WitnessSlice + BalanceSlice,
+{
+    allow_supplemental_datum(context, output);
+    context.produce_value(&output.value);
+}
+
+fn allow_supplemental_datum<C>(context: &mut C, output: &MemoizedTransactionOutput)
+where
+    C: WitnessSlice,
+{
+    if let MemoizedDatum::Hash(hash) = &output.datum {
+        context.allow_supplemental_datum(*hash.as_ref());
+    }
+}
+
+fn validate(
+    output: &MemoizedTransactionOutput,
+    position: usize,
+    protocol_parameters: &ProtocolParameters,
+    network: Network,
+    arena: &Arena,
+    invalid_outputs: &mut Vec<WithPosition<InvalidOutput>>,
+) {
+    let mut push = |element| invalid_outputs.push(WithPosition { position, element });
+
+    inherent_value::execute(protocol_parameters, output).unwrap_or_else(&mut push);
+    validate_network(output, network).unwrap_or_else(&mut push);
+    validate_bootstrap_attributes(output).unwrap_or_else(&mut push);
+
+    if let Some(script) = output.script.as_ref() {
+        validate_reference_script(script, protocol_parameters.protocol_version, arena).unwrap_or_else(&mut push);
+    }
 }
 
 fn validate_bootstrap_attributes(output: &MemoizedTransactionOutput) -> Result<(), InvalidOutput> {
@@ -141,4 +192,38 @@ fn validate_reference_script(
         MemoizedScript::NativeScript(_) => return Ok(()),
     };
     result.map_err(|_| InvalidOutput::MalformedReferenceScript(script.script_hash()))
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, utils::tests::run_strategy};
+    use proptest::prelude::any;
+    use test_case::test_case;
+
+    use super::*;
+    use crate::{context::DefaultValidationContext, state::volatile::VolatileFragment};
+
+    #[test_case(true, 0; "valid transaction produces its outputs")]
+    #[test_case(false, 1; "invalid transaction produces its collateral return")]
+    fn produced_utxo(is_valid: bool, expected_index: u16) {
+        let mut context = DefaultValidationContext::default();
+        let transaction_id = TransactionId::new(Hash::new([0; 32]));
+        let output = run_strategy(any::<MemoizedTransactionOutput>());
+        let network = output.address.network();
+
+        let execute = if is_valid { when_valid } else { when_invalid };
+        execute(
+            &mut context,
+            &ArenaPool::new(1, 1_024_000),
+            &PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+            network,
+            transaction_id,
+            vec![output.clone()],
+            Some(output),
+        )
+        .expect("valid outputs");
+
+        let produced: Vec<_> = VolatileFragment::from(context).utxo.produced.keys().copied().collect();
+        assert_eq!(produced, vec![TransactionInput { transaction_id: *transaction_id, index: expected_index }]);
+    }
 }

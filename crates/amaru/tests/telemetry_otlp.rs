@@ -183,6 +183,10 @@ fn normalize(value: &mut Value, ids: &mut BTreeMap<String, usize>) {
             if let (Some(start), Some(end)) = (fields.get("startTimeUnixNano"), fields.get("endTimeUnixNano")) {
                 assert!(unsigned(end) >= unsigned(start));
             }
+            if fields.get("key").and_then(Value::as_str) == Some("code.file.path") {
+                let path = fields.get_mut("value").unwrap().get_mut("stringValue").unwrap();
+                *path = json!(path.as_str().unwrap().replace('\\', "/"));
+            }
             if matches!(
                 fields.get("key").and_then(Value::as_str),
                 Some("busy_ns" | "idle_ns" | "thread.id" | "thread.name")

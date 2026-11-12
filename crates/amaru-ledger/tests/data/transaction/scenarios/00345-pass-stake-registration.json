@@ -1,0 +1,26 @@
+{
+  "title": "stake registration",
+  "description": "A transaction that registers a stake credential with a single stake registration certificate.",
+  "category": "certificates",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b009fdf42f6e48000"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000181825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42f6c35c6f021a00029f1104d901028183078200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a001e8480a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840434a6c802156a21418839565e9a50ac7f598ebdc175e39b6c002bd4953e3ec8f0081fc68c62b1bf72ef478c8b54b8f5cfc199a4ad7c8514f1cf8665ba358e403f5f6",
+  "expected": "Pass"
+}

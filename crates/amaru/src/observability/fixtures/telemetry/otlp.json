@@ -749,24 +749,6 @@
                   }
                 },
                 {
-                  "name": "cardano_node_metrics_remainingKESPeriods_int",
-                  "description": "number of remaining KES periods before the key becomes invalid",
-                  "unit": "int",
-                  "metadata": [],
-                  "gauge": {
-                    "dataPoints": [
-                      {
-                        "attributes": [],
-                        "startTimeUnixNano": "<timestamp>",
-                        "timeUnixNano": "<timestamp>",
-                        "exemplars": [],
-                        "flags": 0,
-                        "asInt": 8
-                      }
-                    ]
-                  }
-                },
-                {
                   "name": "cardano_node_metrics_slotInEpoch_int",
                   "description": "the relative slot in the epoch of the latest processed block",
                   "unit": "int",

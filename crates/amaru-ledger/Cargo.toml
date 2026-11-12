@@ -10,6 +10,8 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme.workspace = true
+exclude = ["/README.md"]
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -36,6 +38,7 @@ required-features = ["test-utils"]
 anyhow.workspace = true
 hex.workspace = true
 itertools.workspace = true
+dashu-int.workspace = true
 num.workspace = true
 proptest = { workspace = true, optional = true }
 rayon.workspace = true
@@ -61,14 +64,14 @@ amaru-deps.workspace = true
 divan.workspace = true
 proptest.workspace = true
 rand.workspace = true
-sysinfo.workspace = true
 test-case.workspace = true
 tempfile.workspace = true
 toml.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = ["test-utils"] }
-amaru-stores.workspace = true
+# Omit this benchmark dependency from published packages to avoid a dependency cycle.
+amaru-stores = { path = "../amaru-stores" }
 
 [build-dependencies]
 anyhow.workspace = true

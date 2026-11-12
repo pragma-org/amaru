@@ -106,7 +106,7 @@ jobs:
       AMARU_DB_LEDGER: ./ledger.preprod.db
       AMARU_PEERS_LISTEN_ON: 127.0.0.1:3000
       AMARU_PEER: preprod-node.play.dev.cardano.org:3001
-      AMARU_WITH_OPEN_TELEMETRY: ${{ matrix.tool.metrics || 'false' }}
+      AMARU_LOG_OTLP: ${{ matrix.tool.metrics || 'false' }}
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4317"
       OTEL_METRIC_EXPORT_INTERVAL: 2000
       TOOL_TEST_TIMEOUT: ${{ matrix.tool.timeout || 120 }}
@@ -168,18 +168,28 @@ jobs:
               set -e
               grep -q 'Handshake Ok' tool-output.txt
 
+          - name: nview
+            metrics: "true"
+            timeout: 300
+            install: |
+              mkdir -p nview-bin
+              download_url=$(curl -fsSL https://api.github.com/repos/blinklabs-io/nview/releases/latest \
+                | jq -er '.assets[] | select(.name | test("^nview-.*-linux-amd64$")) | .browser_download_url')
+              curl -fsSL -o nview-bin/nview "$download_url"
+              chmod +x nview-bin/nview
+            test: .github/scripts/test-nview 2>&1 | tee tool-output.txt
+
           - name: GLiveView
             metrics: "true"
             timeout: 300
             install: |
               mkdir "$HOME/tmp"
               cd "$HOME/tmp"
-              curl -sS -o guild-deploy.sh \
-                https://raw.githubusercontent.com/cardano-community/guild-operators/node-agnostic/scripts/cnode-helper-scripts/guild-deploy.sh
+              curl -fsSL -o guild-deploy.sh \
+                https://raw.githubusercontent.com/cardano-community/guild-operators/cntools-rebuild/scripts/cnode-helper-scripts/guild-deploy.sh
               chmod 755 guild-deploy.sh
-              ./guild-deploy.sh -b node-agnostic -i amaru -n preprod -s pd
+              ./guild-deploy.sh -b cntools-rebuild -i amaru -n preprod -s pd
             test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
-            cleanup: docker rm -f otlp-collector 2>/dev/null || true
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
@@ -242,11 +252,15 @@ jobs:
           set -o pipefail
           ${{ matrix.tool.test }}
 
-      - name: Clean up ${{ matrix.tool.name }} and Amaru
+      - name: Stop OTLP collector
+        if: always() && matrix.tool.metrics == 'true'
+        shell: bash
+        run: docker rm -f otlp-collector 2>/dev/null || true
+
+      - name: Stop Amaru
         if: always()
         shell: bash
         run: |
-          ${{ matrix.tool.cleanup }}
           kill "$(cat amaru.pid)" || true
 
       - name: Upload artifacts on failure

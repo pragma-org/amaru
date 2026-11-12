@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 
 use crate::{
-    IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, constr, constr_v1,
+    IsKnownPlutusVersion, PlutusDataError, PlutusVersion, ToPlutusData, UnsupportedFeature, constr, constr_v1,
     script_context::{
         IsPrePlutusVersion3, OutputReference, PlutusDatums, PlutusMint, PlutusWithdrawals, ScriptContext,
         ScriptPurpose, TxInfo,
@@ -45,12 +45,21 @@ impl ToPlutusData<1> for ScriptContext<'_> {
 }
 
 impl ToPlutusData<1> for TxInfo<'_> {
+    /// PlutusV1 has no field for reference inputs, so none is serialized. The Haskell ledger still translates each
+    /// reference input with the V1 output rules and discards the result (`transTxInInfoV1` in
+    /// `Cardano.Ledger.Conway.TxInfo`). An inline datum or a Byron address on a reference input therefore rejects
+    /// the transaction.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
-        let inputs = self
-            .inputs
-            .iter()
-            .filter(|output_ref| !matches!(output_ref.output.address, Address::Byron(..)))
-            .collect::<Vec<_>>();
+        for reference in &self.reference_inputs {
+            if matches!(reference.output.datum, MemoizedDatum::Inline(..)) {
+                return Err(PlutusDataError::unsupported_version(UnsupportedFeature::InlineDatums, 1));
+            }
+            if matches!(reference.output.address, Address::Byron(..)) {
+                return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, 1));
+            }
+        }
+
+        let inputs = &self.inputs;
 
         let fee = amaru_kernel::Value::Coin(self.fee);
 
@@ -93,9 +102,9 @@ where
             }
             ScriptPurpose::Certifying(_ix, certificate) => constr_v1!(3, [certificate]),
 
-            ScriptPurpose::Voting(_) => Err(PlutusDataError::unsupported_version("voting purpose unsupported", V)),
+            ScriptPurpose::Voting(_) => Err(PlutusDataError::unsupported_version(UnsupportedFeature::VotingPurpose, V)),
             ScriptPurpose::Proposing(_, _) => {
-                Err(PlutusDataError::unsupported_version("proposing purpose unsupported", V))
+                Err(PlutusDataError::unsupported_version(UnsupportedFeature::ProposingPurpose, V))
             }
         }
     }
@@ -182,9 +191,10 @@ where
                 constr!(3, [id, vrf])
             }
             Certificate::PoolRetirement(hash, epoch) => constr!(4, [hash, epoch]),
-            certificate => {
-                Err(PlutusDataError::unsupported_version(format!("illegal certificate type: {certificate:?}"), V))
-            }
+            certificate => Err(PlutusDataError::unsupported_version(
+                UnsupportedFeature::IllegalCertificate(format!("{certificate:?}")),
+                V,
+            )),
         }
     }
 }
@@ -192,6 +202,10 @@ where
 impl ToPlutusData<1> for MemoizedTransactionOutput {
     #[allow(clippy::wildcard_enum_match_arm)]
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
+        if matches!(self.datum, MemoizedDatum::Inline(..)) {
+            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::InlineDatums, 1));
+        }
+
         constr_v1!(
             0,
             [

@@ -1,0 +1,39 @@
+{
+  "title": "drep registration with an incorrect deposit",
+  "description": "A DRep registration certificate declares a deposit different from the protocol parameter. The transaction is otherwise valid.",
+  "category": "certificates",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c11131400",
+        "output": "82581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81b009fdf42f6e48000"
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028182582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314000181825839006b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67dddff928028261617cca82ee74f3fb38b51d720b0a0125eb9b469184b291b009fdf42d9147c47021a00029eb904d901028184108200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8186ef6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258404b7240db3fa857a07a985b41080680388d1e4baf84b98fda28373a1841f48e9ba60ec2a728a40afcc1367dac0dc48a892428e3a23a9e754eb1791ae086387309f5f6",
+  "expected": {
+    "predicate": "IncorrectDepositDRep"
+  }
+}

@@ -172,6 +172,7 @@ jobs:
           tag: 0.20.2
           binaries-location: cargo-deny-0.20.2-x86_64-unknown-linux-musl
       - run: cargo deny-amaru
+      - run: cargo deny --locked --all-features --config .cargo/deny.toml check sources
 
   license-headers:
     runs-on: ubuntu-24.04

@@ -15,6 +15,7 @@
 use std::{collections::BTreeMap, net::SocketAddr, num::NonZeroU8, sync::Arc, time::Duration};
 
 use amaru_kernel::{EraHistory, NetworkMagic, Peer, Point};
+use amaru_metrics::protocol::ConnectionManagerMetrics;
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug, debug_span, error, info};
 use amaru_ouroboros::{CloseReason, ConnectionDirection, ConnectionId, ConnectionRecord, MempoolMsg, RemoteInitiators};
 use amaru_pure_stage::{DeserializerGuards, Effects, Instant, StageRef, register_data_deserializer};
@@ -24,6 +25,7 @@ use crate::{
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage, MiniProtocolUse},
+    metrics_effects::{Metrics, MetricsOps},
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SHARE_REQUEST_AMOUNT, SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
     peer_tracking::observed_at,
@@ -431,6 +433,8 @@ impl Manager {
             Ok(listen_addr) => {
                 info!(protocols::manager::listen::STARTED, listen_addr = listen_addr.to_string());
                 self.listen_port = Some(listen_addr.port());
+                // `Listen` is the manager's first message, so the gauges exist (at zero) before any connection does.
+                self.record_connection_counts(eff).await;
                 let accept_stage = eff.stage("accept", accept::stage).await;
                 let accept_stage = eff.supervise(accept_stage, ManagerMessage::Listen(listen_addr));
                 let accept_stage =
@@ -551,6 +555,7 @@ impl Manager {
         if accept_this {
             // Outbound handshake records Diffusion on the bearer, so a later fetch sees it.
             self.connections.insert(conn_id, Connection { stage, direction, full_duplex, peer });
+            self.record_connection_counts(eff).await;
             record_established(eff, peer, conn_id, direction, full_duplex, advertisable).await;
             eff.send(&caller, true).await;
         } else {
@@ -621,26 +626,26 @@ impl Manager {
             eff.send(&pending.stage, ConnectionMessage::Disconnect).await;
         }
         let Some(entry) = entry else { return };
-        if let Some(conn_id) = entry.inbound {
-            self.disconnect_live(peer, conn_id, "inbound", eff).await;
+        let inbound = entry.inbound.map(|conn_id| (conn_id, "inbound"));
+        let outbound = match entry.outbound {
+            OutboundState::Connected { conn_id } => Some((conn_id, "outbound")),
+            OutboundState::None | OutboundState::Scheduled { .. } => None,
+        };
+        // Both bearers of the peer leave `connections` before the counts are reported once.
+        let live: Vec<_> = inbound
+            .into_iter()
+            .chain(outbound)
+            .filter_map(|(conn_id, direction)| {
+                self.connections.remove(&conn_id).map(|connection| (conn_id, direction, connection))
+            })
+            .collect();
+        if live.is_empty() {
+            return;
         }
-        if let OutboundState::Connected { conn_id } = entry.outbound {
-            self.disconnect_live(peer, conn_id, "outbound", eff).await;
+        self.record_connection_counts(eff).await;
+        for (conn_id, direction, connection) in live {
+            disconnect_live(eff, peer, conn_id, connection, direction).await;
         }
-    }
-
-    async fn disconnect_live(
-        &mut self,
-        peer: Peer,
-        conn_id: ConnectionId,
-        direction: &'static str,
-        eff: &Effects<ManagerMessage>,
-    ) {
-        let Some(connection) = self.connections.remove(&conn_id) else { return };
-        info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction);
-        close_connection(eff, &peer, conn_id).await;
-        record_closed(eff, peer, conn_id, CloseReason::LocalDisconnect).await;
-        eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
     }
 
     async fn connection_died(&mut self, peer: Peer, conn_id: ConnectionId, role: Role, eff: &Effects<ManagerMessage>) {
@@ -721,7 +726,27 @@ impl Manager {
             self.peers.remove(&peer);
         }
         info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome);
+        self.record_connection_counts(eff).await;
         record_closed(eff, peer, conn_id, CloseReason::BearerEnded).await;
+    }
+
+    /// Report the live connections as the connection manager gauges SPO tooling reads from cardano-node.
+    ///
+    /// Called once the listener is up, and right after `connections`, which holds exactly the connections past their
+    /// handshake, gains or loses a connection (before peer tracking records that change).
+    async fn record_connection_counts(&self, eff: &Effects<ManagerMessage>) {
+        let mut counts =
+            ConnectionManagerMetrics { inbound_connections: 0, outbound_connections: 0, unidirectional_connections: 0 };
+        for connection in self.connections.values() {
+            match connection.direction {
+                ConnectionDirection::Inbound => counts.inbound_connections += 1,
+                ConnectionDirection::Outbound => counts.outbound_connections += 1,
+            }
+            if !connection.full_duplex {
+                counts.unidirectional_connections += 1;
+            }
+        }
+        Metrics::new(eff).record(counts.into()).await;
     }
 
     fn ignore_unknown(&self, peer: Peer, conn_id: ConnectionId) {
@@ -905,6 +930,20 @@ async fn record_established(
         established_at: observed_at(at),
     };
     PeerTrack::new(eff).record_connection_established(conn, at).await;
+}
+
+/// Close a live connection the manager has already removed from its state, and stop its stage.
+async fn disconnect_live(
+    eff: &Effects<ManagerMessage>,
+    peer: Peer,
+    conn_id: ConnectionId,
+    connection: Connection,
+    direction: &'static str,
+) {
+    info!(protocols::manager::peer::DISCONNECTING, peer, conn_id = conn_id.as_u64(), direction);
+    close_connection(eff, &peer, conn_id).await;
+    record_closed(eff, peer, conn_id, CloseReason::LocalDisconnect).await;
+    eff.send(&connection.stage, ConnectionMessage::Disconnect).await;
 }
 
 async fn record_closed(eff: &Effects<ManagerMessage>, peer: Peer, conn_id: ConnectionId, reason: CloseReason) {

@@ -15,13 +15,13 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, Proposal, ProposalId,
-    ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters, ProtocolVersion, RedeemerTag,
-    RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
+    Credential, Epoch, EraHistory, GovernanceAction, Hash, Lovelace, MemoizedDatum, Network, PROTOCOL_VERSION_9,
+    PROTOCOL_VERSION_11, Proposal, ProposalId, ProposalPointer, ProposalSlim, ProtocolParamUpdate, ProtocolParameters,
+    ProtocolVersion, RedeemerTag, RequiredScript, TransactionId, TransactionPointer, size::SCRIPT,
 };
 use thiserror::Error;
 
-use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, WitnessSlice};
+use crate::context::{AccountsSlice, BalanceSlice, ProposalState, ProposalsSlice, ProposalsSliceMut, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidProposals {
@@ -71,7 +71,8 @@ pub enum InvalidProposals {
     EraHistory(#[from] amaru_kernel::EraHistoryError),
 }
 
-pub(crate) fn execute<C>(
+/// Requires the witness each proposal demands, then validates and acknowledges it, in order.
+pub(crate) fn when_valid<C>(
     context: &mut C,
     network: Network,
     protocol_parameters: &ProtocolParameters,
@@ -81,9 +82,11 @@ pub(crate) fn execute<C>(
     proposals: Option<Vec<Proposal>>,
 ) -> Result<(), InvalidProposals>
 where
-    C: ProposalsSlice + AccountsSlice + WitnessSlice + BalanceSlice,
+    C: ProposalsSliceMut + AccountsSlice + BalanceSlice + WitnessSlice,
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
+        require_witness(context, proposal_index, &proposal);
+
         validate_proposal(
             context,
             &proposal,
@@ -93,15 +96,6 @@ where
             guardrail_script,
             transaction.1,
         )?;
-
-        if let Some(script_hash) = get_proposal_script_hash(&proposal) {
-            context.require_script_witness(RequiredScript {
-                hash: script_hash,
-                index: proposal_index as u32,
-                purpose: RedeemerTag::Propose,
-                datum: MemoizedDatum::None,
-            });
-        }
 
         context.produce_lovelace(proposal.deposit);
 
@@ -116,19 +110,39 @@ where
     Ok(())
 }
 
-/// A simplified version of `execute` which only track the value produced by proposal deposits, in
-/// order to verify transaction value preservation in the context of invalid transactions.
+fn require_witness<C>(context: &mut C, proposal_index: usize, proposal: &Proposal)
+where
+    C: WitnessSlice,
+{
+    if let Some(script_hash) = get_proposal_script_hash(proposal) {
+        context.require_script_witness(RequiredScript {
+            hash: script_hash,
+            index: proposal_index as u32,
+            purpose: RedeemerTag::Propose,
+            datum: MemoizedDatum::None,
+        });
+    }
+}
+
+/// Requires the witnesses the proposals demand and counts the value produced by their deposits, without validating or
+/// acknowledging them.
 ///
 /// Note that we use the deposit value from the protocol parameters in that context, not the one in
 /// the proposal since it isn't validated.
-pub(crate) fn count_lovelace<C>(
+pub(crate) fn when_invalid<C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     proposals: Option<Vec<Proposal>>,
 ) where
-    C: BalanceSlice,
+    C: BalanceSlice + WitnessSlice,
 {
-    context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.unwrap_or_default().len() as u64);
+    let proposals = proposals.unwrap_or_default();
+
+    for (proposal_index, proposal) in proposals.iter().enumerate() {
+        require_witness(context, proposal_index, proposal);
+    }
+
+    context.produce_lovelace(protocol_parameters.gov_action_deposit * proposals.len() as u64);
 }
 
 fn validate_proposal<C>(
@@ -245,7 +259,7 @@ where
         }
 
         GovernanceAction::ParameterChange(_, ppu, policy) => {
-            ppu_well_formed(ppu)?;
+            ppu_well_formed(ppu, protocol_parameters.protocol_version)?;
             check_guardrails_script_hash(guardrail_script, *policy)?;
         }
 
@@ -286,7 +300,7 @@ fn check_guardrails_script_hash(
     Ok(())
 }
 
-fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
+fn ppu_well_formed(ppu: &ProtocolParamUpdate, version: ProtocolVersion) -> Result<(), InvalidProposals> {
     fn reject_zero(field: Option<impl Into<u64>>, field_name: &str) -> Result<(), InvalidProposals> {
         if field.is_some_and(|value| value.into() == 0u64) {
             return Err(InvalidProposals::MalformedProposal { reason: format!("{field_name} cannot be 0") });
@@ -305,7 +319,15 @@ fn ppu_well_formed(ppu: &ProtocolParamUpdate) -> Result<(), InvalidProposals> {
     reject_zero(ppu.governance_action_deposit, "governance_action_deposit")?;
     reject_zero(ppu.drep_deposit, "drep_deposit")?;
 
-    reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    // The ledger accepts a zero cost per byte during the Conway bootstrap phase, protocol version 9.
+    if version != PROTOCOL_VERSION_9 {
+        reject_zero(ppu.ada_per_utxo_byte, "ada_per_utxo_byte")?;
+    }
+
+    // The ledger accepts a zero number of stake pools before protocol version 11.
+    if version >= PROTOCOL_VERSION_11 {
+        reject_zero(ppu.desired_number_of_stake_pools, "desired_number_of_stake_pools")?;
+    }
 
     let is_empty = ppu.minfee_a.is_none()
         && ppu.minfee_b.is_none()

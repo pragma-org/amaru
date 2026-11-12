@@ -304,7 +304,7 @@ pub fn update_constitutional_committee<'store>(
             }
 
             Some(ConstitutionalCommitteeUpdate::ChangeMembers { removed, added, threshold }) => {
-                let unsafe_u64 = |lbl: &str, n: &BigUint| {
+                let unsafe_u64 = |lbl: &str, n: &BigUint| -> u64 {
                     n.try_into().unwrap_or_else(|e| unreachable!("threshold {lbl}={n} larger than u64?!: {e}"))
                 };
 

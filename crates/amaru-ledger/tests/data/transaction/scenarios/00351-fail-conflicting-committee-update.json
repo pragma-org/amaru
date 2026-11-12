@@ -1,0 +1,48 @@
+{
+  "title": "conflicting committee update",
+  "description": "A transaction with a governance proposal that updates the committee. The proposal removes a current committee member and adds the same member again.",
+  "category": "governance proposals",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "governance_action_deposit": 123
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203a3e79bf5a7ec708c1978b82e529def3e14591a2299fafe7fb8f9eaddd4fe71400",
+        "output": "8258390093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8de556b5920d6f9bf5eb6320c6e31849a318d0fd88b34c3447f5985931b009fdf42f6c36ea7"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c6b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67ddd",
+        "deposit": 2000000
+      }
+    ],
+    "committee": [
+      {
+        "cold_credential": "8200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7",
+        "valid_until": 915
+      },
+      {
+        "cold_credential": "8200581c65d36c561e076d2a6fe08172619d48bdcfd9056e4ee79cbf2cfcbccb",
+        "valid_until": 915
+      }
+    ],
+    "guardrail_script": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258203a3e79bf5a7ec708c1978b82e529def3e14591a2299fafe7fb8f9eaddd4fe71400018182583900800b59de7e205fbdb8376c8b28eb09d8007f713d8b75b0d13fb19b2de3771ba918a518de2f782ddd1373f6669ee877a09f8d62f39ac5726e1b009fdf42f6c0c867021a0002a5c514d901028184187b581de06b75eafbb349012d6335c7200d3c6fbb1f06752e84ee485c0ec67ddd8504f6d90102818200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7a18200581c204c5f1bafe8ee289c881cb48d5f1b2abf97e8720d18526561d93be7190384d81e82010182781c68747470733a2f2f373930654d7a554e32665232597469712e636f6d5820180b4305010f87286c43fca52d1b88114a545ae16add4e3d45990eb61874ad8aa100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409ebbecba3140e283cb2b2633ae79755b09e65fd81c24b38795414410c575fe78973cbb0ca9d9eaac073bf7a1fc8173ceeec0be4b23b7901d97e94b292d8c0605f5f6",
+  "expected": {
+    "predicate": "ConflictingCommitteeUpdate"
+  }
+}

@@ -21,7 +21,7 @@ use amaru_kernel::{
 };
 
 use crate::{
-    PlutusDataError, ToPlutusData, constr, constr_v3,
+    PlutusDataError, ToPlutusData, UnsupportedFeature, constr, constr_v3,
     script_context::{
         OutputReference, PlutusDatums, PlutusMint, PlutusVotes, PlutusWithdrawals, ScriptContext, ScriptInfo,
         ScriptPurpose, TxInfo,
@@ -35,7 +35,7 @@ impl ToPlutusData<3> for OutputReference<'_> {
     /// If the UTxO is locked at a bootstrap address, this will return a `PlutusDataError`.
     fn to_plutus_data(&self) -> Result<PlutusData, PlutusDataError> {
         if let Address::Byron(_) = self.output.address {
-            return Err(PlutusDataError::unsupported_version("byron address included in OutputReference", 3));
+            return Err(PlutusDataError::unsupported_version(UnsupportedFeature::ByronAddressInContext, 3));
         }
 
         constr_v3!(0, [self.input, self.output])

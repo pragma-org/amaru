@@ -106,8 +106,10 @@ impl Telemetry {
     /// Install process-wide tracing and optional OTLP export using embedder defaults.
     ///
     /// Environment:
-    /// - `AMARU_WITH_OPEN_TELEMETRY` — when truthy (`1`/`true`/`yes`/`on`), enable OTLP.
-    /// - `AMARU_WITH_JSON_TRACES` — when truthy, force JSON output on stdout.
+    /// - `AMARU_LOG_OTLP` — when truthy (`1`/`true`/`yes`/`on`), enable OTLP.
+    /// - `AMARU_WITH_OPEN_TELEMETRY` — deprecated fallback for `AMARU_LOG_OTLP`.
+    /// - `AMARU_LOG_JSON` — when truthy, force JSON output on stdout.
+    /// - `AMARU_WITH_JSON_TRACES` — deprecated fallback for `AMARU_LOG_JSON`.
     /// - `AMARU_TRACE` — filter for exported traces/logs and local output (default `info`).
     /// - `RUST_LOG` — fallback filter for local output when `AMARU_TRACE` is absent.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
@@ -124,8 +126,9 @@ impl Telemetry {
     /// Set [`TelemetryOptions::collect_system_metrics`] to `false` when sysinfo
     /// collection is unavailable, including on iOS.
     pub async fn install_with_options(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
-        let with_otlp = env_flag("AMARU_WITH_OPEN_TELEMETRY");
-        let format = if env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
+        let with_otlp = env_flag("AMARU_LOG_OTLP") || env_flag("AMARU_WITH_OPEN_TELEMETRY");
+        let format =
+            if env_flag("AMARU_LOG_JSON") || env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
         tokio::task::yield_now().await;
         let collect = with_otlp
             && options.collect_system_metrics

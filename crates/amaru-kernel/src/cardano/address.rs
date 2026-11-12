@@ -16,7 +16,7 @@ use std::{fmt, str::FromStr};
 
 use minicbor::{Decode, Encode};
 
-use crate::{AsShelley, Credential, HasOwnership, Network, cbor, hash, size};
+use crate::{AsShelley, Credential, HasOwnership, Network, PROTOCOL_VERSION_9, cbor, hash, size};
 
 pub mod byron;
 pub use byron::ByronAddress;
@@ -44,7 +44,18 @@ pub enum Address {
 impl<'b, Ctx: HasProtocolVersion> Decode<'b, Ctx> for Address {
     fn decode(d: &mut minicbor::Decoder<'_>, ctx: &mut Ctx) -> Result<Self, minicbor::decode::Error> {
         let bytes = cbor::decode_bytes_v12(d, ctx)?;
-        Self::from_bytes(&bytes).ok_or(minicbor::decode::Error::message("Invalid address"))
+        let address = Self::from_bytes(&bytes).ok_or(minicbor::decode::Error::message("Invalid address"))?;
+
+        // Conformance: from protocol version 9, the Haskell node reads the pointer of an address with `decodePtr`
+        // and rejects any byte after it. Before, it accepted both, so `from_bytes` stays lenient for older data.
+        if ctx.protocol_version() >= PROTOCOL_VERSION_9
+            && address.has_pointer()
+            && AddressPointer::parse_strict(&bytes[1 + size::CREDENTIAL..]).is_none()
+        {
+            return Err(minicbor::decode::Error::message("Invalid pointer address"));
+        }
+
+        Ok(address)
     }
 }
 
@@ -139,6 +150,11 @@ impl Address {
             Address::Byron(x) => x.network(),
             Address::Shelley(x) => x.network(),
         }
+    }
+
+    /// Indicates if this address delegates through a pointer to a stake registration certificate
+    pub fn has_pointer(&self) -> bool {
+        matches!(self, Address::Shelley(x) if matches!(x.delegation(), Some(StakeReference::Pointer(..))))
     }
 
     /// Indicates if this is address includes a script hash
@@ -237,4 +253,34 @@ fn parse_type_8(header: u8, payload: &[u8]) -> Option<Address> {
     let vec = [&[header], payload].concat();
     let inner = cbor::from_cbor_no_leftovers(&vec).ok()?;
     Some(Address::Byron(inner))
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::*;
+    use crate::{PROTOCOL_VERSION_8, PROTOCOL_VERSION_10, ProtocolVersion};
+
+    /// A testnet pointer address, as the CBOR byte string of a transaction output.
+    fn pointer_address(pointer: &[u8]) -> Vec<u8> {
+        let address = [&[0x41][..], &[0x22; 28], pointer].concat();
+        let mut bytes = Vec::new();
+        cbor::Encoder::new(&mut bytes).bytes(&address).unwrap_or_else(|_| unreachable!());
+        bytes
+    }
+
+    /// The Haskell node normalises a bad pointer and drops trailing bytes before protocol version 9,
+    /// and rejects both from protocol version 9.
+    #[test_case(PROTOCOL_VERSION_8, &[0x01, 0x02, 0x03] => true                     ; "valid pointer before v9")]
+    #[test_case(PROTOCOL_VERSION_10, &[0x01, 0x02, 0x03] => true                    ; "valid pointer from v9")]
+    #[test_case(PROTOCOL_VERSION_8, &[0x01, 0x02, 0x03, 0x00] => true               ; "byte after the pointer before v9")]
+    #[test_case(PROTOCOL_VERSION_10, &[0x01, 0x02, 0x03, 0x00] => false             ; "byte after the pointer from v9")]
+    #[test_case(PROTOCOL_VERSION_8, &[0x90, 0x80, 0x80, 0x80, 0x00, 0x02, 0x03] => true  ; "slot above 32 bits before v9")]
+    #[test_case(PROTOCOL_VERSION_10, &[0x90, 0x80, 0x80, 0x80, 0x00, 0x02, 0x03] => false ; "slot above 32 bits from v9")]
+    #[test_case(PROTOCOL_VERSION_10, &[0x01, 0x84, 0x80, 0x00, 0x03] => false       ; "transaction index above 16 bits from v9")]
+    #[test_case(PROTOCOL_VERSION_10, &[0x01, 0x02, 0x84, 0x80, 0x00] => false       ; "certificate index above 16 bits from v9")]
+    fn decode_pointer_address(mut version: ProtocolVersion, pointer: &[u8]) -> bool {
+        cbor::from_cbor_no_leftovers_with::<_, Address>(&pointer_address(pointer), &mut version).is_ok()
+    }
 }

@@ -10,6 +10,7 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
@@ -44,6 +45,7 @@ serde_json = { workspace = true, features = [ "std" ] }
 sha3.workspace = true
 stacksafe.workspace = true
 thiserror.workspace = true
+time = { workspace = true, features = ["formatting", "local-offset", "macros"] }
 zeroize = { workspace = true, features = ["serde"] }
 
 # Internal dependencies ───────────────────────────────────────────────────────┐

@@ -10,19 +10,19 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
+readme.workspace = true
 rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
 [features]
 default = []
-test-utils = ["dep:rand"]
+test-utils = []
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 parking_lot.workspace = true
-rand = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 
@@ -37,4 +37,4 @@ amaru-deps.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 
 [package.metadata.cargo-machete]
-ignored = ["rand", "amaru-deps"]
+ignored = ["amaru-deps"]

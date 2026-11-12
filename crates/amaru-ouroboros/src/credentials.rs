@@ -149,7 +149,6 @@ impl ForgingCredentials for InProcessCredentials {
 
 /// Load forging files when every path is set, and stay a follower when none are.
 ///
-/// Mainnet refuses the files. Preprod, preview, and other testnets accept them.
 /// Passing some of the paths and not the others fails.
 pub fn forging_credentials_from_files(
     network: NetworkName,
@@ -160,7 +159,6 @@ pub fn forging_credentials_from_files(
 ) -> Result<Option<InProcessCredentials>, CredentialsError> {
     match (network, kes_signing_key, vrf_signing_key, operational_certificate) {
         (_, None, None, None) => Ok(None),
-        (NetworkName::Mainnet, _, _, _) => Err(CredentialsError::Mainnet),
         (_, Some(kes), Some(vrf), Some(certificate)) => {
             Ok(Some(InProcessCredentials::from_files(kes, vrf, certificate, max_kes_evolutions)?))
         }
@@ -276,10 +274,6 @@ pub enum CredentialsError {
     ColdKey,
     #[error("operational certificate signature: {0}")]
     Signature(String),
-    #[error(
-        "block forging key files are refused on mainnet; they are available on preprod, preview, and other testnets"
-    )]
-    Mainnet,
     #[error("block forging needs --operator-kes, --operator-vrf, and --operator-cert together")]
     PartialFlags,
 }
@@ -331,6 +325,7 @@ mod tests {
     use amaru_kernel::{IsHeader, Slot, cbor, ed25519::Signer};
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
     use serde::Deserialize;
+    use test_case::test_case;
 
     use super::*;
     use crate::praos::header::AssertKesSignatureError;
@@ -584,38 +579,52 @@ mod tests {
         assert!(matches!(err, ReadEnvelopeError::Cbor(_)), "{err}");
     }
 
-    #[test]
-    fn mainnet_and_partial_flags_fail_and_no_flags_stay_a_follower() {
-        let kes = Path::new("kes.skey");
-        let vrf = Path::new("vrf.skey");
-        let cert = Path::new("node.cert");
-        let mainnet =
-            forging_credentials_from_files(NetworkName::Mainnet, MAX_EVOLUTIONS, Some(kes), Some(vrf), Some(cert));
-        assert!(matches!(mainnet, Err(CredentialsError::Mainnet)), "{mainnet:?}");
-        let partial = forging_credentials_from_files(NetworkName::Preprod, MAX_EVOLUTIONS, Some(kes), None, None);
-        assert!(matches!(partial, Err(CredentialsError::PartialFlags)), "{partial:?}");
-        assert!(
-            forging_credentials_from_files(NetworkName::Mainnet, MAX_EVOLUTIONS, None, None, None).unwrap().is_none()
-        );
-        assert!(
-            forging_credentials_from_files(NetworkName::Preview, MAX_EVOLUTIONS, None, None, None).unwrap().is_none()
-        );
+    #[test_case(NetworkName::Preview)]
+    #[test_case(NetworkName::Preprod)]
+    #[test_case(NetworkName::Mainnet)]
+    fn partial_flags_fail_and_no_flags_stay_a_follower(network: NetworkName) {
+        assert!(forging_credentials_from_files(network, MAX_EVOLUTIONS, None, None, None,).unwrap().is_none());
+
+        fn assert_partial_flags_error<T: fmt::Debug>(result: Result<T, CredentialsError>) {
+            assert!(matches!(result, Err(CredentialsError::PartialFlags)), "{result:?}");
+        }
+
+        assert_partial_flags_error(forging_credentials_from_files(
+            network,
+            MAX_EVOLUTIONS,
+            Some(Path::new("kes.skey")),
+            None,
+            None,
+        ));
+
+        assert_partial_flags_error(forging_credentials_from_files(
+            network,
+            MAX_EVOLUTIONS,
+            None,
+            Some(Path::new("vrf.skey")),
+            None,
+        ));
+
+        assert_partial_flags_error(forging_credentials_from_files(
+            network,
+            MAX_EVOLUTIONS,
+            None,
+            None,
+            Some(Path::new("node.cert")),
+        ));
     }
 
-    #[test]
-    fn preprod_with_the_three_files_loads_credentials() {
+    #[test_case(NetworkName::Preview)]
+    #[test_case(NetworkName::Preprod)]
+    #[test_case(NetworkName::Mainnet)]
+    fn three_files_loads_credentials(network: NetworkName) {
         let issued = issue(2, KesPeriod::from(1));
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), &issued);
-        let loaded = forging_credentials_from_files(
-            NetworkName::Preprod,
-            MAX_EVOLUTIONS,
-            Some(&kes_path),
-            Some(&vrf_path),
-            Some(&cert_path),
-        )
-        .unwrap()
-        .expect("preprod accepts the three files");
+        let loaded =
+            forging_credentials_from_files(network, MAX_EVOLUTIONS, Some(&kes_path), Some(&vrf_path), Some(&cert_path))
+                .unwrap()
+                .unwrap_or_else(|| panic!("{network} accepts the three files"));
         assert_eq!(loaded.issuer_verification_key(), issued.cold_vk);
         assert_eq!(loaded.issuer_fields().operational_cert.operational_cert_sequence_number, 2);
     }

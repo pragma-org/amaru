@@ -1,0 +1,36 @@
+{
+  "title": "missing phase two script witness",
+  "description": "A transaction references a Plutus script input but does not provide the corresponding phase-two script witness.",
+  "category": "scripts",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v9-zero-cost-models.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c400",
+        "output": "82581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a00989680"
+      },
+      {
+        "input": "82582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c401",
+        "output": "8258390093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8f1e760111aba8c48f249d58250062f5baf3d163350f2d3f55ec7b3971b009fdf42f637998c"
+      },
+      {
+        "input": "825820e3b710c49c1b2e98581c6a28e62f6895ac13b5b2ba58a4303facacdc2cd0c44e00",
+        "output": "83581d70a2eb6ee34c04a2286ac9c909bc046ac4fdc9bcb686edbfa60891318f1a000f311a582003170a2e7597b7b7e3d84c05391d139a62b157e78786d8c082f29dcf4c111314"
+      }
+    ]
+  },
+  "point": {
+    "slot": 3883681,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d901028282582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c401825820e3b710c49c1b2e98581c6a28e62f6895ac13b5b2ba58a4303facacdc2cd0c44e000dd901028182582016e3f04f8fbce09ac5531b1a38e14dbef7d1ecb12edf63753a47e39e5848e7c40001818258390065cf5454f586d19c04689bcccbd17f1bc0a4ce904dc6aea476ca8ac4ea469737e96a17f0e4b7b734b31974afc0da00197bf0900edd009c1f1b009fdf42f64305d9021a0003c4cda100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258401a601d87f520a4099b1ecc44630bf16e3728befc6e6359caa85fccdd48862fddf08d43452c18237755fa26895b614b2d2f8d0dcf7936af7c9709430821cdc609f5f6",
+  "expected": {
+    "predicate": "MissingScriptWitnessesUTXOW"
+  }
+}

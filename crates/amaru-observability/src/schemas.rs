@@ -998,12 +998,6 @@ define_schemas! {
                     optional preflight_micros: u64
                     /// Ledger rules and state-transitions for certificates
                     optional certificates_micros: u64
-                    /// Ledger rules and state-transitions for collateral
-                    optional collateral_micros: u64
-                    /// Ledger rules and state-transitions for collateral return
-                    optional collateral_return_micros: u64
-                    /// Ledger rules and state-transitions for treasury donation
-                    optional donation_micros: u64
                     /// Ledger rules and state-transitions for fees
                     optional fees_micros: u64
                     /// Ledger rules and state-transitions for inputs
@@ -1012,7 +1006,7 @@ define_schemas! {
                     optional metadata_micros: u64
                     /// Ledger rules and state-transitions for minted/burned assets
                     optional mint_micros: u64
-                    /// Ledger rules and state-transitions for outputs
+                    /// Ledger rules and state-transitions for outputs and collateral return
                     optional outputs_micros: u64
                     /// Ledger rules and state-transitions for governance proposals
                     optional proposals_micros: u64
@@ -1020,6 +1014,8 @@ define_schemas! {
                     optional scripts_micros: u64
                     /// Ledger rules and state-transitions for key signatures
                     optional signatures_micros: u64
+                    /// Ledger rules and state-transitions for the declared treasury value and treasury donation
+                    optional treasury_micros: u64
                     /// Ledger rules and state-transitions for validity interval
                     optional validity_interval_micros: u64
                     /// Ledger rules and state-transitions for governance votes
@@ -1308,8 +1304,8 @@ define_schemas! {
                 /// Upgrade to a new protocol version
                 public event UPGRADE {
                     levels: info
-                    required old_version: u64
-                    required new_version: u64
+                    required old_version: u32
+                    required new_version: u32
                 }
             }
             protocol_parameters {
@@ -1610,6 +1606,15 @@ define_schemas! {
                 levels: error
                 required description: String
                 optional cause: String
+            }
+            pool {
+                schedule {
+                    /// The requested leader schedule uses a nonce derived before the epoch was observed on-chain.
+                    public event SPECULATIVE_NONCE {
+                        levels: warn
+                        required epoch: amaru_kernel::Epoch
+                    }
+                }
             }
             dev {
                 tags: cli

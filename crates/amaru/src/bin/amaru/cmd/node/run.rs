@@ -29,7 +29,9 @@ use amaru::{
     metrics::track_system_metrics,
     version,
 };
-use amaru_kernel::{ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, utils::duration};
+use amaru_kernel::{
+    ByteSize, EraHistory, GlobalParameters, NetworkName, PEER_SNAPSHOT_NETWORKS, SoftwareTag, utils::duration,
+};
 use amaru_mempool::MempoolConfig;
 use amaru_metrics::Meter;
 use amaru_node::{
@@ -98,8 +100,7 @@ pub struct Args {
 
     /// KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
     ///
-    /// Together with `--operator-vrf` and `--operator-cert`, the node forges
-    /// blocks. Preprod, preview, and other testnets only. Mainnet refuses these flags.
+    /// Together with `--operator-vrf` and `--operator-cert`, the node forges blocks.
     #[arg(
         long,
         value_name = amaru::value_names::FILEPATH,
@@ -133,6 +134,18 @@ pub struct Args {
         alias = "vrf-signing-key-file",
     )]
     operator_vrf: Option<PathBuf>,
+
+    /// Mark forged blocks as opted out of CIP-0203 producer identification, instead of naming
+    /// Amaru and its release day.
+    #[arg(
+        long,
+        env = amaru::env_vars::SOFTWARE_TAG_OFF,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        display_order = 0,
+        help_heading = "Block forging options",
+    )]
+    software_tag_off: bool,
 
     /// Upstream peer addresses to synchronize from.
     ///
@@ -252,6 +265,9 @@ pub struct Args {
     )]
     peers_mix: String,
 
+    #[command(flatten, next_help_heading = "Log options")]
+    log: crate::cli::LogOptions,
+
     /// Disable the embedded terminal dashboard, even in an interactive terminal.
     #[arg(
         long,
@@ -356,6 +372,10 @@ pub struct Args {
 }
 
 impl Args {
+    pub(crate) fn log_options(&self) -> crate::cli::LogOptions {
+        self.log.clone()
+    }
+
     pub fn peers_listen_on(&self) -> &str {
         &self.peers_listen_on
     }
@@ -759,6 +779,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         tx_submission_responder_params: tx_submission_params,
         forging_credentials: forging_credentials
             .map(|credentials| Arc::new(credentials) as Arc<dyn amaru_ouroboros::ForgingCredentials>),
+        software_tag: if args.software_tag_off { SoftwareTag::OptOut } else { amaru::version::software_tag() },
         ..Config::default()
     })
 }

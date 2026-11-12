@@ -173,3 +173,30 @@ jobs:
           echo "  cargo run --bin amaru -- dev traces dump 1> docs/traces-schema.json"
           echo ""
           echo "Then commit the updated files."
+
+  publish-dry-run:
+    name: Check crates.io publishing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: ./.github/actions/stage-peer-snapshots
+      - uses: ./.github/actions/cache
+      - uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # https://github.com/taiki-e/install-action/releases/tag/v2.87.12
+        with:
+          tool: cargo-hakari@0.9.38
+      - name: Prepare the Hakari stub for publishing
+        run: |
+          # See https://docs.rs/cargo-hakari/latest/cargo_hakari/publishing/index.html
+          cargo hakari disable
+          sed -i 's/^publish = false$/publish = ["crates-io"]/' crates/amaru-deps/Cargo.toml
+          # Refresh the lockfile after removing the stub's generated dependencies.
+          cargo metadata --format-version 1 > /dev/null
+      - name: Verify workspace packages without uploading
+        run: cargo publish --workspace --dry-run --locked --registry crates-io --allow-dirty
+        

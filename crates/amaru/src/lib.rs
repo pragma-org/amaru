@@ -221,6 +221,9 @@ pub mod value_names {
     /// A trace buffer configuration
     pub const TRACE_BUFFER: &str = "MIN_ENTRIES,MAX_BYTE_SIZE";
 
+    /// A comma-separated selection of OpenTelemetry signals.
+    pub const OTEL_SIGNALS: &str = "metrics|traces|logs";
+
     /// A non-negative integer value.
     pub const UINT: &str = "UINT";
 
@@ -239,6 +242,9 @@ pub mod env_vars {
     pub const DB_CHAIN_AUTOMATIC_MIGRATION: &str = "AMARU_DB_CHAIN_AUTOMATIC_MIGRATION";
     pub const DB_LEDGER: &str = "AMARU_DB_LEDGER";
     pub const DB_LEDGER_MAX_EXTRA_SNAPSHOTS: &str = "AMARU_DB_LEDGER_MAX_EXTRA_SNAPSHOTS";
+    pub const LOG_EXPORT: &str = "AMARU_LOG_EXPORT";
+    pub const LOG_JSON: &str = "AMARU_LOG_JSON";
+    pub const LOG_OTLP: &str = "AMARU_LOG_OTLP";
     pub const DIST: &str = "AMARU_DIST";
     pub const EPOCH: &str = "AMARU_EPOCH";
     pub const ERA_HISTORY: &str = "AMARU_ERA_HISTORY";
@@ -266,6 +272,7 @@ pub mod env_vars {
     pub const S3_REGION: &str = "AMARU_S3_REGION";
     pub const SNAPSHOT: &str = "AMARU_SNAPSHOT";
     pub const SNAPSHOTS: &str = "AMARU_SNAPSHOTS";
+    pub const SOFTWARE_TAG_OFF: &str = "AMARU_SOFTWARE_TAG_OFF";
     pub const SUBMIT_API_LISTEN_ON: &str = "AMARU_SUBMIT_API_LISTEN_ON";
     pub const TRACE_BUFFER: &str = "AMARU_TRACE_BUFFER";
     pub const TRACE_BUFFER_DUMP: &str = "AMARU_TRACE_BUFFER_DUMP";

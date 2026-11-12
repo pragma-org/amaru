@@ -176,7 +176,7 @@ where
 
     fail_on_supplemental_datums(context, &required_datums, &witnessed_datums)?;
 
-    fail_on_unmatched_datums(context, &required_datums, witnessed_datums)?;
+    fail_on_unmatched_datums(&required_datums, &witnessed_datums)?;
 
     let mut extra_redeemers = Vec::new();
 
@@ -424,31 +424,15 @@ where
     Ok(())
 }
 
-/// Fails when there are datum hash digests without matching preimages. The preimage can be found
-/// in 3 places:
-///
-/// - inputs
-/// - reference inputs
-/// - witness set
-///
-/// The first two are collected during the inputs sub-rule, and yielded by the context's
-/// known_datums. In particular, it's worth noting that inline datums in outputs can't be matched
-/// against hashes in the same transaction.
-fn fail_on_unmatched_datums<C>(
-    context: &mut C,
+/// Fails when a required datum hash has no preimage in the witness set.
+fn fail_on_unmatched_datums(
     required: &BTreeSet<Hash<DATUM>>,
-    mut witnessed: BTreeSet<Hash<DATUM>>,
-) -> Result<(), InvalidScripts>
-where
-    C: WitnessSlice,
-{
-    let mut provided = context.known_datums().into_keys().collect::<BTreeSet<_>>();
-    provided.append(&mut witnessed);
-
-    let missing = required.difference(&provided).cloned().collect::<BTreeSet<_>>();
+    witnessed: &BTreeSet<Hash<DATUM>>,
+) -> Result<(), InvalidScripts> {
+    let missing = required.difference(witnessed).cloned().collect::<BTreeSet<_>>();
 
     if !missing.is_empty() {
-        return Err(InvalidScripts::MissingRequiredDatums { missing, provided });
+        return Err(InvalidScripts::MissingRequiredDatums { missing, provided: witnessed.clone() });
     }
 
     Ok(())

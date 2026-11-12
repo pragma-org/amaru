@@ -59,11 +59,12 @@ pub mod cbor {
     pub use amaru_minicbor_extra::{
         IndefiniteArray, IndefiniteMap, TAG_MAP_259, TAG_SET_258, WithOriginalBytes, WithSize, allow_tag,
         btree_map_with_unique_keys, check_tagged_array_length, collect_array_item_bytes, collect_map_value_bytes,
-        count_bytes, decode_break, decode_bytes, decode_string, encode_bytestring, encode_indefinite_array,
-        encode_indefinite_map, encode_variable_length_array, encode_variable_length_map, expect_tag, from_cbor,
-        from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array, heterogeneous_array_definite,
-        heterogeneous_map, heterogeneous_map_unique_keys, heterogeneous_map_with, heterogeneous_map_with_unique_keys,
-        lazy, missing_field, tee, to_cbor, to_cbor_with, unexpected_field,
+        count_bytes, decode_break, decode_bytes, decode_integer, decode_string, encode_bytestring,
+        encode_indefinite_array, encode_indefinite_map, encode_variable_length_array, encode_variable_length_map,
+        expect_tag, from_cbor, from_cbor_no_leftovers, from_cbor_no_leftovers_with, heterogeneous_array,
+        heterogeneous_array_definite, heterogeneous_map, heterogeneous_map_unique_keys, heterogeneous_map_with,
+        heterogeneous_map_with_unique_keys, is_map_len64, lazy, missing_field, shortest_head_len, tee, to_cbor,
+        to_cbor_with, unexpected_field,
     };
     pub use minicbor::{
         CborLen, Decode, Decoder, Encode, Encoder, bytes,
@@ -197,6 +198,10 @@ pub use cardano::{
     script_info::{ScriptInfo, ScriptPurpose},
     script_integrity_data::{ScriptIntegrityData, compute_script_integrity_hash},
     slot::{Slot, SlotArithmeticError},
+    software_tag::{
+        AmaruTag, AmaruTagError, Payload, PayloadError, ProducerId, ProducerIdError, ReleaseDay, ReleaseDayError,
+        SoftwareTag, SoftwareTagError,
+    },
     stake_entry::{self, StakeEntry},
     time_range::TimeRange,
     transaction::Transaction,

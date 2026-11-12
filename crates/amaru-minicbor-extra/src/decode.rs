@@ -47,6 +47,11 @@ fn decode_integer_with(
     check_chunk: impl Fn(&[u8]) -> Result<(), decode::Error>,
 ) -> Result<IBig, decode::Error> {
     if d.datatype()? == Type::Tag {
+        // The Haskell node only reads a bignum where the tag is the exact byte `c2` or `c3`. The same tags written
+        // with a longer head (`d8 02`, ...) are rejected.
+        if !matches!(d.input().get(d.position()), Some(0xc2 | 0xc3)) {
+            return Err(decode::Error::message("bignum tag must be the 1-byte head 0xc2 or 0xc3"));
+        }
         let tag = d.tag()?;
         return match tag.try_into() {
             Ok(iana @ (IanaTag::PosBignum | IanaTag::NegBignum)) => {
@@ -147,6 +152,32 @@ pub fn tee<'d, A>(
     let a = decoder(d)?;
     let end = d.position();
     Ok((a, &original_bytes[start..end]))
+}
+
+/// The head of a definite-length map whose length is written on 8 bytes.
+const MAP_LEN_64_HEAD: u8 = 0xbb;
+
+/// Whether the decoder is positioned on a definite-length map whose length is written on 8 bytes.
+///
+/// cborg reports such a head as `TypeMapLen64`, not `TypeMapLen`. Ledger decoders that choose between a map and a
+/// list encoding by peeking the token type, and only list `TypeMapLen`, read that map as a list and reject it.
+/// Use this only at those places: every other Haskell map decoder accepts an 8-byte length head.
+pub fn is_map_len64(d: &cbor::Decoder<'_>) -> bool {
+    d.input().get(d.position()) == Some(&MAP_LEN_64_HEAD)
+}
+
+/// The size in bytes of the shortest CBOR head for an argument (an unsigned value, a length or a tag).
+///
+/// Compare it with the size of a decoded head to reject a head written with more bytes than needed, as the
+/// `*Canonical` decoders of cborg do.
+pub fn shortest_head_len(argument: u64) -> u64 {
+    match argument {
+        0..=0x17 => 1,
+        0x18..=0xff => 2,
+        0x100..=0xffff => 3,
+        0x1_0000..=0xffff_ffff => 5,
+        _ => 9,
+    }
 }
 
 // Array
@@ -752,6 +783,21 @@ mod tests {
             }
 
             assert_err::<WithDefaultValues<Foo>>("unexpected field .14", &to_cbor(&TestCase(&FIXTURE)));
+        }
+    }
+
+    mod shortest_head {
+        use proptest::prelude::*;
+
+        use crate::{cbor, shortest_head_len};
+
+        proptest! {
+            #[test]
+            fn matches_the_minicbor_encoding(argument in prop_oneof![0..0x200_u64, any::<u64>()]) {
+                let mut bytes = Vec::new();
+                cbor::Encoder::new(&mut bytes).u64(argument).unwrap();
+                prop_assert_eq!(bytes.len() as u64, shortest_head_len(argument));
+            }
         }
     }
 }

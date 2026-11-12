@@ -10,7 +10,7 @@ This page covers installing the binary, running it as a systemd service under it
 ## 1. Installing Amaru as a systemd service
 
 :::info version reference
-Amaru releases follow a calendar-based scheme (e.g. `10.11.20260827`). Always check the [releases page](https://github.com/pragma-org/amaru/releases) for the latest version before installing. Amaru is still in an exploratory phase, so expect frequent releases and occasional breaking changes.
+Amaru releases follow a calendar-based scheme (e.g. `10.11.20261105`). Always check the [releases page](https://github.com/pragma-org/amaru/releases) for the latest version before installing. Amaru is still in an exploratory phase, so expect frequent releases and occasional breaking changes.
 :::
 
 For production use, run amaru under systemd so it restarts automatically on failure or reboot.
@@ -21,14 +21,14 @@ The **Debian / RPM package** is the recommended path as it installs a dedicated 
 
 **Debian/Ubuntu:**
 ```bash
-VERSION=10.11.20260827 ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20261105 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
 sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
 ```
 
 **Fedora/RHEL/CentOS:**
 ```bash
-VERSION=10.11.20260827 ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20261105 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
 sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 ```
@@ -52,14 +52,108 @@ Please refer to #Monitoring section to learn how to retrieve logs and metrics wh
 - `amaru-bootstrap.service` is installed at `/usr/lib/systemd/system/amaru-bootstrap.service` but **not enabled or started**.
 - `amaru.env` is installed as `/etc/default/amaru`
 
-```bash title="/etc/default/amaru"
-AMARU_NETWORK=mainnet
-AMARU_DB_CHAIN=/var/lib/amaru/chain.mainnet.db
-AMARU_DB_LEDGER=/var/lib/amaru/ledger.mainnet.db
+<details>
+<summary><strong>/etc/default/amaru</strong> — default configuration</summary>
+
+```bash
+# <COLOR> Control color output.
+AMARU_COLOR="auto"
+
+# <DIR> Path to the chain on-disk storage.
+AMARU_DB_CHAIN="/var/lib/amaru/chain.mainnet.db"
+
+# <BOOL> Flag to automatically migrate the chain database if needed.
 AMARU_DB_CHAIN_AUTOMATIC_MIGRATION=true
-AMARU_PID_EXPORT=/run/amaru/amaru.pid
-AMARU_WITH_JSON_TRACES=true
+
+# <DIR> Path to the ledger on-disk storage.
+AMARU_DB_LEDGER="/var/lib/amaru/ledger.mainnet.db"
+
+# <UINT|all> The maximum number of additional ledger snapshots to keep around.
+AMARU_DB_LEDGER_MAX_EXTRA_SNAPSHOTS=0
+
+# <UINT> The target bootstrap epoch; this is the epoch Amaru will start from.
+# AMARU_EPOCH=
+
+# <FILEPATH> Path to a JSON era history file overriding the network default.
+# AMARU_ERA_HISTORY=
+
+# <PATH:FILTER> Also write traces to a file. Repeat for one file per occurrence.
+# AMARU_LOG_EXPORT=
+
+# <BOOL> Emit trace events as structured JSON instead of human-readable text.
+AMARU_LOG_JSON=true
+
+# <metrics|traces|logs> Export OpenTelemetry signals via OTLP; without a value, export all signals.
+# AMARU_LOG_OTLP=
+
+# <mainnet|preprod|preview|testnet_<U32>> Target Cardano network.
+AMARU_NETWORK="mainnet"
+
+# <FILEPATH> Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
+# AMARU_OPERATOR_CERT=
+
+# <FILEPATH> KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+# AMARU_OPERATOR_KES=
+
+# <FILEPATH> VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+# AMARU_OPERATOR_VRF=
+
+# <HOSTNAME[:PORT]> Upstream peer addresses to synchronize from.
+# AMARU_PEER=
+
+# <HOSTNAME[:PORT]> The address to listen on for incoming connections.
+AMARU_PEERS_LISTEN_ON="0.0.0.0:3001"
+
+# <UINT> The maximum number of downstream peers allowed to connect.
+AMARU_PEERS_MAX_DOWNSTREAM=10
+
+# <UINT> The maximum number of upstream peers to connect to.
+AMARU_PEERS_MAX_UPSTREAM=3
+
+# <([static|shared|snapshot|ledger|inbound](!|~)UINT[@DURATION][,])*> Using-slot mix formula (floors `!n`, weights `~n`, (optional) half-lives `@Nd`).
+AMARU_PEERS_MIX="static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h"
+
+# <UINT[ms|s|min|h]> After removing a misbehaving upstream peer, wait this long before allowing it to be re-added.
+AMARU_PEERS_REMOVAL_COOLDOWN="10min"
+
+# <FILEPATH> Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
+# AMARU_PEERS_SNAPSHOT=
+
+# <FILEPATH> Path to the PID file managed by Amaru.
+AMARU_PID_EXPORT="/run/amaru/amaru.pid"
+
+# <BUCKET_NAME> S3-compatible bucket name.
+AMARU_S3_BUCKET="cardano-ledger-snapshots"
+
+# <URL> S3-compatible endpoint URL.
+AMARU_S3_ENDPOINT="https://bd7a351a104d485dcc8b921c273db90c.r2.cloudflarestorage.com"
+
+# <URL> Public base URL at which uploaded objects are reachable.
+AMARU_S3_PUBLIC_URL="https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev"
+
+# <auto|REGION> S3-compatible region.
+AMARU_S3_REGION="auto"
+
+# <HOSTNAME[:PORT]> Address for the HTTP transaction submit API.
+# AMARU_SUBMIT_API_LISTEN_ON=
+
+# <MIN_ENTRIES,MAX_BYTE_SIZE> Stage graph trace buffer: `min_entries,max_total_bytes` (e.g. `100,1000000`).
+# AMARU_TRACE_BUFFER=
+
+# <FILEPATH> Concatenate raw CBOR trace entries to this file when the node shuts down.
+# AMARU_TRACE_BUFFER_DUMP=
+
+# <BYTE_SIZE> Maximum in-memory log retention for the TUI.
+AMARU_TUI_LOG_RETENTION="100MiB"
+
+# <BOOL> Disable the embedded terminal dashboard, even in an interactive terminal.
+AMARU_TUI_OFF=false
+
+# <MILLISECONDS> Interval between two OTLP metrics exports.
+OTEL_METRIC_EXPORT_INTERVAL=1000
 ```
+
+</details>
 
 ## 2. Bootstrapping the node
 
@@ -114,16 +208,16 @@ Every `amaru node run` [flag](01-amaru-fast-forward.md#4-running-the-node) has a
 
 ```bash title="/etc/default/amaru"
 [...]
-AMARU_PEER=my-own-peer.example.com:3001
-AMARU_PEERS_LISTEN_ON=0.0.0.0:3001
-AMARU_PEERS_MAX_UPSTREAM=10
-AMARU_WITH_OPEN_TELEMETRY=true
-OTEL_METRIC_EXPORT_INTERVAL=1000
+AMARU_TRACE=INFO
+AMARU_PEER=my-own-peer.example.com:3001,1.2.3.4:3001
+AMARU_PEERS_MAX_UPSTREAM=30
+AMARU_PEERS_MAX_DOWNSTREAM=30
+AMARU_LOG_OTLP=true
 ```
 
 :::note
-`AMARU_WITH_OPEN_TELEMETRY` allow Amaru to send traces to the OTLP collector
-`OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s)
+`AMARU_LOG_OTLP` allow Amaru to send traces to the OTLP collector
+`OTEL_METRIC_EXPORT_INTERVAL` is the time in milliseconds between two OTLP metrics exports. Amaru defaults it to `1000` (1s) instead of the [OpenTelemetry default of 60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader).
 :::
 
 You can get the full config list with the TUI under the config menu (press `ESC` on the Config page to enter copy mode and select values with the terminal):
@@ -132,6 +226,7 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 
 <details>
 <summary><strong>Here is the same config list in txt</strong></summary>
+
 ```bash
 ┌─ [ AMARU ] [ CARDANO ] [ CONFIG ] ─────────────────────────────────────────────────────────────────────────────────  COPY MODE  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │┌─ Essential ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐┌─ Protocol Parameters · Network ─────────────────────────────────────────────────────────────┐│
@@ -184,8 +279,6 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 │                                                                                                                                                                                                                                                 │
 └───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── <esc> NORMAL MODE ─┘
 ```
-
-
 </details>
 
 ## 4. Running the node as a systemd service
@@ -203,20 +296,19 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
 
-When running Amaru in CLI use `--with-open-telemetry`:
+When running Amaru in CLI use `--log-otlp`:
 
 ```bash
-amaru --with-open-telemetry node run --network preprod
+amaru node run --log-otlp --network preprod
 ```
 
-When running Amaru as a systemd service set the env variable `AMARU_WITH_OPEN_TELEMETRY`:
+When running Amaru as a systemd service set the env variable `AMARU_LOG_OTLP`:
 ```bash title="/etc/default/amaru"
-AMARU_WITH_OPEN_TELEMETRY=true
-OTEL_METRIC_EXPORT_INTERVAL=1000
+AMARU_LOG_OTLP=true
 ```
 
 :::note
-`OTEL_METRIC_EXPORT_INTERVAL` is the time between two OTLP metrics export (default is [60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader), here set to 1s)
+Metrics are exported every second by default, whether Amaru runs as a service or interactively with the TUI. Set `OTEL_METRIC_EXPORT_INTERVAL` (in milliseconds) to change it; the [OpenTelemetry default](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader) of 60s does not apply.
 :::
 
 A complete Monitoring stack is available in the [Amaru repository](https://github.com/pragma-org/amaru/tree/main/monitoring)

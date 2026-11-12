@@ -16,6 +16,10 @@
   "properties": {
     "title": { "type": "string" },
     "description": { "type": "string" },
+    "category": {
+      "type": "string",
+      "description": "Optional. Names the group of rules the fixture exercises, such as certificates or scripts. Informational."
+    },
     "network": {
       "type": "string",
       "pattern": "^(mainnet|preprod|preview|testnet_[0-9]+)$"
@@ -172,7 +176,7 @@
         }
       }
     },
-    "VotingState": {
+    "GovernanceActivity": {
       "type": "object",
       "required": ["consecutive_dormant_epochs"],
       "properties": {
@@ -322,13 +326,38 @@
           "$ref": "#/$defs/ProposalsRoots",
           "description": "The latest enacted governance action id per purpose. Absent purposes default to none."
         },
-        "governance_activity": { "$ref": "#/$defs/VotingState" },
+        "governance_activity": { "$ref": "#/$defs/GovernanceActivity" },
+        "voting_state": {
+          "$ref": "#/$defs/VotingState",
+          "description": "The initial ledger voting state. When present, its DReps, committee and dormant-epoch counter take precedence over the legacy top-level fields."
+        },
         "pots": { "$ref": "#/$defs/Pots" },
         "guardrail_script": {
           "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ScriptHash" }],
           "description": "Guardrails script of the enacted constitution. A proposal carrying a policy must name exactly this script; absent or null requires proposals to carry no policy at all."
         }
       }
+    },
+    "VotingState": {
+      "type": "object",
+      "properties": {
+        "dreps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DRepRegistration" },
+          "description": "Registered DReps in the initial voting state."
+        },
+        "committee": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CommitteeMember" },
+          "description": "The constitutional committee authorization and election state."
+        },
+        "consecutive_dormant_epochs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of consecutive epochs without governance activity."
+        }
+      },
+      "additionalProperties": false
     },
     "Pots": {
       "type": "object",
@@ -585,7 +614,91 @@
           "required": ["predicate"],
           "description": "The predicate the transaction must fail. Some predicates carry additional fields that narrow which of their cases is expected.",
           "properties": {
-            "predicate": { "type": "string" },
+            "predicate": {
+              "enum": [
+                "BabbageNonDisjointRefInputs",
+                "BabbageOutputTooSmallUTxO",
+                "BadInputsUTxO",
+                "ByronTxOutInContext",
+                "CommitteeHasPreviouslyResigned",
+                "CommitteeIsUnknown",
+                "ConflictingCommitteeUpdate",
+                "ConflictingMetadataHash",
+                "ConwayTreasuryValueMismatch",
+                "ConwayTxRefScriptsSizeTooBig",
+                "ConwayWdrlNotDelegatedToDRep",
+                "CurrentTreasuryFieldNotSupported",
+                "DRepAlreadyRegistered",
+                "DRepNotRegistered",
+                "DelegateeDRepNotRegistered",
+                "DelegateeStakePoolNotRegistered",
+                "DisallowedVoters",
+                "ExUnitsTooBigUTxO",
+                "ExpirationEpochTooSmall",
+                "ExtraRedeemers",
+                "ExtraneousScriptWitnessesUTXOW",
+                "FeeTooSmallUTxO",
+                "GovActionsDoNotExist",
+                "IncorrectDepositDELEG",
+                "IncorrectDepositDRep",
+                "IncorrectTotalCollateralField",
+                "InlineDatumsNotSupported",
+                "InputSetEmptyUTxO",
+                "InsufficientCollateral",
+                "InvalidGuardrailsScriptHash",
+                "InvalidMetadata",
+                "InvalidPrevGovActionId",
+                "InvalidWitnessesUTXOW",
+                "MalformedProposal",
+                "MalformedReferenceScripts",
+                "MalformedScriptWitnesses",
+                "MaxTxSizeUTxO",
+                "MissingCostModel",
+                "MissingRedeemers",
+                "MissingRequiredDatums",
+                "MissingScriptWitnessesUTXOW",
+                "MissingTxBodyMetadataHash",
+                "MissingTxMetadata",
+                "MissingVerificationKeyWitnessesUTXOW",
+                "NoCollateralInputs",
+                "NotAllowedSupplementalDatums",
+                "OutputTooBigUTxO",
+                "OutsideForecast",
+                "OutsideValidityIntervalUTxO",
+                "PPViewHashesDontMatch",
+                "PoolMetadataHashTooBig",
+                "ProposalCantFollow",
+                "ProposalDepositIncorrect",
+                "ProposalProcedureNetworkIdMismatch",
+                "ProposalProceduresFieldNotSupported",
+                "ProposalReturnAccountDoesNotExist",
+                "ScriptWitnessNotValidatingUTXOW",
+                "ScriptsNotPaidUTxO",
+                "StakeCredentialInvalidPoolDelegation",
+                "StakeCredentialInvalidVoteDelegation",
+                "StakeKeyHasNonZeroAccountBalance",
+                "StakeKeyNotRegistered",
+                "StakeKeyRegistered",
+                "StakePoolCostTooLowPOOL",
+                "StakePoolNotRegisteredOnKeyPOOL",
+                "StakePoolRetirementWrongEpochPOOL",
+                "TooManyCollateralInputs",
+                "TreasuryDonationFieldNotSupported",
+                "TreasuryWithdrawalReturnAccountsDoNotExist",
+                "TreasuryWithdrawalsAllZeros",
+                "UnspendableUTxONoDatumHash",
+                "ValidationTagMismatch",
+                "ValueNotConservedUTxO",
+                "VotersDoNotExist",
+                "VotingOnExpiredGovAction",
+                "VotingProceduresFieldNotSupported",
+                "WithdrawalsNotInRewardsCERTS",
+                "WrongNetworkInTxBody",
+                "WrongNetworkInTxOutput",
+                "WrongNetworkPOOL",
+                "WrongNetworkWithdrawal"
+              ]
+            },
             "description": {
               "enum": ["PassedUnexpectedly", "FailedUnexpectedly"],
               "description": "Required for ValidationTagMismatch: which way round the transaction's is_valid flag disagrees with script evaluation. PassedUnexpectedly covers a transaction with no Plutus script at all, since an empty script set trivially passes."
