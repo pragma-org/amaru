@@ -41,6 +41,8 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
+
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
 
 ### Changed

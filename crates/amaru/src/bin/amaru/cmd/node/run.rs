@@ -111,7 +111,7 @@ pub struct Args {
     )]
     operator_kes: Option<PathBuf>,
 
-    /// Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
+    /// Operational certificate, as binary CBOR or a legacy cardano-cli `node.cert` text envelope.
     ///
     /// The file includes the cold verification key. No separate cold-key file is read.
     #[arg(

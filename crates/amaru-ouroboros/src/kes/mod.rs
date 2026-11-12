@@ -14,11 +14,7 @@
 
 use std::{array::TryFromSliceError, io, mem::ManuallyDrop, ops::Deref, path::Path};
 
-use amaru_kernel::{
-    KesEvolution, cbor,
-    utils::envelope::{self, HasEnvelope, ReadEnvelopeError, read_key_file},
-};
-use amaru_observability::trace;
+use amaru_kernel::{KesEvolution, cbor};
 use kes_summed_ed25519::{
     self as kes,
     kes::{Sum6Kes, Sum6KesSig},
@@ -26,6 +22,8 @@ use kes_summed_ed25519::{
 };
 use thiserror::Error;
 use zeroize::Zeroizing;
+
+use crate::envelope::{self, HasEnvelope, ReadEnvelopeError};
 
 // ------------------------------------------------------------------- SecretKey
 
@@ -71,16 +69,9 @@ impl SecretKey {
     ///
     /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
-        let path = path.as_ref();
-        read_key_file::<{ Self::SIZE }, _, _>(
-            path,
-            |bytes| Self::from_bytes(bytes.to_vec()),
-            || {
-                let key = envelope::read_envelope(path, &mut ())?;
-                trace!(consensus::kes::LEGACY_KEY_ENVELOPE, path = path.to_string_lossy());
-                Ok(key)
-            },
-        )
+        envelope::read_key_file::<{ Self::SIZE }, _, _, _>(path.as_ref(), "kes_signing", &mut (), |bytes| {
+            Self::from_bytes(bytes.to_vec())
+        })
     }
 
     /// Write the raw period-zero signing key, without a period suffix.

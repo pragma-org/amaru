@@ -51,7 +51,14 @@ pub fn read_envelope<C, T: for<'d> cbor::Decode<'d, C> + HasEnvelope>(
     ctx: &mut C,
 ) -> Result<T, ReadEnvelopeError> {
     let bytes = Zeroizing::new(fs::read(file)?);
-    let envelope: Envelope = serde_json::from_slice(&bytes)?;
+    decode_envelope(&bytes, ctx)
+}
+
+fn decode_envelope<C, T: for<'d> cbor::Decode<'d, C> + HasEnvelope>(
+    bytes: &[u8],
+    ctx: &mut C,
+) -> Result<T, ReadEnvelopeError> {
+    let envelope: Envelope = serde_json::from_slice(bytes)?;
     if !T::ACCEPTED_TYPES.is_empty() {
         match envelope.r#type {
             Some(ref found) if T::ACCEPTED_TYPES.contains(&found.as_str()) => {}
@@ -68,12 +75,29 @@ pub fn read_envelope<C, T: for<'d> cbor::Decode<'d, C> + HasEnvelope>(
     }
     let mut payload = Zeroizing::new(vec![0u8; envelope.cbor_hex.len() / 2]);
     hex::decode_to_slice(envelope.cbor_hex.as_bytes(), &mut payload)?;
-    let mut decoder = cbor::Decoder::new(&payload);
+    decode_cbor(&payload, ctx)
+}
+
+fn decode_cbor<C, T: for<'d> cbor::Decode<'d, C>>(bytes: &[u8], ctx: &mut C) -> Result<T, ReadEnvelopeError> {
+    let mut decoder = cbor::Decoder::new(bytes);
     let value = decoder.decode_with(ctx)?;
-    if decoder.position() != payload.len() {
-        return Err(ReadEnvelopeError::TrailingBytes(payload.len() - decoder.position()));
+    if decoder.position() != bytes.len() {
+        return Err(ReadEnvelopeError::TrailingBytes(bytes.len() - decoder.position()));
     }
     Ok(value)
+}
+
+/// Read binary CBOR or a legacy cardano-cli JSON envelope.
+/// Both formats must decode completely, without trailing bytes.
+pub fn read_cbor_or_envelope<C, T: for<'d> cbor::Decode<'d, C> + HasEnvelope>(
+    path: impl AsRef<Path>,
+    ctx: &mut C,
+) -> Result<T, ReadEnvelopeError> {
+    let bytes = Zeroizing::new(fs::read(path.as_ref())?);
+    if bytes.iter().find(|byte| !byte.is_ascii_whitespace()) == Some(&b'{') {
+        return decode_envelope(&bytes, ctx);
+    }
+    decode_cbor(&bytes, ctx)
 }
 
 /// Read an exact-size raw key, otherwise use the envelope reader. File contents are zeroed on drop.

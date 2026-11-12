@@ -118,10 +118,11 @@ use amaru_observability_macros::define_schemas;
 define_schemas! {
     amaru {
         consensus {
-            kes {
-                /// Loaded a legacy KES signing-key text envelope; new keys should use raw binary files
+            credentials {
+                /// Loaded a legacy key text envelope; new keys should use raw binary files
                 public event LEGACY_KEY_ENVELOPE {
                     levels: trace
+                    required key_kind: String
                     required path: String
                 }
             }
