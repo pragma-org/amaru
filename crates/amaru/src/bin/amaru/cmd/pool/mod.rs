@@ -12,13 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs, io, path::Path};
+use std::{
+    fs,
+    io::{self, Write},
+    path::Path,
+};
 
 use amaru::lifecycle::Runnable;
 use anyhow::{Context, ensure};
 use tempfile::NamedTempFile;
 
 pub mod cert;
+pub mod cold;
 pub mod id;
 pub mod kes;
 pub mod schedule;
@@ -29,6 +34,9 @@ pub mod vrf;
 pub(crate) enum PoolCommand {
     #[command(subcommand)]
     Cert(cert::CertCommand),
+
+    #[command(subcommand)]
+    Cold(cold::ColdCommand),
 
     #[command(subcommand)]
     Kes(kes::KesCommand),
@@ -47,6 +55,7 @@ impl PoolCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
             Self::Cert(cmd) => cmd.into_runnable(),
+            Self::Cold(cmd) => cmd.into_runnable(),
             Self::Kes(cmd) => cmd.into_runnable(),
             Self::Id(cmd) => cmd.into_runnable(),
             Self::Schedule(cmd) => cmd.into_runnable(),
@@ -66,29 +75,11 @@ fn write_key_pair(
         ensure!(signing_key != verification_key, "key paths must differ");
     }
 
-    for path in [Some(signing_key), verification_key].iter().flatten() {
-        let exists = path.try_exists().with_context(|| format!("could not check {}", path.display()))?;
-        ensure!(!exists, "{} already exists", path.display());
-    }
-
+    [Some(signing_key), verification_key].into_iter().flatten().try_for_each(ensure_absent)?;
     let signing = prepare_key(write_signing, signing_key)?;
-
-    if let Some(verification_key) = verification_key {
-        let verification = prepare_key(write_verification, verification_key)?;
-        verification
-            .persist_noclobber(verification_key)
-            .with_context(|| format!("could not save {}", verification_key.display()))?;
-    };
-
-    signing
-        .persist_noclobber(signing_key)
-        .inspect_err(|_| {
-            if let Some(verification_key) = verification_key {
-                let _ = fs::remove_file(verification_key);
-            }
-        })
-        .with_context(|| format!("could not save {}", signing_key.display()))?;
-    Ok(())
+    let verification =
+        verification_key.map(|path| prepare_key(write_verification, path).map(|file| (path, file))).transpose()?;
+    publish_new(verification.into_iter().chain([(signing_key, signing)]))
 }
 
 fn prepare_key(
@@ -103,4 +94,35 @@ fn prepare_key(
 
 fn parent(path: &Path) -> &Path {
     path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+}
+
+/// Stage bytes beside their destination, with private permissions and flushed contents.
+fn prepare_file(path: &Path, bytes: &[u8]) -> anyhow::Result<NamedTempFile> {
+    let file = prepare_key(|file| file.write_all(bytes), path)?;
+    file.as_file().sync_all()?;
+    Ok(file)
+}
+
+fn ensure_absent(path: &Path) -> anyhow::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => anyhow::bail!("{} already exists", path.display()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("could not check {}", path.display())),
+    }
+}
+
+/// Publish a group of new files without replacing existing files, undoing partial publication on error.
+fn publish_new<'a>(files: impl IntoIterator<Item = (&'a Path, NamedTempFile)>) -> anyhow::Result<()> {
+    let mut published: Vec<&Path> = Vec::new();
+    for (path, file) in files {
+        if let Err(error) = file.persist_noclobber(path) {
+            for path in published {
+                fs::remove_file(path)
+                    .with_context(|| format!("could not remove partially created {}", path.display()))?;
+            }
+            return Err(error).with_context(|| format!("could not save {}", path.display()));
+        }
+        published.push(path);
+    }
+    Ok(())
 }

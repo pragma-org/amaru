@@ -1476,6 +1476,21 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::consensus::credentials`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `legacy_key_envelope` | `event` | trace | public | Loaded a legacy key text envelope; new keys should use raw binary files | key_kind, path |  |
+
+<details><summary>event: `legacy_key_envelope`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `key_kind` | `string` | ✓ |
+| `path` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::consensus::db_chain_migration`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -1609,20 +1624,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `slot` | `integer` | ✓ |
 | `step` | `string` | ✓ |
 | `error` | `string` | ✓ |
-
-</details>
-
-## target: `amaru::consensus::kes`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `legacy_key_envelope` | `event` | trace | public | Loaded a legacy KES signing-key text envelope; new keys should use raw binary files | path |  |
-
-<details><summary>event: `legacy_key_envelope`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `path` | `string` | ✓ |
 
 </details>
 

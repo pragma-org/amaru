@@ -15,17 +15,20 @@
 use amaru::lifecycle::Runnable;
 use clap::Subcommand;
 
+pub mod create;
 pub mod inspect;
 
 /// Manage operational certificates.
 #[derive(Debug, Subcommand)]
 pub enum CertCommand {
+    Create(create::CreateArgs),
     Inspect(inspect::InspectArgs),
 }
 
 impl CertCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
+            Self::Create(cmd) => cmd.into_runnable(),
             Self::Inspect(cmd) => cmd.into_runnable(),
         }
     }
