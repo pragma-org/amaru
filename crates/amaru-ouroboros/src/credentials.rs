@@ -328,7 +328,7 @@ mod tests {
     use amaru_kernel::{
         IsHeader, Slot, cbor,
         ed25519::Signer,
-        protocol_version::{PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
+        protocol_version::{self, PROTOCOL_VERSION_10, PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
     };
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
     use serde::Deserialize;
@@ -809,5 +809,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cold, credentials.issuer_verification_key());
+    }
+
+    /// Operator files are decoded at [`protocol_version::DEFAULT`], which callers do not choose.
+    /// As long as every supported version yields the same result for the files cardano-cli
+    /// actually writes, that choice cannot be observed. Once a version decodes them differently,
+    /// or stops accepting them, this breaks and the caller has to try several versions.
+    #[test]
+    fn cardano_cli_fixtures_decode_the_same_under_every_supported_protocol_version() {
+        let supported = [PROTOCOL_VERSION_10, PROTOCOL_VERSION_11, PROTOCOL_VERSION_12];
+        assert!(supported.contains(&protocol_version::DEFAULT), "the version used in production must be covered");
+        assert_eq!(*supported.first().unwrap(), protocol_version::MINIMUM_SUPPORTED);
+
+        let decoded = supported.map(|version| {
+            let (certificate, cold) = load_operational_certificate(forging_fixture("node.cert"), version)
+                .unwrap_or_else(|e| panic!("node.cert must decode at protocol version {version}: {e}"));
+            let cold_file = load_cold_verification_key(forging_fixture("cold.vkey"), version)
+                .unwrap_or_else(|e| panic!("cold.vkey must decode at protocol version {version}: {e}"));
+            (certificate, cold, cold_file)
+        });
+
+        for (version, result) in supported.iter().zip(decoded.iter()) {
+            assert_eq!(result, &decoded[0], "protocol version {version} decodes the fixtures differently");
+        }
     }
 }
