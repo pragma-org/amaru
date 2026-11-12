@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! In-process block-producer secrets for a testnet trial.
+//! Block-producer credentials and offline transaction signing keys.
 //!
 //! The KES signing key, VRF signing key, and operational certificate are read from the
-//! unencrypted text envelopes cardano-cli already writes. The cold key stays in
-//! the certificate file; it is not loaded on its own.
+//! unencrypted text envelopes cardano-cli already writes. Transaction signing keys
+//! are read from raw seeds and stay outside the block producer.
 
-use std::{fmt, path::Path, sync::Mutex};
+use std::{fmt, fs, io, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
+    OperationalCert, Point, ProtocolVersion, TransactionId, VerificationKey, VerificationKeyWitness, VrfCert,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::BLOCK_BODY,
@@ -30,6 +30,7 @@ use amaru_kernel::{
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::{
     kes,
@@ -38,6 +39,29 @@ use crate::{
 };
 
 const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
+
+/// A non-extended Ed25519 transaction signing key. Its seed is wiped on drop.
+pub struct TransactionSigningKey(ed25519::SigningKey);
+
+impl TransactionSigningKey {
+    /// Load a raw 32-byte Ed25519 signing seed.
+    pub fn from_file(path: impl AsRef<Path>) -> io::Result<Self> {
+        let bytes = Zeroizing::new(fs::read(path)?);
+        let seed = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "expected a raw 32-byte Ed25519 signing seed"))?;
+        Ok(Self(ed25519::SigningKey::from_bytes(seed)))
+    }
+
+    /// Sign the hash of the original transaction body.
+    pub fn witness(&self, transaction_id: TransactionId) -> VerificationKeyWitness {
+        VerificationKeyWitness {
+            verification_key: VerificationKey::from(self.0.verifying_key().to_bytes()),
+            signature: Ed25519Signature::from(ed25519::Signer::sign(&self.0, transaction_id.as_slice()).to_bytes()),
+        }
+    }
+}
 
 /// Block-producer secrets loaded from cardano-cli files and held in this process.
 ///
