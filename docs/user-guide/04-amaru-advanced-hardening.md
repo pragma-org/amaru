@@ -105,6 +105,10 @@ table inet filter {
 
         # ct state established, related accept
         # ct state invalid drop
+
+        # Allow Docker containers outbound connections
+        # (e.g. Traefik asking for cert renewal)
+        # ip saddr 172.16.0.0/12 accept
         
         # If you need to access your grafana dashboard 
         # Which is published on "80:3000"
