@@ -99,7 +99,7 @@ signal-hook = { version = "0.3", default-features = false }
 socket2 = "0.6.5"
 stacksafe = { version = "1", features = ["serde"] }
 syn = { version = "3.0.2", features = ["full"] }
-sysinfo = "0.39.6"
+sysinfo = { version = "0.39.6", default-features = false, features = ["disk", "system"] }
 tar = "0.4.46"
 tempfile = "3.27.0"
 test-case = "3.3.1"
