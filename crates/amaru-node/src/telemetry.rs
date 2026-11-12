@@ -120,10 +120,12 @@ impl Telemetry {
     /// Install process-wide tracing and optional OTLP export.
     ///
     /// Environment:
-    /// - `AMARU_WITH_OPEN_TELEMETRY` — when truthy (`1`/`true`/`yes`/`on`), export
-    ///   metrics, traces, and logs via OTLP (see `OTEL_EXPORTER_OTLP_ENDPOINT`).
-    /// - `AMARU_WITH_JSON_TRACES` — when truthy, forces [`LogFormat::Json`]
-    ///   regardless of `format` (used by trace-contract checks).
+    /// - `AMARU_LOG_OTLP` — when truthy (`1`/`true`/`yes`/`on`), export metrics,
+    ///   traces, and logs via OTLP;
+    /// - `AMARU_WITH_OPEN_TELEMETRY` — deprecated fallback for
+    ///   `AMARU_LOG_OTLP`.
+    /// - `AMARU_LOG_JSON` — when truthy, forces [`LogFormat::Json`].
+    /// - `AMARU_WITH_JSON_TRACES` — deprecated fallback for `AMARU_LOG_JSON`.
     /// - `AMARU_TRACE` — filter for Amaru event targets (default `info`).
     /// - `RUST_LOG` — optional extra filter for non-schema logging.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
@@ -143,8 +145,9 @@ impl Telemetry {
     /// Set [`TelemetryOptions::collect_system_metrics`] to `false` on platforms
     /// where sysinfo collection is unavailable, including iOS.
     pub async fn install_with_options(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
-        let with_otlp = env_flag("AMARU_WITH_OPEN_TELEMETRY");
-        let format = if env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
+        let with_otlp = env_flag("AMARU_LOG_OTLP") || env_flag("AMARU_WITH_OPEN_TELEMETRY");
+        let format =
+            if env_flag("AMARU_LOG_JSON") || env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
 
         // Yield once so this future is clearly runtime-bound; batch exporters
         // also require a current runtime handle when constructed below.

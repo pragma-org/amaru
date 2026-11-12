@@ -25,7 +25,7 @@ jobs:
     env:
       AMARU_NETWORK: ${{ matrix.network }}
       AMARU_TUI_OFF: "true"
-      AMARU_WITH_JSON_TRACES: "true"
+      AMARU_LOG_JSON: "true"
       AMARU_TRACE: "error,amaru=info,amaru_pure_stage=warn"
       AMARU_BIN: target/release/amaru
 

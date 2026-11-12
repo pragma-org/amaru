@@ -19,7 +19,7 @@ run-amaru: ## Run Amaru with OpenTelemetry enabled
 	OTEL_SERVICE_NAME=amaru \
 	OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 	OTEL_METRIC_EXPORT_INTERVAL=1000 \
-	amaru --with-open-telemetry node run
+	amaru node run --log-otlp
 
 down: ## Stop and remove the monitoring stack
 	$(STACK) down --remove-orphans

@@ -135,10 +135,18 @@ impl TracingSubscriber<Registry> {
     ///
     /// Accepts the shared [`TelemetryCaptureLayer`] from `amaru-observability` so product setup
     /// does not depend on TUI types.
+    pub fn with_local_telemetry(&mut self, layer: TelemetryCaptureLayer) -> DelayedWarning {
+        self.with_local_telemetry_reporting(layer, true)
+    }
+
     #[expect(clippy::panic)]
     #[expect(clippy::wildcard_enum_match_arm)]
-    pub fn with_local_telemetry(&mut self, layer: TelemetryCaptureLayer) -> DelayedWarning {
-        let (default_filter, warning) = new_trace_filter();
+    fn with_local_telemetry_reporting(
+        &mut self,
+        layer: TelemetryCaptureLayer,
+        report_setup_logs: bool,
+    ) -> DelayedWarning {
+        let (default_filter, warning) = new_trace_filter(report_setup_logs);
 
         match std::mem::take(self) {
             Self::Registry(registry) => {
@@ -178,6 +186,15 @@ impl TracingSubscriber<Registry> {
     }
 
     pub fn init(self, color: bool, outputs: &[crate::trace_output::TraceOutputSpec]) -> anyhow::Result<DelayedWarning> {
+        self.init_reporting(color, outputs, true)
+    }
+
+    fn init_reporting(
+        self,
+        color: bool,
+        outputs: &[crate::trace_output::TraceOutputSpec],
+        report_setup_logs: bool,
+    ) -> anyhow::Result<DelayedWarning> {
         // Skip the extra layer entirely when the operator asked for no files, so the
         // subscriber stack on that path stays what it was.
         macro_rules! with_outputs {
@@ -195,7 +212,7 @@ impl TracingSubscriber<Registry> {
         match self {
             TracingSubscriber::Empty => unreachable!(),
             TracingSubscriber::Registry(registry) => {
-                let (default_filter, warning) = new_log_filter();
+                let (default_filter, warning) = new_log_filter(report_setup_logs);
                 with_outputs!(registry, |subscriber| {
                     subscriber
                         .with(SpanDurationLayer::new())
@@ -213,7 +230,7 @@ impl TracingSubscriber<Registry> {
                 Ok(warning)
             }
             TracingSubscriber::WithOpenTelemetry(layered) => {
-                let (default_filter, warning) = new_log_filter();
+                let (default_filter, warning) = new_log_filter(report_setup_logs);
                 with_outputs!(layered, |subscriber| {
                     subscriber
                         .with(SpanDurationLayer::new())
@@ -263,11 +280,18 @@ impl TracingSubscriber<Registry> {
 // ---------------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> DelayedWarning {
+    setup_json_traces_reporting(subscriber, true)
+}
+
+fn setup_json_traces_reporting(
+    subscriber: &mut TracingSubscriber<Registry>,
+    report_setup_logs: bool,
+) -> DelayedWarning {
     let events = || FmtSpan::ACTIVE | FmtSpan::CLOSE;
 
     subscriber.with_json(
         || {
-            let (default_filter, warning) = new_trace_filter();
+            let (default_filter, warning) = new_trace_filter(report_setup_logs);
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
@@ -278,7 +302,7 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) -> Delaye
             )
         },
         || {
-            let (default_filter, warning) = new_trace_filter();
+            let (default_filter, warning) = new_trace_filter(report_setup_logs);
             (
                 tracing_subscriber::fmt::layer()
                     .with_span_events(events())
@@ -350,12 +374,21 @@ pub fn setup_open_telemetry(
     resource: Resource,
     signals: OtelSignals,
 ) -> anyhow::Result<(OpenTelemetryHandle, DelayedWarning)> {
+    setup_open_telemetry_reporting(subscriber, resource, signals, true)
+}
+
+fn setup_open_telemetry_reporting(
+    subscriber: &mut TracingSubscriber<Registry>,
+    resource: Resource,
+    signals: OtelSignals,
+    report_setup_logs: bool,
+) -> anyhow::Result<(OpenTelemetryHandle, DelayedWarning)> {
     let providers = OpenTelemetryProviders::try_new(resource, &signals)?;
     let meter =
         providers.meter_provider().map(|provider| Meter::from(provider.meter(METRICS_METER_NAME))).unwrap_or_default();
 
     let (opentelemetry_layer, warning) = if let Some(provider) = providers.tracer_provider() {
-        let (filter, warning) = new_trace_filter();
+        let (filter, warning) = new_trace_filter(report_setup_logs);
         let layer = tracing_opentelemetry::layer()
             .with_tracer(provider.tracer(providers.service_name().to_string()))
             .with_level(true)
@@ -368,7 +401,7 @@ pub fn setup_open_telemetry(
 
     // Logs: project-owned bridge so CBOR field payloads become nested AnyValue maps/lists.
     let (log_bridge, logs_warning) = if let Some(provider) = providers.logger_provider() {
-        let (filter, warning) = new_trace_filter();
+        let (filter, warning) = new_trace_filter(report_setup_logs);
         (Some(CborOtelLogBridge::new(provider).with_filter(filter)), warning)
     } else {
         (None, None)
@@ -597,51 +630,57 @@ impl<S: Subscriber> Filter<S> for OtelErrorFilter {
     }
 }
 
-fn new_default_filter(var: &str, default: &str) -> (OtelErrorFilter, DelayedWarning) {
+fn new_default_filter(var: &str, default: &str, report_setup_logs: bool) -> (OtelErrorFilter, DelayedWarning) {
     let (filter, warning) = match EnvFilter::try_from_env(var) {
         Ok(filter) => {
             let var = var.to_string();
             let value = std::env::var(&var).unwrap_or_default();
-            let notice = Box::new(move || {
-                info!(setup::trace::FILTER, var, value, provided_by_user = true);
-            }) as Box<dyn FnOnce()>;
-            (filter, Some(notice))
+            let notice = report_setup_logs.then(|| {
+                Box::new(move || {
+                    info!(setup::trace::FILTER, var, value, provided_by_user = true);
+                }) as Box<dyn FnOnce()>
+            });
+            (filter, notice)
         }
         Err(e) => {
             // Notice stashed for when the tracing system is up.
             let fallback = default.to_string();
             let var = var.to_string();
-            let warning = match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
-                Some(VarError::NotPresent) => Box::new(move || {
-                    info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
-                }) as Box<dyn FnOnce()>,
-                _ => Box::new(move || {
-                    warn!(
-                        setup::trace::FILTER,
-                        var,
-                        value = fallback,
-                        provided_by_user = true,
-                        provided_invalid = true,
-                        error = e.to_string()
-                    );
-                }) as Box<dyn FnOnce()>,
+            let warning = if report_setup_logs {
+                Some(match e.source().and_then(|e| e.downcast_ref::<VarError>()) {
+                    Some(VarError::NotPresent) => Box::new(move || {
+                        info!(setup::trace::FILTER, var, value = fallback, provided_by_user = false);
+                    }) as Box<dyn FnOnce()>,
+                    _ => Box::new(move || {
+                        warn!(
+                            setup::trace::FILTER,
+                            var,
+                            value = fallback,
+                            provided_by_user = true,
+                            provided_invalid = true,
+                            error = e.to_string()
+                        );
+                    }) as Box<dyn FnOnce()>,
+                })
+            } else {
+                None
             };
 
             #[expect(clippy::expect_used)]
             let filter = EnvFilter::try_new(default).expect("invalid default filter");
-            (filter, Some(warning))
+            (filter, warning)
         }
     };
     let reporter = OTEL_EXPORT_REPORTER.get_or_init(OtelExportReporter::start);
     (OtelErrorFilter::new(filter, reporter.clone()), warning)
 }
 
-fn new_log_filter() -> (OtelErrorFilter, DelayedWarning) {
-    new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER)
+fn new_log_filter(report_setup_logs: bool) -> (OtelErrorFilter, DelayedWarning) {
+    new_default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER, report_setup_logs)
 }
 
-fn new_trace_filter() -> (OtelErrorFilter, DelayedWarning) {
-    new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER)
+fn new_trace_filter(report_setup_logs: bool) -> (OtelErrorFilter, DelayedWarning) {
+    new_default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER, report_setup_logs)
 }
 
 /// Optional in-process telemetry sinks supplied by the product binary or an embedder
@@ -682,10 +721,34 @@ pub fn try_setup_observability(
     hints: &impl ObservabilityHints,
     trace_outputs: &[crate::trace_output::TraceOutputSpec],
 ) -> anyhow::Result<OpenTelemetryHandle> {
+    try_setup_observability_reporting(
+        with_open_telemetry,
+        open_telemetry_signals,
+        with_json_traces,
+        local,
+        color,
+        hints,
+        trace_outputs,
+        true,
+    )
+}
+
+/// Configure observability while optionally suppressing startup configuration events.
+#[expect(clippy::too_many_arguments)]
+pub fn try_setup_observability_reporting(
+    with_open_telemetry: bool,
+    open_telemetry_signals: OtelSignals,
+    with_json_traces: bool,
+    local: Option<LocalTelemetry>,
+    color: bool,
+    hints: &impl ObservabilityHints,
+    trace_outputs: &[crate::trace_output::TraceOutputSpec],
+    report_setup_logs: bool,
+) -> anyhow::Result<OpenTelemetryHandle> {
     let mut subscriber = TracingSubscriber::new();
 
     let (OpenTelemetryHandle { mut meter, teardown }, warning_otlp) = if with_open_telemetry {
-        setup_open_telemetry(&mut subscriber, new_resource(hints), open_telemetry_signals)?
+        setup_open_telemetry_reporting(&mut subscriber, new_resource(hints), open_telemetry_signals, report_setup_logs)?
     } else {
         (OpenTelemetryHandle::default(), None)
     };
@@ -694,20 +757,27 @@ pub fn try_setup_observability(
         if let Some(observer) = local.metrics_observer {
             meter.set_local_observer(observer);
         }
-        if let Some(layer) = local.capture_layer { subscriber.with_local_telemetry(layer) } else { None }
+        if let Some(layer) = local.capture_layer {
+            subscriber.with_local_telemetry_reporting(layer, report_setup_logs)
+        } else {
+            None
+        }
     } else {
         None
     };
 
-    let warning_json = if with_json_traces { setup_json_traces(&mut subscriber) } else { None };
+    let warning_json =
+        if with_json_traces { setup_json_traces_reporting(&mut subscriber, report_setup_logs) } else { None };
 
-    let warning_log = subscriber.init(color, trace_outputs)?;
+    let warning_log = subscriber.init_reporting(color, trace_outputs, report_setup_logs)?;
 
     for notify in [warning_otlp, warning_local, warning_json, warning_log].into_iter().flatten() {
         notify();
     }
 
-    info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color,);
+    if report_setup_logs {
+        info!(setup::observability::INIT, with_open_telemetry, with_json_traces, with_colors = color,);
+    }
 
     Ok(OpenTelemetryHandle { meter, teardown })
 }

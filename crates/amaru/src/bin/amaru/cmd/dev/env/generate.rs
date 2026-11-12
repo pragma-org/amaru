@@ -220,7 +220,9 @@ fn extend_environment_variables(
     variables: &mut BTreeMap<String, EnvironmentVariable>,
     command: &Command,
 ) -> anyhow::Result<()> {
-    for (arg, env) in command.get_arguments().filter_map(|arg| arg.get_env().map(|env| (arg, env))) {
+    for (arg, env) in
+        command.get_arguments().filter(|arg| !arg.is_hide_set()).filter_map(|arg| arg.get_env().map(|env| (arg, env)))
+    {
         let name = env.to_string_lossy().into_owned();
         if name.starts_with("AMARU_GLOBAL_") {
             continue;
@@ -370,7 +372,8 @@ mod tests {
     fn collects_the_node_environment_contract() {
         let variables = collect_environment_variables(&cli::command("test")).expect("command tree is valid");
 
-        assert_eq!(variables["AMARU_WITH_JSON_TRACES"].meta_type, "BOOL");
+        assert_eq!(variables["AMARU_LOG_JSON"].meta_type, "BOOL");
+        assert!(!variables.contains_key("AMARU_WITH_JSON_TRACES"));
         assert_eq!(variables["AMARU_DB_LEDGER_MAX_EXTRA_SNAPSHOTS"].meta_type, "UINT|all");
         assert!(variables.contains_key("AMARU_S3_BUCKET"));
         assert!(!variables.contains_key("AMARU_GLOBAL_SYSTEM_START"));

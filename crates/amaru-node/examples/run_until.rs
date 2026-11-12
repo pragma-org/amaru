@@ -15,11 +15,12 @@
 //! Thin embedder: run Amaru until a target ledger epoch, then stop from outside.
 //!
 //! Observability is installed via [`amaru_node::Telemetry`], which honours the
-//! same env knobs as the product binary (`AMARU_WITH_OPEN_TELEMETRY`,
-//! `AMARU_WITH_JSON_TRACES`, `AMARU_TRACE`, `OTEL_*`).
+//! same env knobs as the product binary (`AMARU_LOG_OTLP`, `AMARU_LOG_JSON`,
+//! `AMARU_TRACE`, `OTEL_*`). The previous `AMARU_WITH_OPEN_TELEMETRY` and
+//! `AMARU_WITH_JSON_TRACES` names remain accepted as deprecated fallbacks.
 //!
 //! ```text
-//! AMARU_WITH_OPEN_TELEMETRY=true cargo run -p amaru-node --example run_until -- \
+//! AMARU_LOG_OTLP=true cargo run -p amaru-node --example run_until -- \
 //!   --network preprod --epoch 173
 //! ```
 

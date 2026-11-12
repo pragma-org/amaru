@@ -78,7 +78,13 @@ AMARU_DB_LEDGER_MAX_EXTRA_SNAPSHOTS=0
 # AMARU_ERA_HISTORY=
 
 # <PATH:FILTER> Also write traces to a file. Repeat for one file per occurrence.
-# AMARU_LOG_OUTPUT=
+# AMARU_LOG_EXPORT=
+
+# <BOOL> Emit trace events as structured JSON instead of human-readable text.
+AMARU_LOG_JSON=true
+
+# <metrics|traces|logs> Export OpenTelemetry signals via OTLP; without a value, export all signals.
+# AMARU_LOG_OTLP=
 
 # <mainnet|preprod|preview|testnet_<U32>> Target Cardano network.
 AMARU_NETWORK="mainnet"
@@ -86,17 +92,14 @@ AMARU_NETWORK="mainnet"
 # <FILEPATH> Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
 # AMARU_OPERATOR_CERT=
 
-# <FILEPATH> KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
+# <FILEPATH> KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
 # AMARU_OPERATOR_KES=
 
-# <FILEPATH> VRF signing key, as a raw 32-byte seed or an unencrypted cardano-cli `vrf.skey` text envelope.
+# <FILEPATH> VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
 # AMARU_OPERATOR_VRF=
 
 # <HOSTNAME[:PORT]> Upstream peer addresses to synchronize from.
 # AMARU_PEER=
-
-# <BOOL> Bind outbound connections to an ephemeral local port instead of the listen port.
-AMARU_PEERS_EPHEMERAL_OUTBOUND_PORT=false
 
 # <HOSTNAME[:PORT]> The address to listen on for incoming connections.
 AMARU_PEERS_LISTEN_ON="0.0.0.0:3001"
@@ -131,9 +134,6 @@ AMARU_S3_PUBLIC_URL="https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev"
 # <auto|REGION> S3-compatible region.
 AMARU_S3_REGION="auto"
 
-# <BOOL> Mark forged blocks as opted out of CIP-0203 producer identification, instead of naming Amaru and its release day.
-AMARU_SOFTWARE_TAG_OFF=false
-
 # <HOSTNAME[:PORT]> Address for the HTTP transaction submit API.
 # AMARU_SUBMIT_API_LISTEN_ON=
 
@@ -148,12 +148,6 @@ AMARU_TUI_LOG_RETENTION="100MiB"
 
 # <BOOL> Disable the embedded terminal dashboard, even in an interactive terminal.
 AMARU_TUI_OFF=false
-
-# <BOOL> Emit trace events as structured JSON instead of human-readable text.
-AMARU_WITH_JSON_TRACES=true
-
-# <SIGNALS> Export OpenTelemetry signals via OTLP; without a value, export all signals.
-# AMARU_WITH_OPEN_TELEMETRY=
 
 # <MILLISECONDS> Interval between two OTLP metrics exports.
 OTEL_METRIC_EXPORT_INTERVAL=1000
@@ -218,11 +212,11 @@ AMARU_TRACE=INFO
 AMARU_PEER=my-own-peer.example.com:3001,1.2.3.4:3001
 AMARU_PEERS_MAX_UPSTREAM=30
 AMARU_PEERS_MAX_DOWNSTREAM=30
-AMARU_WITH_OPEN_TELEMETRY=true
+AMARU_LOG_OTLP=true
 ```
 
 :::note
-`AMARU_WITH_OPEN_TELEMETRY` allow Amaru to send traces to the OTLP collector
+`AMARU_LOG_OTLP` allow Amaru to send traces to the OTLP collector
 `OTEL_METRIC_EXPORT_INTERVAL` is the time in milliseconds between two OTLP metrics exports. Amaru defaults it to `1000` (1s) instead of the [OpenTelemetry default of 60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader).
 :::
 
@@ -232,6 +226,7 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 
 <details>
 <summary><strong>Here is the same config list in txt</strong></summary>
+
 ```bash
 ┌─ [ AMARU ] [ CARDANO ] [ CONFIG ] ─────────────────────────────────────────────────────────────────────────────────  COPY MODE  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │┌─ Essential ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐┌─ Protocol Parameters · Network ─────────────────────────────────────────────────────────────┐│
@@ -284,8 +279,6 @@ You can get the full config list with the TUI under the config menu (press `ESC`
 │                                                                                                                                                                                                                                                 │
 └───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── <esc> NORMAL MODE ─┘
 ```
-
-
 </details>
 
 ## 4. Running the node as a systemd service
@@ -303,15 +296,15 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
 
-When running Amaru in CLI use `--with-open-telemetry`:
+When running Amaru in CLI use `--log-otlp`:
 
 ```bash
-amaru --with-open-telemetry node run --network preprod
+amaru node run --log-otlp --network preprod
 ```
 
-When running Amaru as a systemd service set the env variable `AMARU_WITH_OPEN_TELEMETRY`:
+When running Amaru as a systemd service set the env variable `AMARU_LOG_OTLP`:
 ```bash title="/etc/default/amaru"
-AMARU_WITH_OPEN_TELEMETRY=true
+AMARU_LOG_OTLP=true
 ```
 
 :::note

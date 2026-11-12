@@ -120,10 +120,10 @@ amaru node run --network=mainnet
 ```
 
 > [!TIP]
-> To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_WITH_OPEN_TELEMETRY=true`:
+> To ensure logs are forwarded to an OpenTelemetry backend, set `AMARU_LOG_OTLP=true`:
 >
 > ```console
-> amaru --with-open-telemetry node run --network=mainnet
+> amaru node run --log-otlp --network=mainnet
 > ```
 >
 > See also `amaru node run --help` for more options.

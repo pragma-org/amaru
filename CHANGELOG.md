@@ -41,6 +41,11 @@ Other guiding principles:
 
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
 
+### Changed
+
+- **amaru**: logging options are now scoped to `node run` and `mithril sync`. Use `--log-json`, `--log-export`, and `--log-otlp` (or `AMARU_LOG_JSON`, `AMARU_LOG_EXPORT`, and `AMARU_LOG_OTLP`); the previous option and environment names remain accepted as (now deprecated) aliases.
+- **amaru**: commands without logging options no longer emit startup filter, observability, or build-version events.
+
 ### Fixed
 
 - **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.

@@ -16,6 +16,7 @@
 
 use std::fmt;
 
+use serde::ser::SerializeStruct;
 use time::{Date, Duration, Month, macros::date};
 
 /// Block producer identifier carried in the minor component of a header's `protocol_version`.
@@ -24,6 +25,24 @@ pub enum SoftwareTag {
     NoSignal,
     OptOut,
     Attributed { id: ProducerId, payload: Payload },
+}
+
+impl serde::Serialize for SoftwareTag {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::NoSignal => serializer.serialize_str("no_signal"),
+            Self::OptOut => serializer.serialize_str("opt_out"),
+            Self::Attributed { id, payload } => {
+                let mut state = serializer.serialize_struct("SoftwareTag", 2)?;
+                state.serialize_field("id", id)?;
+                state.serialize_field("payload", payload)?;
+                state.end()
+            }
+        }
+    }
 }
 
 impl SoftwareTag {
@@ -75,7 +94,7 @@ pub enum SoftwareTagError {
 }
 
 /// Registered producer id; `0` and `255` are not ids.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
 pub struct ProducerId(u8);
 
@@ -119,7 +138,7 @@ impl fmt::Display for ProducerId {
 pub struct ProducerIdError(u8);
 
 /// Implementation-defined 22 bits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
 pub struct Payload(u32);
 
@@ -164,7 +183,7 @@ pub struct PayloadError(u32);
 /// ```
 ///
 /// No flags are assigned: they are written as `0` and ignored when read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct AmaruTag {
     release_day: ReleaseDay,
 }
@@ -233,8 +252,9 @@ pub enum AmaruTagError {
 }
 
 /// Days since 2026-01-01 (UTC); `0` is an unreleased build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[repr(transparent)]
+#[serde(into = "String")]
 pub struct ReleaseDay(u16);
 
 impl ReleaseDay {
@@ -279,6 +299,12 @@ impl ReleaseDay {
 
     pub const fn days(&self) -> u16 {
         self.0
+    }
+}
+
+impl From<ReleaseDay> for String {
+    fn from(release_day: ReleaseDay) -> Self {
+        release_day.to_string()
     }
 }
 
@@ -374,6 +400,16 @@ mod tests {
         for minor in [0, 255, 0x45, 0x0042_C041, 0x3FFF_FF45] {
             assert_eq!(u32::from(SoftwareTag::try_from(minor).unwrap()), minor);
         }
+    }
+
+    #[test]
+    fn software_tag_serializes_special_values_as_distinct_strings() {
+        assert_eq!(serde_json::to_value(SoftwareTag::NoSignal).unwrap(), serde_json::json!("no_signal"));
+        assert_eq!(serde_json::to_value(SoftwareTag::OptOut).unwrap(), serde_json::json!("opt_out"));
+        assert_eq!(
+            serde_json::to_value(SoftwareTag::Attributed { id: ProducerId(69), payload: Payload(7) }).unwrap(),
+            serde_json::json!({"id": 69, "payload": 7})
+        );
     }
 
     #[test]

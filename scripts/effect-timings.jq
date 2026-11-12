@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Inverse CDF of external-effect durations from an ndjson log of span-close events.
-# You can obtain this by adding `--log-output timings.ndjson:none,amaru_pure_stage::effect=debug`
+# You can obtain this by adding `--log-export timings.ndjson:none,amaru_pure_stage::effect=debug`
 # when running Amaru.
 #
 # Each span close contributes its busy time and its idle time as separate samples.
