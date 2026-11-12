@@ -34,7 +34,7 @@ use amaru_pure_stage::StageRef;
 use crate::stages::{
     mempool::{
         MempoolStageState,
-        stage::{RejectedTxs, tx_digest},
+        stage::{InvalidTxsCache, tx_digest},
         test_setup::{
             TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_record_metrics, te_send,
             te_validate_tx,
@@ -74,7 +74,7 @@ fn insert_batch_returns_one_result_per_transaction() {
             te_send("mempool-1", "caller", expected_results(&txs)),
             te_state(
                 "mempool-1",
-                &MempoolStageState::with_rejected(RejectedTxs::of([(
+                &MempoolStageState::with_invalid_txs_cache(InvalidTxsCache::of([(
                     tx_digest(&txs[1]),
                     expected_results(&txs).remove(1),
                 )])),
@@ -127,16 +127,16 @@ fn the_oldest_result_is_dropped_when_too_many_invalid_transactions_are_cached() 
             TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(anyhow::anyhow!("invalid").into())),
         )
     };
-    let mut rejected = RejectedTxs::default();
+    let mut rejected = InvalidTxsCache::default();
 
-    for index in 0..=RejectedTxs::CAPACITY as u16 {
+    for index in 0..=InvalidTxsCache::CAPACITY as u16 {
         let (digest, result) = result(index);
         rejected.remember(digest, &result);
     }
 
     assert_eq!(rejected.get(&tx_digest(&create_transaction(0))), None);
     assert!(rejected.get(&tx_digest(&create_transaction(1))).is_some());
-    assert!(rejected.get(&tx_digest(&create_transaction(RejectedTxs::CAPACITY as u16))).is_some());
+    assert!(rejected.get(&tx_digest(&create_transaction(InvalidTxsCache::CAPACITY as u16))).is_some());
 }
 
 #[test]

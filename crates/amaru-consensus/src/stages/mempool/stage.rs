@@ -77,7 +77,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let tx_id = tx.tx_id();
             emit_tx_received(&tx_id, &origin);
 
-            let result = validate_and_insert(&ledger, &mempool, &mut state.rejected, tx, &origin).await;
+            let result = validate_and_insert(&ledger, &mempool, &mut state.invalid_txs_cache, tx, &origin).await;
             record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
             if let TxInsertResult::Accepted { seq_no, .. } = result {
                 notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -89,7 +89,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             for tx in txs {
                 let tx_id = tx.tx_id();
                 emit_tx_received(&tx_id, &origin);
-                let result = validate_and_insert(&ledger, &mempool, &mut state.rejected, tx, &origin).await;
+                let result = validate_and_insert(&ledger, &mempool, &mut state.invalid_txs_cache, tx, &origin).await;
                 record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
                 if let TxInsertResult::Accepted { seq_no, .. } = result {
                     notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -102,7 +102,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let store = Store::new(eff.clone());
             let outcome = apply_new_tip(&ledger, &mempool, tip).await;
             mempool.set_tip(tip).await;
-            state.rejected.clear();
+            state.invalid_txs_cache.clear();
             record_revalidation(mempool.state().await, &metrics_ops, &store, tip, &outcome).await;
             if !outcome.evicted_tx_ids.is_empty() {
                 notify_capacity_waiters(&mut state, &eff).await;
@@ -117,23 +117,23 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 
 /// Validate a transaction against the current ledger state and insert it into the mempool if it is valid.
 ///
-/// `rejected` is a cache that is used to avoid re-validating invalid transactions.
+/// `invalid_txs_cache` is a cache that is used to avoid re-validating invalid transactions.
 async fn validate_and_insert(
     ledger: &Ledger,
     mempool: &MempoolEffects,
-    rejected: &mut RejectedTxs,
+    invalid_txs_cache: &mut InvalidTxsCache,
     tx: WithOriginalBytes<Transaction>,
     origin: &TxOrigin,
 ) -> TxInsertResult {
     let digest = tx_digest(&tx);
-    if let Some(result) = rejected.get(&digest) {
+    if let Some(result) = invalid_txs_cache.get(&digest) {
         return result.clone();
     }
     match ledger.validate_tx(&tx).await {
         Ok(()) => mempool.insert(tx, origin.clone()).await,
         Err(error) => {
             let result = TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error));
-            rejected.remember(digest, &result);
+            invalid_txs_cache.remember(digest, &result);
             result
         }
     }
@@ -200,7 +200,7 @@ async fn notify_capacity_waiters(state: &mut MempoolStageState, eff: &Effects<Me
 pub struct MempoolStageState {
     waiters: Vec<MempoolWaiter>,
     capacity_waiters: Vec<StageRef<()>>,
-    rejected: RejectedTxs,
+    invalid_txs_cache: InvalidTxsCache,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -209,22 +209,14 @@ struct MempoolWaiter {
     caller: StageRef<()>,
 }
 
-/// This cache keeps the results of transactions recently validated and returned as invalid.
-/// It avoids having to revalidate the same transaction when re-advertised by one or several peers.
-/// Since validity only depends on the ledger state, the cache is cleared whenever a new tip is
-/// adopted. It is also bounded: the oldest result is dropped first.
-///
-/// Results are keyed by the digest of the complete transaction, not by its `TransactionId`.
-/// Otherwise a peer could send the same body with invalid witnesses, and the correct transaction
-/// would then be rejected until the next tip.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(super) struct RejectedTxs {
+pub(super) struct InvalidTxsCache {
     results: BTreeMap<TxDigest, TxInsertResult>,
     /// Digests in the order in which their results were remembered, oldest first.
     order: VecDeque<TxDigest>,
 }
 
-impl RejectedTxs {
+impl InvalidTxsCache {
     /// Between two tips, which are a few tens of seconds apart, a node sees far fewer distinct invalid
     /// transactions than this. The bound only limits the memory use if a peer floods the node.
     pub(super) const CAPACITY: usize = 256;
@@ -252,11 +244,11 @@ impl RejectedTxs {
 
     #[cfg(test)]
     pub(super) fn of(results: impl IntoIterator<Item = (TxDigest, TxInsertResult)>) -> Self {
-        let mut rejected = Self::default();
+        let mut invalid_txs_cache = Self::default();
         for (digest, result) in results {
-            rejected.remember(digest, &result);
+            invalid_txs_cache.remember(digest, &result);
         }
-        rejected
+        invalid_txs_cache
     }
 }
 
@@ -272,7 +264,7 @@ pub(super) fn tx_digest(tx: &WithOriginalBytes<Transaction>) -> TxDigest {
 
 #[cfg(test)]
 impl MempoolStageState {
-    pub(super) fn with_rejected(rejected: RejectedTxs) -> Self {
-        Self { rejected, ..Self::default() }
+    pub(super) fn with_invalid_txs_cache(invalid_txs_cache: InvalidTxsCache) -> Self {
+        Self { invalid_txs_cache, ..Self::default() }
     }
 }
