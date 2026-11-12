@@ -46,15 +46,9 @@ ignored = ["getrandom", "amaru-deps"]
 ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
 proptest.workspace = true
+num.workspace = true
 rand.workspace = true
-rayon.workspace = true
 serde.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 tracing-subscriber.workspace = true
-
-[target.'cfg(not(std))'.dependencies]
-num = { workspace = true, default-features = false, features = [
-  "alloc",
-  "libm",
-] }

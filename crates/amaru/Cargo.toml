@@ -100,7 +100,6 @@ amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-iter-borrow.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ledger = { workspace = true, features = ["test-utils"] }
-amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
 [build-dependencies]
 anyhow.workspace = true

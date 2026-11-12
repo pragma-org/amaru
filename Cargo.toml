@@ -22,7 +22,6 @@ resolver = "2"
 anyhow = "1.0.104"
 append-only-vec = "0.1.8"
 assert_cmd = "2.2.2"
-assertables = "10.1.0"
 async-trait = "0.1.91"
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
@@ -117,7 +116,6 @@ trybuild = "1.0.118"
 typetag = "0.2.23"
 ureq = { version = "2.12.1", default-features = false, features = ["tls", "json"] }
 walkdir = "2.5.0"
-xz = "0.4.6-rc.0"
 zeroize = "1.9.0"
 zstd = "0.13.3"
 

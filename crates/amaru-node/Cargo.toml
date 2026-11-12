@@ -24,7 +24,6 @@ test-utils = ["amaru-kernel/test-utils", "amaru-consensus/test-utils", "amaru-ou
 amaru-kernel.workspace = true
 anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, features = ["std"] }
 ureq.workspace = true
 
 [dependencies]
@@ -83,21 +82,15 @@ amaru-deps.workspace = true
 # External dependencies ───────────────────────────────────────────────────────┐
 async-trait.workspace = true
 anyhow.workspace = true
-assert_cmd.workspace = true
-diff_json.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["metrics", "testing"] }
-quote.workspace = true
 rocksdb.workspace = true
-syn.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
 tracing-subscriber.workspace = true
-xz.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-bootstrap.workspace = true
 amaru-consensus = { workspace = true, features = ["test-utils"] }
-amaru-iter-borrow.workspace = true
 amaru-kernel = { workspace = true, features = ["test-utils"] }
 amaru-ledger = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
