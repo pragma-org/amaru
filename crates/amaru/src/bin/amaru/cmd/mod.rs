@@ -23,6 +23,7 @@ pub(crate) mod node;
 pub(crate) mod pool;
 pub(crate) mod shell_completions;
 pub(crate) mod snapshot;
+pub(crate) mod transaction;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PointOrHash(pub(crate) HeaderHash);

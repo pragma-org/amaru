@@ -72,6 +72,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Pool(cmd::pool::PoolCommand),
 
+    /// Offline transaction tools.
+    #[command(subcommand)]
+    Transaction(cmd::transaction::TransactionCommand),
+
     /// Manage bootstrap snapshots.
     #[command(subcommand)]
     Snapshot(cmd::snapshot::SnapshotCommand),
@@ -98,6 +102,7 @@ impl Command {
         match self {
             Command::Node(cmd) => cmd.into_runnable(),
             Command::Pool(cmd) => cmd.into_runnable(),
+            Command::Transaction(cmd) => cmd.into_runnable(),
             Command::Snapshot(cmd) => cmd.into_runnable(),
             #[cfg(feature = "mithril")]
             Command::Mithril(cmd) => cmd.into_runnable(),
