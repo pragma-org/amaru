@@ -96,6 +96,14 @@ fn parent(path: &Path) -> &Path {
     path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
 }
 
+fn sync_parent(path: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(parent(path))?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 /// Stage bytes beside their destination, with private permissions and flushed contents.
 fn prepare_file(path: &Path, bytes: &[u8]) -> anyhow::Result<NamedTempFile> {
     let file = prepare_key(|file| file.write_all(bytes), path)?;
@@ -111,7 +119,8 @@ fn ensure_absent(path: &Path) -> anyhow::Result<()> {
     }
 }
 
-/// Publish a group of new files without replacing existing files, undoing partial publication on error.
+/// Publish new files without replacing existing files, undoing partial publication on error.
+/// Synchronize each destination parent before returning success. Retain published files if that fails.
 fn publish_new<'a>(files: impl IntoIterator<Item = (&'a Path, NamedTempFile)>) -> anyhow::Result<()> {
     let mut published: Vec<&Path> = Vec::new();
     for (path, file) in files {
@@ -123,6 +132,11 @@ fn publish_new<'a>(files: impl IntoIterator<Item = (&'a Path, NamedTempFile)>) -
             return Err(error).with_context(|| format!("could not save {}", path.display()));
         }
         published.push(path);
+    }
+    for path in published {
+        sync_parent(path).with_context(|| {
+            format!("files published, but could not synchronize destination directory {}", parent(path).display())
+        })?;
     }
     Ok(())
 }

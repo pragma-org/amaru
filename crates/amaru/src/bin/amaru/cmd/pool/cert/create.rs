@@ -28,7 +28,7 @@ use tempfile::NamedTempFile;
 
 use super::super::{
     cold::{IssueCounter, prepare_counter},
-    ensure_absent, prepare_file,
+    ensure_absent, prepare_file, sync_parent,
 };
 
 /// Create an operational certificate offline and advance its cold key's issue counter.
@@ -37,7 +37,9 @@ use super::super::{
 /// Writes a binary CBOR certificate and counter. Existing certificates are never replaced.
 /// A persistent COUNTER.lock file serializes Amaru issuers; do not remove it or issue with other
 /// tools concurrently. The counter is advanced before publishing the certificate so an interrupted
-/// issuance cannot reuse its number. Use a directory only you can modify.
+/// issuance cannot reuse its number. A durable COUNTER.cert-recovery copy is saved first and removed
+/// after publication. If it remains after an interruption, recover the certificate and check the
+/// counter before removing it and issuing again. Use a directory only you can modify.
 #[derive(Debug, clap::Args)]
 pub struct CreateArgs {
     /// Destination for the binary CBOR pair [operational certificate, cold verification key].
@@ -73,6 +75,13 @@ impl CreateArgs {
             .canonicalize()
             .with_context(|| format!("could not locate issue counter {}", self.counter.display()))?;
         let _lock = lock_counter(&counter_path)?;
+        let recovery = recovery_path(&counter_path);
+        ensure_absent(&recovery).with_context(|| {
+            format!(
+                "unfinished certificate issuance at {}; recover the certificate and check the issue counter before removing it and issuing again",
+                recovery.display(),
+            )
+        })?;
         let mut ctx = PROTOCOL_VERSION_12;
         let counter = read_cbor_or_envelope(&counter_path, &mut ctx)
             .with_context(|| format!("could not read issue counter {}", counter_path.display()))?;
@@ -83,13 +92,8 @@ impl CreateArgs {
         let staged_cert = prepare_file(&self.cert, &certificate)?;
         let staged_counter = prepare_counter(&next_counter, &counter_path)?;
         ensure_absent(&self.cert)?;
-        staged_counter
-            .persist(&counter_path)
-            .with_context(|| format!("could not advance issue counter {}", counter_path.display()))?;
-        if let Err(error) = sync_parent(&counter_path) {
-            return retain_certificate(staged_cert, error);
-        }
-        publish_certificate(staged_cert, &self.cert)
+        advance_counter(&certificate, staged_counter, &counter_path, &recovery)?;
+        publish_certificate(staged_cert, &self.cert, &recovery)
     }
 }
 
@@ -116,20 +120,51 @@ fn issue_certificate(
     Ok((encoder.into_writer(), IssueCounter { next, cold: public }))
 }
 
-fn publish_certificate(file: NamedTempFile, destination: &Path) -> anyhow::Result<()> {
-    match file.persist_noclobber(destination) {
-        Ok(_) => sync_parent(destination)
-            .context("certificate written and counter advanced, but could not synchronize the certificate directory"),
-        Err(error) => retain_certificate(error.file, error.error.into()),
-    }
+fn recovery_path(counter: &Path) -> PathBuf {
+    let mut path = counter.as_os_str().to_owned();
+    path.push(".cert-recovery");
+    PathBuf::from(path)
 }
 
-fn retain_certificate(file: NamedTempFile, error: anyhow::Error) -> anyhow::Result<()> {
-    let (_, recovery) = file.keep().context("counter advanced, but could not retain the signed certificate")?;
-    Err(error).with_context(|| format!(
-        "counter advanced; signed certificate retained at {}. Move it to the intended destination instead of issuing again",
-        recovery.display(),
-    ))
+/// Make the certificate recoverable independently of its temporary file before replacing the counter.
+fn advance_counter(
+    certificate: &[u8],
+    counter: NamedTempFile,
+    counter_path: &Path,
+    recovery: &Path,
+) -> anyhow::Result<()> {
+    prepare_file(recovery, certificate)?
+        .persist_noclobber(recovery)
+        .with_context(|| format!("could not save recovery certificate at {}; counter unchanged", recovery.display()))?;
+    sync_parent(recovery).with_context(|| {
+        format!("could not synchronize recovery certificate at {}; counter unchanged", recovery.display())
+    })?;
+    counter.persist(counter_path).with_context(|| {
+        format!(
+            "could not advance issue counter {}; signed certificate retained at {}",
+            counter_path.display(),
+            recovery.display(),
+        )
+    })?;
+    sync_parent(counter_path).with_context(|| {
+        format!(
+            "could not synchronize issue counter; signed certificate retained at {}. Check the counter before issuing again",
+            recovery.display(),
+        )
+    })
+}
+
+fn publish_certificate(file: NamedTempFile, destination: &Path, recovery: &Path) -> anyhow::Result<()> {
+    file.persist_noclobber(destination)
+        .map_err(|error| anyhow::Error::from(error.error))
+        .and_then(|_| sync_parent(destination))
+        .with_context(|| format!(
+            "counter advanced; signed certificate retained at {}. Recover it to the intended destination instead of issuing again",
+            recovery.display(),
+        ))?;
+    fs::remove_file(recovery)
+        .with_context(|| format!("certificate published, but could not remove recovery file {}", recovery.display()))?;
+    sync_parent(recovery).context("certificate published, but could not synchronize recovery file removal")
 }
 
 /// The lock lives beside the counter, because atomic counter replacement changes its inode.
@@ -152,14 +187,6 @@ fn lock_counter(counter: &Path) -> anyhow::Result<File> {
         format!("could not lock issue counter at {}; another issuer may be running", path.display())
     })?;
     Ok(file)
-}
-
-fn sync_parent(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    File::open(super::super::parent(path))?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
 }
 
 struct KesVerificationKey(VerificationKey);
