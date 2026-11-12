@@ -28,7 +28,6 @@ amaru-deps.workspace = true
 [dev-dependencies]
 serde.workspace = true
 test-case.workspace = true
-pretty_assertions.workspace = true
 proptest.workspace = true
 
 [lints]

@@ -18,7 +18,6 @@ categories.workspace = true
 
 [features]
 default = []
-profiling = ["dep:pprof"]
 test-utils = ["proptest", "dep:tracing-subscriber", "dep:pretty_assertions", "amaru-ouroboros/test-utils"]
 
 [dependencies]
@@ -65,8 +64,6 @@ amaru-mempool.workspace = true
 amaru-ouroboros = { workspace = true, features = ["test-utils"] }
 amaru-ouroboros-traits = { workspace = true, features = ["test-utils"] }
 
-[target.'cfg(unix)'.dependencies]
-pprof = { version = "0.15", features = ["flamegraph"], optional = true }
 
 [[bench]]
 name = "stage_msgs"
