@@ -12,13 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
 use amaru_kernel::{HasTransactionId, Point, TransactionId, cbor, to_cbor};
 use amaru_ouroboros_traits::{Mempool, MempoolRead, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use parking_lot::RwLockReadGuard;
+use tokio::sync::broadcast;
 
 use super::MempoolConfig;
+
+/// Shared event history. Slow subscribers receive an explicit lag error.
+const MAX_MEMPOOL_QUEUED_EVENTS: usize = 64;
+
+/// Owned membership, order, and counters captured under the pool's lock.
+///
+/// This capture does not wait for ledger revalidation or establish validity against
+/// a particular ledger point. Entries awaiting revalidation remain stored until removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MempoolSnapshot<Tx> {
+    pub entries: Vec<Arc<MempoolEntry<Tx>>>,
+    pub transaction_count: u64,
+    pub total_size_bytes: u64,
+    pub capacity_bytes: u64,
+}
+
+/// One complete committed membership change. Removals are atomic batches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MempoolEvent<Tx> {
+    Inserted(Arc<MempoolEntry<Tx>>),
+    /// Committed removal, including transactions that failed automatic revalidation.
+    /// Removal alone does not establish chain inclusion or confirmation.
+    Removed(Vec<TransactionId>),
+}
 
 /// A temporary in-memory mempool implementation to support the transaction submission protocol.
 ///
@@ -50,7 +76,8 @@ struct InMemoryMempoolInner<Tx> {
     current_bytes: u64,
     tip: Point,
     entries_by_id: BTreeMap<TransactionId, MempoolSeqNo>,
-    entries_by_seq: BTreeMap<MempoolSeqNo, MempoolEntry<Tx>>,
+    entries_by_seq: BTreeMap<MempoolSeqNo, Arc<MempoolEntry<Tx>>>,
+    changes: broadcast::Sender<Arc<MempoolEvent<Tx>>>,
 }
 
 impl<Tx> Default for InMemoryMempoolInner<Tx> {
@@ -61,6 +88,7 @@ impl<Tx> Default for InMemoryMempoolInner<Tx> {
             tip: Point::Origin,
             entries_by_id: Default::default(),
             entries_by_seq: Default::default(),
+            changes: broadcast::channel(MAX_MEMPOOL_QUEUED_EVENTS).0,
         }
     }
 }
@@ -88,11 +116,15 @@ impl<Tx: HasTransactionId + cbor::Encode<()>> InMemoryMempoolInner<Tx> {
         let seq_no = MempoolSeqNo(self.next_seq);
         self.next_seq += 1;
 
-        let entry = MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin };
+        let entry =
+            Arc::new(MempoolEntry { seq_no, tx_id, tx, tx_size, origin: tx_origin, admitted_at: SystemTime::now() });
 
         self.entries_by_id.insert(tx_id, seq_no);
         self.entries_by_seq.insert(seq_no, entry);
         self.current_bytes = self.current_bytes.saturating_add(tx_size as u64);
+        if self.changes.receiver_count() > 0 {
+            let _ = self.changes.send(Arc::new(MempoolEvent::Inserted(self.entries_by_seq[&seq_no].clone())));
+        }
         Ok((tx_id, seq_no))
     }
 
@@ -110,12 +142,17 @@ impl<Tx: HasTransactionId + cbor::Encode<()>> InMemoryMempoolInner<Tx> {
 
     /// Remove transactions by id and release their accounted CBOR size.
     fn remove(&mut self, ids: &[TransactionId]) {
+        let mut removed = Vec::new();
         for tx_id in ids {
             if let Some(seq_no) = self.entries_by_id.remove(tx_id)
                 && let Some(entry) = self.entries_by_seq.remove(&seq_no)
             {
                 self.current_bytes = self.current_bytes.saturating_sub(entry.tx_size as u64);
+                removed.push(*tx_id);
             }
+        }
+        if !removed.is_empty() {
+            let _ = self.changes.send(Arc::new(MempoolEvent::Removed(removed)));
         }
     }
 }
@@ -126,7 +163,7 @@ struct InMemoryMempoolRead<'a, Tx> {
 
 impl<Tx: Send + Sync + 'static> MempoolRead<Tx> for InMemoryMempoolRead<'_, Tx> {
     fn get(&self, ids: &[TransactionId]) -> Vec<&Tx> {
-        let mut entries: Vec<&MempoolEntry<Tx>> = ids
+        let mut entries: Vec<&Arc<MempoolEntry<Tx>>> = ids
             .iter()
             .filter_map(|tx_id| {
                 self.inner.entries_by_id.get(tx_id).and_then(|seq_no| self.inner.entries_by_seq.get(seq_no))
@@ -143,13 +180,47 @@ impl<Tx: Send + Sync + 'static> MempoolRead<Tx> for InMemoryMempoolRead<'_, Tx> 
     }
 }
 
+/// Stored transaction and admission metadata, shared by snapshots and insertion events.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MempoolEntry<Tx> {
-    seq_no: MempoolSeqNo,
-    tx_id: TransactionId,
-    tx: Tx,
-    tx_size: u32,
-    origin: TxOrigin,
+    pub seq_no: MempoolSeqNo,
+    pub tx_id: TransactionId,
+    pub tx: Tx,
+    /// Serialized transaction size in bytes.
+    pub tx_size: u32,
+    /// The admitting origin. Duplicate offers do not update it.
+    pub origin: TxOrigin,
+    /// Wall-clock insertion time; use `seq_no` for ordering because wall-clock time can jump.
+    pub admitted_at: SystemTime,
+}
+
+impl<Tx: cbor::Encode<()>> MempoolEntry<Tx> {
+    /// CBOR encoding, preserved verbatim when the pool stores `WithOriginalBytes` transactions.
+    pub fn original_bytes(&self) -> Vec<u8> {
+        to_cbor(&self.tx)
+    }
+}
+
+impl<Tx> InMemoryMempool<Tx> {
+    fn snapshot_inner(&self, inner: &InMemoryMempoolInner<Tx>) -> MempoolSnapshot<Tx> {
+        MempoolSnapshot {
+            entries: inner.entries_by_seq.values().cloned().collect(),
+            transaction_count: inner.entries_by_id.len() as u64,
+            total_size_bytes: inner.current_bytes,
+            capacity_bytes: self.config.max_bytes,
+        }
+    }
+
+    /// Capture membership, insertion order, and counters in one read.
+    pub fn snapshot(&self) -> MempoolSnapshot<Tx> {
+        self.snapshot_inner(&self.inner.read())
+    }
+
+    /// Atomically capture an initial snapshot and register for all later membership changes.
+    pub fn subscribe(&self) -> (MempoolSnapshot<Tx>, broadcast::Receiver<Arc<MempoolEvent<Tx>>>) {
+        let inner = self.inner.read();
+        (self.snapshot_inner(&inner), inner.changes.subscribe())
+    }
 }
 
 impl<Tx: Send + Sync + 'static + HasTransactionId + cbor::Encode<()>> Mempool<Tx> for InMemoryMempool<Tx> {
