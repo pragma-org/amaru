@@ -37,11 +37,13 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added
-
-- **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more raw 32-byte payment, stake, or pool cold signing seeds.
 
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
 

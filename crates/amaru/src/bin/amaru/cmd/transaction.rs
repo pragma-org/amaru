@@ -52,7 +52,7 @@ pub struct SignArgs {
     #[arg(long, value_name = amaru::value_names::FILEPATH)]
     transaction: PathBuf,
 
-    /// Payment, stake, or pool cold key, as a raw 32-byte Ed25519 seed.
+    /// Payment, stake, or pool cold key, as a raw 32-byte Ed25519 seed or cardano-cli text envelope.
     /// Repeat this option for each signer.
     #[arg(long, required = true, value_name = amaru::value_names::FILEPATH)]
     signing_key: Vec<PathBuf>,

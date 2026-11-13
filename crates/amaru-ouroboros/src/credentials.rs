@@ -16,9 +16,9 @@
 //!
 //! The KES signing key, VRF signing key, and operational certificate are read from the
 //! unencrypted text envelopes cardano-cli already writes. Transaction signing keys
-//! are read from raw seeds and stay outside the block producer.
+//! are read from raw seeds or text envelopes and stay outside the block producer.
 
-use std::{fmt, fs, io, path::Path, sync::Mutex};
+use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
@@ -26,7 +26,7 @@ use amaru_kernel::{
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
     size::BLOCK_BODY,
-    utils::envelope::{HasEnvelope, ReadEnvelopeError, read_envelope},
+    utils::envelope::{HasEnvelope, ReadEnvelopeError, read_envelope, read_key_file},
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
 use thiserror::Error;
@@ -44,14 +44,16 @@ const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
 pub struct TransactionSigningKey(ed25519::SigningKey);
 
 impl TransactionSigningKey {
-    /// Load a raw 32-byte Ed25519 signing seed.
-    pub fn from_file(path: impl AsRef<Path>) -> io::Result<Self> {
-        let bytes = Zeroizing::new(fs::read(path)?);
-        let seed = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "expected a raw 32-byte Ed25519 signing seed"))?;
-        Ok(Self(ed25519::SigningKey::from_bytes(seed)))
+    /// Load a raw 32-byte Ed25519 signing seed or a cardano-cli text envelope.
+    ///
+    /// Payment, stake, and pool cold signing keys are supported. Extended and Byron keys are not.
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, ReadEnvelopeError> {
+        let path = path.as_ref();
+        read_key_file::<32, _, _>(
+            path,
+            |seed| Ok(Self(ed25519::SigningKey::from_bytes(seed))),
+            || read_envelope(path, &mut ()),
+        )
     }
 
     /// Sign the hash of the original transaction body.
@@ -60,6 +62,22 @@ impl TransactionSigningKey {
             verification_key: VerificationKey::from(self.0.verifying_key().to_bytes()),
             signature: Ed25519Signature::from(ed25519::Signer::sign(&self.0, transaction_id.as_slice()).to_bytes()),
         }
+    }
+}
+
+impl HasEnvelope for TransactionSigningKey {
+    const ACCEPTED_TYPES: &'static [&'static str] =
+        &["PaymentSigningKeyShelley_ed25519", "StakeSigningKeyShelley_ed25519", "StakePoolSigningKey_ed25519"];
+}
+
+impl<'d, C> cbor::Decode<'d, C> for TransactionSigningKey {
+    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let bytes = Zeroizing::new(cbor::decode_bytes(d)?.into_owned());
+        let seed = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| cbor::decode::Error::message("expected a 32-byte Ed25519 signing seed"))?;
+        Ok(Self(ed25519::SigningKey::from_bytes(seed)))
     }
 }
 
