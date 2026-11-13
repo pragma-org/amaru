@@ -37,12 +37,12 @@ sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 
 ## Running Amaru as a systemd service {#running-amaru-as-a-systemd-service}
 
-The Debian and RPM packages don't just ship the amaru binary, they also install a dedicated `amaru` [system user](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/postinst), a [systemd unit](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.service), and a default [environment file](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.env).
+The Debian and RPM packages don't just ship the amaru binary, they also install a dedicated `amaru` [system user](https://github.com/pragma-org/amaru/blob/main/.github/debian/postinst), a [systemd unit](https://github.com/pragma-org/amaru/blob/main/.github/debian/amaru.service), and a default [environment file](https://github.com/pragma-org/amaru/blob/main/.github/debian/amaru.env).
 
 :::warning TUI Limitation
 The use of the TUI is currently only possible when running Amaru directly in a CLI.
 -> A way of using the TUI as a detached process is being explored by the team.
-Please refer to #Monitoring section to learn how to retrieve logs and metrics when Amaru is running as a service.
+Please refer to [Logs, Metrics and Monitoring](#5-logs-metrics-and-monitoring) to learn how to retrieve logs and metrics when Amaru is running as a service.
 :::
 
 ### The systemd unit (Debian)
@@ -175,7 +175,6 @@ sudo -u amaru amaru node bootstrap --network mainnet
 Alternatively, you can also run the one-shot bootstrap service:
 
 ```bash
-sudo systemctl enable --now amaru-bootstrap.service
 sudo systemctl start amaru-bootstrap
 ```
 
@@ -216,7 +215,7 @@ AMARU_LOG_OTLP=true
 ```
 
 :::note
-`AMARU_LOG_OTLP` allow Amaru to send traces to the OTLP collector
+`AMARU_LOG_OTLP` lets Amaru export metrics, logs and traces to an OTLP collector.
 `OTEL_METRIC_EXPORT_INTERVAL` is the time in milliseconds between two OTLP metrics exports. Amaru defaults it to `1000` (1s) instead of the [OpenTelemetry default of 60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader).
 :::
 
@@ -409,7 +408,7 @@ cardano_node_metrics_slotInEpoch_int  153412
 
 ### Submitting a transaction
 
-Start the node with `--submit-api-listen-on` or `AMARU_SUBMIT_API_LISTEN_ON`, then `POST` the CBOR-encoded transaction:
+Start the node with `--submit-api-listen-on` or `AMARU_SUBMIT_API_LISTEN_ON=127.0.0.1:8090`, then `POST` the CBOR-encoded transaction:
 
 ```bash
 curl -X POST \
