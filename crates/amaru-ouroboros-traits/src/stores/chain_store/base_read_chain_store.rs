@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{Nonces, StoreError};
 
@@ -30,6 +30,15 @@ pub trait BaseReadChainStore: Send + Sync {
     ///
     /// An empty store reports [`Point::Origin`].
     fn get_anchor_point(&self) -> Point;
+
+    /// Fallible immutable boundary read for historical scans.
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        Ok(self.get_anchor_point())
+    }
+
+    /// Seek canonical blocks at or after `slot`, returning the last block at the first matching slot.
+    /// Uses the canonical slot index rather than walking ancestry.
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError>;
 
     /// Hash of the immutable-horizon point.
     fn get_anchor_hash(&self) -> HeaderHash {
@@ -77,6 +86,14 @@ pub trait BaseReadChainStore: Send + Sync {
 }
 
 impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.as_ref().read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.as_ref().block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.as_ref().load_header(hash)
     }

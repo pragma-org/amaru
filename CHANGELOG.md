@@ -42,6 +42,7 @@ Other guiding principles:
 ### Added
 
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
+- **amaru-node**: embedding applications can read immutable blocks in bounded, cancellable batches and resume from a saved slot/hash checkpoint.
 
 ### Changed
 
