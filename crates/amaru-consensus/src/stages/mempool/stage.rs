@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Instant;
+use std::{
+    collections::{BTreeMap, VecDeque},
+    time::Instant,
+};
 
-use amaru_kernel::{Point, Transaction, cbor::WithOriginalBytes};
+use amaru_kernel::{Hash, Hasher, Point, Transaction, cbor::WithOriginalBytes};
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::{
     mempool_effects::{AsyncMempool, MempoolEffects},
@@ -74,7 +77,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let tx_id = tx.tx_id();
             emit_tx_received(&tx_id, &origin);
 
-            let result = validate_and_insert(&ledger, &mempool, tx, &origin).await;
+            let result = validate_and_insert(&ledger, &mempool, &mut state.invalid_txs_cache, tx, &origin).await;
             record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
             if let TxInsertResult::Accepted { seq_no, .. } = result {
                 notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -86,7 +89,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             for tx in txs {
                 let tx_id = tx.tx_id();
                 emit_tx_received(&tx_id, &origin);
-                let result = validate_and_insert(&ledger, &mempool, tx, &origin).await;
+                let result = validate_and_insert(&ledger, &mempool, &mut state.invalid_txs_cache, tx, &origin).await;
                 record_insert(mempool.state().await, &metrics_ops, &origin, &result).await;
                 if let TxInsertResult::Accepted { seq_no, .. } = result {
                     notify_ready_waiters(&mut state, &eff, seq_no).await;
@@ -99,6 +102,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
             let store = Store::new(eff.clone());
             let outcome = apply_new_tip(&ledger, &mempool, tip).await;
             mempool.set_tip(tip).await;
+            state.invalid_txs_cache.clear();
             record_revalidation(mempool.state().await, &metrics_ops, &store, tip, &outcome).await;
             if !outcome.evicted_tx_ids.is_empty() {
                 notify_capacity_waiters(&mut state, &eff).await;
@@ -111,17 +115,27 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
     state
 }
 
-/// Validate a transaction against the current ledger state
-/// and insert it into the mempool if it is valid.
+/// Validate a transaction against the current ledger state and insert it into the mempool if it is valid.
+///
+/// `invalid_txs_cache` is a cache that is used to avoid re-validating invalid transactions.
 async fn validate_and_insert(
     ledger: &Ledger,
     mempool: &MempoolEffects,
+    invalid_txs_cache: &mut InvalidTxsCache,
     tx: WithOriginalBytes<Transaction>,
     origin: &TxOrigin,
 ) -> TxInsertResult {
+    let digest = tx_digest(&tx);
+    if let Some(result) = invalid_txs_cache.get(&digest) {
+        return result.clone();
+    }
     match ledger.validate_tx(&tx).await {
         Ok(()) => mempool.insert(tx, origin.clone()).await,
-        Err(error) => TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error)),
+        Err(error) => {
+            let result = TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error));
+            invalid_txs_cache.remember(digest, &result);
+            result
+        }
     }
 }
 
@@ -186,10 +200,71 @@ async fn notify_capacity_waiters(state: &mut MempoolStageState, eff: &Effects<Me
 pub struct MempoolStageState {
     waiters: Vec<MempoolWaiter>,
     capacity_waiters: Vec<StageRef<()>>,
+    invalid_txs_cache: InvalidTxsCache,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct MempoolWaiter {
     seq_no: MempoolSeqNo,
     caller: StageRef<()>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(super) struct InvalidTxsCache {
+    results: BTreeMap<TxDigest, TxInsertResult>,
+    /// Digests in the order in which their results were remembered, oldest first.
+    order: VecDeque<TxDigest>,
+}
+
+impl InvalidTxsCache {
+    /// Between two tips, which are a few tens of seconds apart, a node sees far fewer distinct invalid
+    /// transactions than this. The bound only limits the memory use if a peer floods the node.
+    pub(super) const CAPACITY: usize = 256;
+
+    pub(super) fn get(&self, digest: &TxDigest) -> Option<&TxInsertResult> {
+        self.results.get(digest)
+    }
+
+    pub(super) fn remember(&mut self, digest: TxDigest, result: &TxInsertResult) {
+        if self.results.insert(digest, result.clone()).is_some() {
+            return;
+        }
+        self.order.push_back(digest);
+        if self.order.len() > Self::CAPACITY
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.results.remove(&oldest);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.results.clear();
+        self.order.clear();
+    }
+
+    #[cfg(test)]
+    pub(super) fn of(results: impl IntoIterator<Item = (TxDigest, TxInsertResult)>) -> Self {
+        let mut invalid_txs_cache = Self::default();
+        for (digest, result) in results {
+            invalid_txs_cache.remember(digest, &result);
+        }
+        invalid_txs_cache
+    }
+}
+
+/// The hash of a complete transaction as received: body, witnesses and auxiliary data.
+///
+/// A `TransactionId` only identifies the body, but validation also checks the witnesses. Two
+/// transactions with the same body and different witnesses can have different validation results.
+pub(super) type TxDigest = Hash<32>;
+
+pub(super) fn tx_digest(tx: &WithOriginalBytes<Transaction>) -> TxDigest {
+    Hasher::<256>::hash(tx.as_bytes())
+}
+
+#[cfg(test)]
+impl MempoolStageState {
+    pub(super) fn with_invalid_txs_cache(invalid_txs_cache: InvalidTxsCache) -> Self {
+        Self { invalid_txs_cache, ..Self::default() }
+    }
 }

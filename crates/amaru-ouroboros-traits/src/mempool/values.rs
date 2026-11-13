@@ -65,7 +65,7 @@ pub struct MempoolState {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxInsertResult {
     Accepted { tx_id: TransactionId, seq_no: MempoolSeqNo },
     Rejected { tx_id: TransactionId, reason: TxRejectReason },

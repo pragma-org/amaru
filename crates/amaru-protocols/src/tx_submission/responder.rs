@@ -819,7 +819,7 @@ fn log_insert_result(result: &TxInsertResult) {
             debug!(protocols::tx_submission::responder::RECEIVED_TX, id = tx_id, outcome = "inserted");
         }
         TxInsertResult::Rejected { tx_id, reason: TxRejectReason::Invalid(error) } => {
-            warn!(
+            debug!(
                 protocols::tx_submission::responder::RECEIVED_TX,
                 id = tx_id,
                 outcome = "invalid",

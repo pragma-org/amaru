@@ -104,6 +104,11 @@ impl<A> WithOriginalBytes<A> {
         self.bytes.len()
     }
 
+    /// Returns the original serialised bytes of this element.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     /// Consume the `WithOriginalBytes` wrapper to get back the element.
     pub fn into_inner(self) -> A {
         self.value
