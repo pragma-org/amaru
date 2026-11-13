@@ -17,10 +17,11 @@ use std::{process::ExitCode, time::Duration};
 use amaru::{
     exit::install_termination_signals,
     lifecycle::{RUNTIME_SHUTDOWN_TIMEOUT, set_signal_stderr_enabled},
-    observability::{Color, LocalTelemetry, ObservabilityHints, OpenTelemetryHandle},
+    observability::{Color, ObservabilityHints},
     panic::panic_handler,
     version,
 };
+use amaru_node::telemetry::{LocalTelemetry, TelemetryGuard, TelemetryHandle};
 use amaru_observability::{Level, error, event_enabled};
 use amaru_tui as tui;
 use anyhow::{Context, anyhow};
@@ -88,8 +89,8 @@ fn try_main() -> anyhow::Result<()> {
         None
     };
 
-    let OpenTelemetryHandle { meter, teardown } = if skip_logging {
-        OpenTelemetryHandle::default()
+    let TelemetryHandle { meter, teardown } = if skip_logging {
+        TelemetryHandle::default()
     } else {
         // OpenTelemetry batch exporters require a current Tokio runtime.
         let _enter = rt.enter();
@@ -146,15 +147,12 @@ impl ObservabilityHints for ListenAddressHint<'_> {
     }
 }
 
-fn run_teardown_with_timeout(
-    teardown: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
-    timeout: Duration,
-) -> anyhow::Result<()> {
+fn run_teardown_with_timeout(teardown: TelemetryGuard, timeout: Duration) -> anyhow::Result<()> {
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let handle = std::thread::Builder::new()
         .name("amaru-otel-teardown".into())
         .spawn(move || {
-            let result = teardown();
+            let result = teardown.shutdown();
             let _ = done_tx.send(result);
         })
         .context("failed to spawn observability teardown thread")?;

@@ -1,0 +1,38 @@
+receivers:
+  otlp/contract:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4319
+
+processors:
+  batch/contract:
+    timeout: 50ms
+
+exporters:
+  otlp/contract:
+    endpoint: ${env:OTLP_FORWARD_ENDPOINT}
+    tls:
+      insecure: true
+    timeout: 5s
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: true
+      initial_interval: 100ms
+      max_interval: 1s
+      max_elapsed_time: 5s
+
+service:
+  pipelines:
+    traces/contract:
+      receivers: [otlp/contract]
+      processors: [batch/contract]
+      exporters: [otlp/contract]
+    logs/contract:
+      receivers: [otlp/contract]
+      processors: [batch/contract]
+      exporters: [otlp/contract]
+    metrics/contract:
+      receivers: [otlp/contract]
+      processors: [batch/contract]
+      exporters: [otlp/contract]

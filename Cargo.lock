@@ -82,8 +82,7 @@ dependencies = [
  "diff_json",
  "hex",
  "indoc",
- "opentelemetry",
- "opentelemetry-semantic-conventions",
+ "opentelemetry-proto",
  "opentelemetry_sdk",
  "parking_lot 0.13.0",
  "reqwest",
@@ -99,7 +98,9 @@ dependencies = [
  "thiserror 2.0.21",
  "tikv-jemallocator",
  "tokio",
+ "tokio-stream",
  "tokio-util",
+ "tonic",
  "zstd",
 ]
 
@@ -190,6 +191,8 @@ dependencies = [
 name = "amaru-deps"
 version = "0.0.0"
 dependencies = [
+ "axum",
+ "axum-core",
  "bitflags 2.13.2",
  "blst",
  "bumpalo",
@@ -241,6 +244,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "opentelemetry",
+ "opentelemetry-proto",
  "opentelemetry_sdk",
  "percent-encoding",
  "portable-atomic",
@@ -277,7 +281,9 @@ dependencies = [
  "time",
  "time-macros",
  "tokio",
+ "tokio-stream",
  "tokio-util",
+ "tonic",
  "tower",
  "tracing",
  "tracing-core",
@@ -1874,6 +1880,18 @@ dependencies = [
  "libc",
  "unicode-width 0.2.0",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "const-hex"
+version = "1.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33e2a781ebdf4467d1428dc4593067825fb646f6871475098d8577421af73558"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "proptest",
+ "serde_core",
 ]
 
 [[package]]
@@ -4424,9 +4442,12 @@ version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56d658ba1faf63f7b9c492cfbe6e0ec365440a16132d3270c1065f7b33f1b638"
 dependencies = [
+ "base64 0.22.1",
+ "const-hex",
  "opentelemetry",
  "opentelemetry_sdk",
  "prost",
+ "serde",
  "tonic",
  "tonic-prost",
 ]
@@ -6516,8 +6537,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
+ "axum",
  "base64 0.22.1",
  "bytes",
+ "flate2",
+ "h2 0.4.19",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
@@ -6526,6 +6550,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
+ "socket2 0.6.5",
  "sync_wrapper",
  "tokio",
  "tokio-stream",

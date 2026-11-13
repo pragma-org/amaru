@@ -68,16 +68,32 @@ jobs:
           network: ${{ matrix.network }}
           epoch: ${{ env.START_EPOCH }}
 
+      - name: Build OTLP contract test
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
+        timeout-minutes: 10
+        run: cargo test --locked -p amaru --test telemetry_otlp --no-run
+
       - name: Start OTLP collector
         if: ${{ inputs.network == '' || inputs.network == matrix.network }}
         shell: bash
         run: |
           docker run -d --network host \
             --name otlp-collector \
+            -e OTLP_FORWARD_ENDPOINT=127.0.0.1:4320 \
             -v "$PWD/monitoring/otlp-collector.yml:/etc/otlp-collector.yml:ro" \
+            -v "$PWD/crates/amaru/tests/fixtures/otlp-collector.yml:/etc/otlp-contract.yml:ro" \
             otel/opentelemetry-collector-contrib:0.133.0@sha256:98274b756324abdb2473fa0c898247a246091e861e61d1548f9be483198eecea \
               --config=/etc/otlp-collector.yml \
+              --config=/etc/otlp-contract.yml \
               --set exporters::prometheus::metric_expiration=10m
+
+          timeout 30 bash -c \
+            'until docker logs otlp-collector 2>&1 | grep -q "Everything is ready"; do sleep 0.1; done'
+
+      - name: Check OTLP exports
+        if: ${{ inputs.network == '' || inputs.network == matrix.network }}
+        timeout-minutes: 10
+        run: cargo test --locked -p amaru --test telemetry_otlp -- --collector
 
       - name: Run epoch snapshot tests
         if: ${{ inputs.network == '' || inputs.network == matrix.network }}

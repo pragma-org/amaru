@@ -12,57 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Embedder-facing observability install helpers.
+//! Shared telemetry setup for the product CLI and embedding applications.
 //!
-//! Used by thin programs such as the `run_until` example so OTLP metrics, traces,
-//! and logs can be enabled without the product CLI. When OTLP metrics are on,
-//! process/build gauges are collected by default; [`TelemetryOptions`] can disable
-//! their sysinfo poller.
+//! [`TelemetryConfig`] builds the subscriber from explicit filters, outputs and OTLP
+//! settings. [`Telemetry::install`] supplies the embedder environment defaults and
+//! optionally collects process metrics. The CLI supplies its own defaults and TUI
+//! capture layer to the same installer.
 //!
-//! Console, JSON, and OTEL log/trace layers are the same CBOR-aware formatters
-//! as the product binary (`CborConsoleEventFormat`, `CborJsonEventFormat`,
-//! `CborTraceArrayLayer`, `CborOtelLogBridge`) so schema `record_bytes` fields
-//! decode to numbers and strings where the sink can hold them. Local console
-//! colour is selected with [`LogFormat`] (`Plain` / `Ansi` / `Json` — JSON is
-//! exclusive with colour). The product stack in `amaru::observability` still
-//! adds TUI capture, a local metrics observer, throttled OTEL filters, service
-//! instance id, dual `AMARU_LOG` / `AMARU_TRACE` filters, and delayed filter
-//! warnings.
-//!
-//! [`Telemetry::install`] and [`Telemetry::shutdown`] are `async` so they must
-//! be driven on a Tokio runtime (`rt.block_on(...)` or `.await` inside an async
-//! context). OTLP batch exporters attach to that runtime; do not use
-//! `Handle::enter()` / `Runtime::enter()` around these calls.
+//! [`TelemetryGuard`] owns exporter shutdown. Keep the Tokio runtime alive until
+//! shutdown completes; OTLP exporters schedule work on that runtime.
 
 use std::{env, sync::Arc};
 
-use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_metrics::Meter;
 use amaru_progress_bar::{ProgressLogWriter, progress_log_writer};
-use anyhow::{Context, anyhow};
-use opentelemetry::{KeyValue, metrics::MeterProvider as _, trace::TracerProvider as _};
+use anyhow::Context;
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::Resource;
-use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
-use tokio::task::JoinHandle;
-use tracing::Subscriber;
+use opentelemetry_semantic_conventions::resource::{SERVICE_INSTANCE_ID, SERVICE_NAME};
 use tracing_subscriber::{
-    EnvFilter, Layer, fmt::MakeWriter, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
+    EnvFilter,
+    fmt::{format::FmtSpan, writer::BoxMakeWriter},
 };
 
-use crate::{
-    observability::{
-        CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, CborJsonSpanLayer, CborOtelLogBridge,
-        CborTraceArrayLayer, SpanDurationLayer, console_field_formatter,
-    },
-    system_metrics::{BuildIdentity, track_system_metrics},
-};
+mod file;
+mod filter;
+mod otlp;
+mod subscriber;
 
-mod open_telemetry;
-
+pub use file::TraceOutputSpec;
+pub use filter::{StartupNotice, filter_from_env};
 #[cfg(test)]
-pub(crate) use open_telemetry::NotingSpanProcessor;
-pub use open_telemetry::{
+pub(crate) use otlp::NotingSpanProcessor;
+pub use otlp::{
     BuildOpenTelemetryProvidersError, CborSpanExporter, DEFAULT_METRIC_EXPORT_INTERVAL, OTEL_METRIC_EXPORT_INTERVAL,
     OpenTelemetryProviders, OtelSignal, OtelSignals, ShutdownOpenTelemetryProvidersError,
+};
+pub use subscriber::{
+    ExistingSubscriber, LocalTelemetry, LogOutput, OtlpConfig, TelemetryConfig, TelemetryGuard, TelemetryHandle,
 };
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
@@ -112,227 +99,105 @@ impl LogFormat {
 /// Active telemetry pipeline for an embedder process.
 pub struct Telemetry {
     pub meter: Arc<Meter>,
-    system_metrics: Option<JoinHandle<()>>,
-    teardown: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
+    teardown: TelemetryGuard,
 }
 
 impl Telemetry {
-    /// Install process-wide tracing and optional OTLP export.
+    /// Install process-wide tracing and optional OTLP export using embedder defaults.
     ///
     /// Environment:
-    /// - `AMARU_LOG_OTLP` — when truthy (`1`/`true`/`yes`/`on`), export metrics,
-    ///   traces, and logs via OTLP;
-    /// - `AMARU_WITH_OPEN_TELEMETRY` — deprecated fallback for
-    ///   `AMARU_LOG_OTLP`.
-    /// - `AMARU_LOG_JSON` — when truthy, forces [`LogFormat::Json`].
+    /// - `AMARU_LOG_OTLP` — when truthy (`1`/`true`/`yes`/`on`), enable OTLP.
+    /// - `AMARU_WITH_OPEN_TELEMETRY` — deprecated fallback for `AMARU_LOG_OTLP`.
+    /// - `AMARU_LOG_JSON` — when truthy, force JSON output on stdout.
     /// - `AMARU_WITH_JSON_TRACES` — deprecated fallback for `AMARU_LOG_JSON`.
-    /// - `AMARU_TRACE` — filter for Amaru event targets (default `info`).
-    /// - `RUST_LOG` — optional extra filter for non-schema logging.
+    /// - `AMARU_TRACE` — filter for exported traces/logs and local output (default `info`).
+    /// - `RUST_LOG` — fallback filter for local output when `AMARU_TRACE` is absent.
     /// - `OTEL_SERVICE_NAME` — resource service name (default `amaru`).
     /// - `OTEL_METRIC_EXPORT_INTERVAL` — milliseconds between two OTLP metrics
     ///   exports (default `1000`).
     ///
-    /// When OTLP is disabled, installs a CBOR-aware stderr (or JSON stdout)
-    /// layer only and a default empty [`Meter`].
-    ///
-    /// Must be polled on a Tokio runtime (OTLP batch exporters spawn on it).
+    /// Must be polled on a Tokio runtime. Use [`TelemetryConfig`] for explicit configuration.
     pub async fn install(format: LogFormat) -> anyhow::Result<Self> {
         Self::install_with_options(format, TelemetryOptions::default()).await
     }
 
-    /// Install telemetry with explicit control over optional collectors.
+    /// Install telemetry with explicit control over optional collectors and OTLP signals.
     ///
-    /// Set [`TelemetryOptions::collect_system_metrics`] to `false` on platforms
-    /// where sysinfo collection is unavailable, including iOS.
+    /// Set [`TelemetryOptions::collect_system_metrics`] to `false` when sysinfo
+    /// collection is unavailable, including on iOS.
     pub async fn install_with_options(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
         let with_otlp = env_flag("AMARU_LOG_OTLP") || env_flag("AMARU_WITH_OPEN_TELEMETRY");
         let format =
             if env_flag("AMARU_LOG_JSON") || env_flag("AMARU_WITH_JSON_TRACES") { LogFormat::Json } else { format };
-
-        // Yield once so this future is clearly runtime-bound; batch exporters
-        // also require a current runtime handle when constructed below.
         tokio::task::yield_now().await;
-
-        if with_otlp { Self::install_otlp(format, options) } else { Self::install_local(format) }
-    }
-
-    fn accept_already_set(result: Result<(), impl std::fmt::Display>, what: &str) -> anyhow::Result<()> {
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) if tracing::dispatcher::has_been_set() => Ok(()),
-            Err(e) => Err(anyhow!("{what}: {e}")),
+        let collect = with_otlp
+            && options.collect_system_metrics
+            && options.open_telemetry_signals.0.contains(&OtelSignal::Metrics);
+        let config = embedder_config(format, with_otlp.then_some(options.open_telemetry_signals))?;
+        let mut telemetry = Self::from_handle(config.install()?);
+        if collect {
+            telemetry.teardown.collect_system_metrics(Arc::clone(&telemetry.meter))?;
         }
+        Ok(telemetry)
     }
 
-    /// Install a local fmt / JSON subscriber without OTLP export.
-    ///
-    /// [`LogFormat::Ansi`] colours stderr; [`LogFormat::Json`] is exclusive with
-    /// colour and writes NDJSON to stdout.
+    /// Install console or JSON output without OTLP export or system-metric collection.
     pub fn install_local(format: LogFormat) -> anyhow::Result<Self> {
-        init_fmt_subscriber(format)?;
-        Ok(Self { meter: Arc::new(Meter::default()), system_metrics: None, teardown: None })
+        Ok(Self::from_handle(embedder_config(format, None)?.install()?))
     }
 
-    fn install_otlp(format: LogFormat, options: TelemetryOptions) -> anyhow::Result<Self> {
-        let signals = &options.open_telemetry_signals;
-        let resource = build_resource();
-        let providers = OpenTelemetryProviders::try_new(resource, signals)?;
-        let meter = Arc::new(
-            providers
-                .meter_provider()
-                .map(|provider| Meter::from(provider.meter(METRICS_METER_NAME)))
-                .unwrap_or_default(),
-        );
-
-        let otel_layer = providers
-            .tracer_provider()
-            .map(|provider| {
-                amaru_trace_filter().map(|filter| {
-                    tracing_opentelemetry::layer()
-                        .with_tracer(provider.tracer(providers.service_name().to_string()))
-                        .with_level(true)
-                        .with_target(true)
-                        .with_filter(filter)
-                })
-            })
-            .transpose()?;
-
-        // Project-owned bridge so CBOR field payloads become nested AnyValue maps/lists
-        // (or scalars) instead of opaque bytes / diagnostic text.
-        let log_bridge = providers
-            .logger_provider()
-            .map(|provider| amaru_trace_filter().map(|filter| CborOtelLogBridge::new(provider).with_filter(filter)))
-            .transpose()?;
-
-        let fmt_filter = rust_log_filter();
-        if format.is_json() {
-            Self::accept_already_set(
-                tracing_subscriber::registry()
-                    .with(otel_layer)
-                    .with(SpanDurationLayer::new())
-                    .with(CborTraceArrayLayer::new())
-                    .with(log_bridge)
-                    .with(CborJsonSpanLayer::new())
-                    .with(json_fmt_layer(std::io::stdout).with_filter(fmt_filter))
-                    .try_init(),
-                "init OTLP+JSON tracing subscriber",
-            )?;
-        } else {
-            Self::accept_already_set(
-                tracing_subscriber::registry()
-                    .with(otel_layer)
-                    .with(SpanDurationLayer::new())
-                    .with(CborTraceArrayLayer::new())
-                    .with(log_bridge)
-                    .with(console_fmt_layer(std::io::stderr, format.ansi()).with_filter(fmt_filter))
-                    .try_init(),
-                "init OTLP+fmt tracing subscriber",
-            )?;
-        }
-
-        // Same process/build gauges as the product binary so e2e compare-metrics
-        // sees the full supported set when OTLP is enabled.
-        let system_metrics = if signals.0.contains(&OtelSignal::Metrics) && options.collect_system_metrics {
-            track_system_metrics(Arc::clone(&meter), BuildIdentity::default()).context("start system metrics")?
-        } else {
-            None
-        };
-
-        let teardown = Box::new(move || Ok(providers.shutdown()?));
-
-        Ok(Self { meter, system_metrics, teardown: Some(teardown) })
+    fn from_handle(handle: TelemetryHandle) -> Self {
+        Self { meter: Arc::new(handle.meter), teardown: handle.teardown }
     }
 
-    /// Flush exporters. Safe to call once at process exit.
-    ///
-    /// Must be polled on a Tokio runtime so provider shutdown can complete
-    /// exporter work that was scheduled on that runtime.
-    pub async fn shutdown(mut self) -> anyhow::Result<()> {
+    /// Stop collection and flush exporters before stopping the Tokio runtime.
+    pub async fn shutdown(self) -> anyhow::Result<()> {
         tokio::task::yield_now().await;
-        if let Some(handle) = self.system_metrics.take() {
-            handle.abort();
-        }
-        if let Some(teardown) = self.teardown.take() {
-            teardown()?;
-        }
-        Ok(())
+        self.teardown.shutdown()
     }
 }
 
-impl Drop for Telemetry {
-    fn drop(&mut self) {
-        if let Some(handle) = self.system_metrics.take() {
-            handle.abort();
-        }
-        if let Some(teardown) = self.teardown.take()
-            && let Err(err) = teardown()
-        {
-            eprintln!("amaru-node telemetry teardown failed: {err}");
-        }
-    }
-}
-
-fn init_fmt_subscriber(format: LogFormat) -> anyhow::Result<()> {
-    let filter = rust_log_filter();
-    if format.is_json() {
-        Telemetry::accept_already_set(
-            tracing_subscriber::registry()
-                .with(SpanDurationLayer::new())
-                .with(CborJsonSpanLayer::new())
-                .with(json_fmt_layer(std::io::stdout).with_filter(filter))
-                .try_init(),
-            "init JSON tracing subscriber",
-        )?;
+fn embedder_config(format: LogFormat, signals: Option<OtelSignals>) -> anyhow::Result<TelemetryConfig> {
+    let writer = if format.is_json() {
+        BoxMakeWriter::new(std::io::stdout)
+    } else if signals.is_some() {
+        BoxMakeWriter::new(std::io::stderr)
     } else {
-        Telemetry::accept_already_set(
-            tracing_subscriber::registry()
-                .with(SpanDurationLayer::new())
-                .with(
-                    console_fmt_layer(progress_log_writer as fn() -> ProgressLogWriter, format.ansi())
-                        .with_filter(filter),
-                )
-                .try_init(),
-            "init fmt tracing subscriber",
-        )?;
-    }
-    Ok(())
+        BoxMakeWriter::new(progress_log_writer as fn() -> ProgressLogWriter)
+    };
+    let otlp = signals
+        .map(|signals| {
+            let filter = if signals.0.contains(&OtelSignal::Traces) || signals.0.contains(&OtelSignal::Logs) {
+                amaru_trace_filter()?
+            } else {
+                EnvFilter::new("off")
+            };
+            Ok::<_, anyhow::Error>(OtlpConfig { resource: resource(None), signals, filter })
+        })
+        .transpose()?;
+    Ok(TelemetryConfig {
+        otlp,
+        output: Some(LogOutput { format, writer, filter: rust_log_filter(), span_events: FmtSpan::NONE }),
+        existing_subscriber: ExistingSubscriber::Keep,
+        ..TelemetryConfig::default()
+    })
 }
 
-/// Console sink used by [`Telemetry::install`]: decode CBOR `record_bytes` to
-/// native visit types and hide schema tags (EDR-033).
-fn console_fmt_layer<S, W>(writer: W, ansi: bool) -> impl Layer<S>
-where
-    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
-    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
-{
-    tracing_subscriber::fmt::layer()
-        .with_writer(writer)
-        .with_ansi(ansi)
-        .fmt_fields(console_field_formatter())
-        .event_format(CborConsoleEventFormat::new().with_ansi(ansi))
-}
-
-/// JSON sink used by [`Telemetry::install`]: CBOR scalars become JSON numbers /
-/// strings / bools; maps and arrays become nested JSON.
-fn json_fmt_layer<S, W>(writer: W) -> impl Layer<S>
-where
-    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
-    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
-{
-    tracing_subscriber::fmt::layer()
-        .with_writer(writer)
-        .event_format(CborJsonEventFormat::new())
-        .fmt_fields(CborJsonFields::new())
-}
-
-fn build_resource() -> Resource {
+/// Build the shared OTLP resource, with an optional caller-resolved service instance ID.
+///
+/// `OTEL_SERVICE_NAME` overrides the default `amaru` name. SDK resource detection
+/// supplies other attributes, including `OTEL_RESOURCE_ATTRIBUTES`.
+pub fn resource(service_instance_id: Option<String>) -> Resource {
     let service_name = env::var("OTEL_SERVICE_NAME")
         .ok()
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| DEFAULT_SERVICE_NAME.to_string());
-
-    Resource::builder().with_attributes([KeyValue::new(SERVICE_NAME, service_name)]).build()
+    let mut attributes = vec![KeyValue::new(SERVICE_NAME, service_name)];
+    if let Some(instance_id) = service_instance_id {
+        attributes.push(KeyValue::new(SERVICE_INSTANCE_ID, instance_id));
+    }
+    Resource::builder().with_attributes(attributes).build()
 }
 
 fn amaru_trace_filter() -> anyhow::Result<EnvFilter> {
@@ -341,7 +206,6 @@ fn amaru_trace_filter() -> anyhow::Result<EnvFilter> {
 }
 
 fn rust_log_filter() -> EnvFilter {
-    // Prefer AMARU_TRACE for schema events; fall back to RUST_LOG then a quiet default.
     if let Ok(filter) = env::var("AMARU_TRACE") {
         return EnvFilter::try_new(filter).unwrap_or_else(|_| EnvFilter::new(DEFAULT_AMARU_TRACE));
     }
@@ -364,7 +228,7 @@ mod tests {
 
     use amaru_kernel::{HeaderHash, Slot};
     use amaru_observability::info;
-    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::fmt::MakeWriter;
 
     use super::*;
 
@@ -398,6 +262,18 @@ mod tests {
         }
     }
 
+    fn output_config(writer: &CaptureWriter, format: LogFormat) -> TelemetryConfig {
+        TelemetryConfig {
+            output: Some(LogOutput {
+                format,
+                writer: BoxMakeWriter::new(writer.clone()),
+                filter: EnvFilter::new("info"),
+                span_events: FmtSpan::NONE,
+            }),
+            ..TelemetryConfig::default()
+        }
+    }
+
     fn emit_tip_adopt() {
         let slot = Slot::new(SLOT);
         let header_hash = HeaderHash::new([HASH_BYTE; 32]);
@@ -420,8 +296,7 @@ mod tests {
     #[test]
     fn json_stack_decodes_cbor_schema_fields_to_primitives() {
         let writer = CaptureWriter::default();
-        let subscriber =
-            tracing_subscriber::registry().with(CborJsonSpanLayer::new()).with(json_fmt_layer(writer.clone()));
+        let (subscriber, _handle) = output_config(&writer, LogFormat::Json).build().unwrap();
 
         tracing::subscriber::with_default(subscriber, emit_tip_adopt);
 
@@ -447,7 +322,7 @@ mod tests {
     #[test]
     fn console_stack_decodes_cbor_schema_fields_to_primitives() {
         let writer = CaptureWriter::default();
-        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone(), false));
+        let (subscriber, _handle) = output_config(&writer, LogFormat::Plain).build().unwrap();
 
         tracing::subscriber::with_default(subscriber, emit_tip_adopt);
 
@@ -469,7 +344,7 @@ mod tests {
     #[test]
     fn console_stack_emits_ansi_when_enabled() {
         let writer = CaptureWriter::default();
-        let subscriber = tracing_subscriber::registry().with(console_fmt_layer(writer.clone(), true));
+        let (subscriber, _handle) = output_config(&writer, LogFormat::Ansi).build().unwrap();
 
         tracing::subscriber::with_default(subscriber, emit_tip_adopt);
 
