@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::{io, path::Path};
 
 use amaru::lifecycle::Runnable;
-use anyhow::{Context, ensure};
+use anyhow::ensure;
 use tempfile::NamedTempFile;
+
+use super::files::{ensure_absent, prepare_file, prepare_key, publish_new, sync_parent};
 
 pub mod cert;
 pub mod cold;
@@ -80,63 +78,4 @@ fn write_key_pair(
     let verification =
         verification_key.map(|path| prepare_key(write_verification, path).map(|file| (path, file))).transpose()?;
     publish_new(verification.into_iter().chain([(signing_key, signing)]))
-}
-
-fn prepare_key(
-    write_raw: impl FnOnce(&mut NamedTempFile) -> io::Result<()>,
-    path: &Path,
-) -> anyhow::Result<NamedTempFile> {
-    let mut file = NamedTempFile::new_in(parent(path))
-        .with_context(|| format!("could not create temporary key file for {}", path.display()))?;
-    write_raw(&mut file).with_context(|| format!("could not write key file for {}", path.display()))?;
-    Ok(file)
-}
-
-fn parent(path: &Path) -> &Path {
-    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
-}
-
-fn sync_parent(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    fs::File::open(parent(path))?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
-
-/// Stage bytes beside their destination, with private permissions and flushed contents.
-fn prepare_file(path: &Path, bytes: &[u8]) -> anyhow::Result<NamedTempFile> {
-    let file = prepare_key(|file| file.write_all(bytes), path)?;
-    file.as_file().sync_all()?;
-    Ok(file)
-}
-
-fn ensure_absent(path: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(_) => anyhow::bail!("{} already exists", path.display()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error).with_context(|| format!("could not check {}", path.display())),
-    }
-}
-
-/// Publish new files without replacing existing files, undoing partial publication on error.
-/// Synchronize each destination parent before returning success. Retain published files if that fails.
-fn publish_new<'a>(files: impl IntoIterator<Item = (&'a Path, NamedTempFile)>) -> anyhow::Result<()> {
-    let mut published: Vec<&Path> = Vec::new();
-    for (path, file) in files {
-        if let Err(error) = file.persist_noclobber(path) {
-            for path in published {
-                fs::remove_file(path)
-                    .with_context(|| format!("could not remove partially created {}", path.display()))?;
-            }
-            return Err(error).with_context(|| format!("could not save {}", path.display()));
-        }
-        published.push(path);
-    }
-    for path in published {
-        sync_parent(path).with_context(|| {
-            format!("files published, but could not synchronize destination directory {}", parent(path).display())
-        })?;
-    }
-    Ok(())
 }

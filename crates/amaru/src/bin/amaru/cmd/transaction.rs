@@ -12,13 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    io::Write,
-    ops::Range,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, fs, ops::Range, path::PathBuf};
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{
@@ -27,7 +21,8 @@ use amaru_kernel::{
 };
 use amaru_ouroboros::credentials::TransactionSigningKey;
 use anyhow::Context;
-use tempfile::NamedTempFile;
+
+use super::files::{ensure_absent, prepare_file, publish_new};
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum TransactionCommand {
@@ -52,7 +47,7 @@ pub struct SignArgs {
     #[arg(long, value_name = amaru::value_names::FILEPATH)]
     transaction: PathBuf,
 
-    /// Payment, stake, or pool cold key, as a raw 32-byte Ed25519 seed.
+    /// Payment, stake, or pool cold key, as a raw 32-byte Ed25519 seed or cardano-cli text envelope.
     /// Repeat this option for each signer.
     #[arg(long, required = true, value_name = amaru::value_names::FILEPATH)]
     signing_key: Vec<PathBuf>,
@@ -68,6 +63,7 @@ impl SignArgs {
     }
 
     pub fn run(self) -> anyhow::Result<()> {
+        ensure_absent(&self.output)?;
         let mut ctx = ProtocolVersion::default();
         let bytes = fs::read(&self.transaction)
             .with_context(|| format!("could not read transaction {}", self.transaction.display()))?;
@@ -82,14 +78,8 @@ impl SignArgs {
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         let signed = sign_transaction(transaction, &keys, &mut ctx)?;
-        let parent = self.output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        let mut file = NamedTempFile::new_in(parent)
-            .with_context(|| format!("could not create temporary file for {}", self.output.display()))?;
-        file.write_all(&signed).context("could not write signed transaction")?;
-        file.as_file().sync_all().context("could not flush signed transaction")?;
-        file.persist_noclobber(&self.output)
-            .with_context(|| format!("could not save signed transaction {}", self.output.display()))?;
-        Ok(())
+        let file = prepare_file(&self.output, &signed)?;
+        publish_new([(self.output.as_path(), file)])
     }
 }
 
@@ -158,4 +148,36 @@ fn encode_transaction(
     }
     output.writer_mut().extend_from_slice(&bytes[witness_range.end..]);
     Ok(output.into_writer())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_writes_transaction_and_refuses_to_replace_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let transaction = dir.path().join("unsigned.cbor");
+        let signing_key = dir.path().join("payment.skey");
+        let output = dir.path().join("signed.cbor");
+        let bytes = hex::decode("84a3008001800200a0f5f6").unwrap();
+        fs::write(&transaction, &bytes).unwrap();
+        fs::write(&signing_key, [42u8; 32]).unwrap();
+        let args = || SignArgs {
+            transaction: transaction.clone(),
+            signing_key: vec![signing_key.clone()],
+            output: output.clone(),
+        };
+
+        args().run().unwrap();
+        let signed = fs::read(&output).unwrap();
+        let mut ctx = ProtocolVersion::default();
+        let original: Transaction = cbor::from_cbor_no_leftovers_with(&bytes, &mut ctx).unwrap();
+        let decoded: Transaction = cbor::from_cbor_no_leftovers_with(&signed, &mut ctx).unwrap();
+        assert_eq!(decoded.tx_id(), original.tx_id());
+        assert_eq!(decoded.witnesses.verification_key_witness.as_ref().unwrap().len(), 1);
+        assert!(args().run().is_err());
+        assert_eq!(fs::read(&output).unwrap(), signed);
+        assert_eq!(fs::read(&transaction).unwrap(), bytes);
+    }
 }
