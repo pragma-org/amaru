@@ -92,10 +92,10 @@ AMARU_NETWORK="mainnet"
 # <FILEPATH> Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
 # AMARU_OPERATOR_CERT=
 
-# <FILEPATH> KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+# <FILEPATH> KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
 # AMARU_OPERATOR_KES=
 
-# <FILEPATH> VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+# <FILEPATH> VRF signing key, as a raw 32-byte seed or an unencrypted cardano-cli `vrf.skey` text envelope.
 # AMARU_OPERATOR_VRF=
 
 # <HOSTNAME[:PORT]> Upstream peer addresses to synchronize from.
