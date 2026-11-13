@@ -85,6 +85,10 @@ where
     fn force_flush(&self) -> OTelSdkResult {
         self.inner.force_flush()
     }
+
+    fn set_resource(&mut self, resource: &Resource) {
+        self.inner.set_resource(resource);
+    }
 }
 
 /// Notes a `perf` span's exported elapsed time before the inner processor queues or exports it.

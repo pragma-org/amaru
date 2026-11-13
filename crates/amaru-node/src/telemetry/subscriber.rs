@@ -76,6 +76,7 @@ pub enum ExistingSubscriber {
     #[default]
     Reject,
     /// Keep the host subscriber while retaining the configured metric exporter.
+    /// Installation rejects file outputs because their layers could be discarded after opening the files.
     Keep,
 }
 
@@ -144,6 +145,10 @@ impl TelemetryConfig {
 
     /// Install the shared subscriber and return ownership of its exporters.
     pub fn install(self) -> anyhow::Result<TelemetryHandle> {
+        anyhow::ensure!(
+            self.files.is_empty() || matches!(self.existing_subscriber, ExistingSubscriber::Reject),
+            "cannot install telemetry with file outputs while keeping an existing subscriber"
+        );
         let existing = self.existing_subscriber;
         let (subscriber, handle) = self.build()?;
         match subscriber.try_init() {

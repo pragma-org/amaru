@@ -4,7 +4,44 @@
       "resourceSpans": [
         {
           "resource": {
-            "attributes": [],
+            "attributes": [
+              {
+                "key": "service.instance.id",
+                "value": {
+                  "stringValue": "ledger-fixture"
+                }
+              },
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "amaru-telemetry-test"
+                }
+              },
+              {
+                "key": "telemetry.sdk.language",
+                "value": {
+                  "stringValue": "rust"
+                }
+              },
+              {
+                "key": "telemetry.sdk.name",
+                "value": {
+                  "stringValue": "opentelemetry"
+                }
+              },
+              {
+                "key": "telemetry.sdk.version",
+                "value": {
+                  "stringValue": "0.32.1"
+                }
+              },
+              {
+                "key": "test.fixture",
+                "value": {
+                  "stringValue": "ledger"
+                }
+              }
+            ],
             "droppedAttributesCount": 0,
             "entityRefs": []
           },
