@@ -56,7 +56,10 @@ impl CreateArgs {
 mod tests {
     use std::fs;
 
-    use amaru_ouroboros::vrf::{Input, PublicKey, SecretKey};
+    use amaru_ouroboros::{
+        credentials::load_vrf_signing_key,
+        vrf::{Input, PublicKey, SecretKey},
+    };
     use tempfile::TempDir;
 
     #[test]
@@ -68,7 +71,7 @@ mod tests {
             .run()
             .unwrap();
         assert_eq!(fs::metadata(&signing_key).unwrap().len(), SecretKey::SIZE as u64);
-        let secret = SecretKey::from_file(signing_key).unwrap();
+        let secret = load_vrf_signing_key(signing_key).unwrap();
         let verification = fs::read(verification_key).unwrap();
         let public = PublicKey::try_from(verification.as_slice()).unwrap();
         assert_eq!(public, PublicKey::from(&secret));

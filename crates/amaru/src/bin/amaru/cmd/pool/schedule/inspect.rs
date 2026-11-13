@@ -22,7 +22,9 @@ use amaru_kernel::{
 use amaru_ledger::{StakeSummary, store::HistoricalStores, summary::governance::GovernanceSummary};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    NonceForEpoch, PoolSummary, nonce_for_epoch,
+    NonceForEpoch, PoolSummary,
+    credentials::load_vrf_signing_key,
+    nonce_for_epoch,
     praos::leader::{LeaderParams, lead_slots},
     vrf,
 };
@@ -105,7 +107,7 @@ impl InspectArgs {
         let ledger_config = RocksDbConfig::new(db_ledger.clone());
         let ledger = RocksDBHistoricalStores::new(&ledger_config, 0);
 
-        let vrf = vrf::SecretKey::from_file(&self.operator_vrf)
+        let vrf = load_vrf_signing_key(&self.operator_vrf)
             .with_context(|| format!("failed to load VRF signing key: {}", self.operator_vrf.display()))?;
         let vrf_hash = Hasher::<256>::hash(vrf::PublicKey::from(&vrf).as_ref());
 
