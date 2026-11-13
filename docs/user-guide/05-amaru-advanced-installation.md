@@ -293,7 +293,18 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 ## 5. Logs, Metrics and Monitoring
 
-Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
+Amaru uses OpenTelemetry (OTLP) to export its Metrics, Logs and Traces.
+
+```mermaid
+flowchart LR
+    A["Amaru node"] -->|"OTLP/gRPC"| C["OpenTelemetry Collector"]
+    C --> T["Tempo (traces)"]
+    C --> P["Prometheus (metrics)"]
+    C --> L["Loki (logs)"]
+    T --> G["Grafana"]
+    P --> G
+    L --> G
+```
 
 When running Amaru in CLI use `--log-otlp`:
 
