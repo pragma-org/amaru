@@ -419,7 +419,7 @@ cardano_node_metrics_slotInEpoch_int  153412
 
 ### Submitting a transaction
 
-Start the node with `--submit-api-listen-on` or `AMARU_SUBMIT_API_LISTEN_ON=127.0.0.1:8090`, then `POST` the CBOR-encoded transaction:
+Start the node with `AMARU_SUBMIT_API_LISTEN_ON=127.0.0.1:8090`, then `POST` the CBOR-encoded transaction:
 
 ```bash
 curl -X POST \
