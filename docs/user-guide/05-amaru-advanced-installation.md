@@ -10,7 +10,7 @@ This page covers installing the binary, running it as a systemd service under it
 ## 1. Installing Amaru as a systemd service
 
 :::info version reference
-Amaru releases follow a calendar-based scheme (e.g. `10.11.20261105`). Always check the [releases page](https://github.com/pragma-org/amaru/releases) for the latest version before installing. Amaru is still in an exploratory phase, so expect frequent releases and occasional breaking changes.
+Amaru releases follow a calendar-based scheme (e.g. `10.11.20261112`). Always check the [releases page](https://github.com/pragma-org/amaru/releases) for the latest version before installing. Amaru is still in an exploratory phase, so expect frequent releases and occasional breaking changes.
 :::
 
 For production use, run amaru under systemd so it restarts automatically on failure or reboot.
@@ -21,14 +21,14 @@ The **Debian / RPM package** is the recommended path as it installs a dedicated 
 
 **Debian/Ubuntu:**
 ```bash
-VERSION=10.11.20261105 ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20261112 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.deb "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.deb"
 sudo apt install ./amaru-$VERSION-linux-$ARCH.deb
 ```
 
 **Fedora/RHEL/CentOS:**
 ```bash
-VERSION=10.11.20261105 ARCH=x86_64  # check releases page for latest; also available for aarch64
+VERSION=10.11.20261112 ARCH=x86_64  # check releases page for latest; also available for aarch64
 curl -fsSL -o amaru-$VERSION-linux-$ARCH.rpm "https://github.com/pragma-org/amaru/releases/download/v$VERSION/amaru-$VERSION-linux-$ARCH.rpm"
 sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 ```
@@ -37,12 +37,12 @@ sudo dnf install ./amaru-$VERSION-linux-$ARCH.rpm
 
 ## Running Amaru as a systemd service {#running-amaru-as-a-systemd-service}
 
-The Debian and RPM packages don't just ship the amaru binary, they also install a dedicated `amaru` [system user](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/postinst), a [systemd unit](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.service), and a default [environment file](https://github.com/pragma-org/amaru/blob/c64b7e0444c96264e551e0abc9d1e45c4fb6a710/.github/debian/amaru.env).
+The Debian and RPM packages don't just ship the amaru binary, they also install a dedicated `amaru` [system user](https://github.com/pragma-org/amaru/blob/main/.github/debian/postinst), a [systemd unit](https://github.com/pragma-org/amaru/blob/main/.github/debian/amaru.service), and a default [environment file](https://github.com/pragma-org/amaru/blob/main/.github/debian/amaru.env).
 
 :::warning TUI Limitation
 The use of the TUI is currently only possible when running Amaru directly in a CLI.
 -> A way of using the TUI as a detached process is being explored by the team.
-Please refer to #Monitoring section to learn how to retrieve logs and metrics when Amaru is running as a service.
+Please refer to [Logs, Metrics and Monitoring](#5-logs-metrics-and-monitoring) to learn how to retrieve logs and metrics when Amaru is running as a service.
 :::
 
 ### The systemd unit (Debian)
@@ -92,10 +92,10 @@ AMARU_NETWORK="mainnet"
 # <FILEPATH> Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
 # AMARU_OPERATOR_CERT=
 
-# <FILEPATH> KES signing key, as an unencrypted cardano-cli `kes.skey` text envelope.
+# <FILEPATH> KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
 # AMARU_OPERATOR_KES=
 
-# <FILEPATH> VRF signing key, as an unencrypted cardano-cli `vrf.skey` text envelope.
+# <FILEPATH> VRF signing key, as a raw 32-byte seed or an unencrypted cardano-cli `vrf.skey` text envelope.
 # AMARU_OPERATOR_VRF=
 
 # <HOSTNAME[:PORT]> Upstream peer addresses to synchronize from.
@@ -175,7 +175,6 @@ sudo -u amaru amaru node bootstrap --network mainnet
 Alternatively, you can also run the one-shot bootstrap service:
 
 ```bash
-sudo systemctl enable --now amaru-bootstrap.service
 sudo systemctl start amaru-bootstrap
 ```
 
@@ -216,7 +215,7 @@ AMARU_LOG_OTLP=true
 ```
 
 :::note
-`AMARU_LOG_OTLP` allow Amaru to send traces to the OTLP collector
+`AMARU_LOG_OTLP` lets Amaru export metrics, logs and traces to an OTLP collector.
 `OTEL_METRIC_EXPORT_INTERVAL` is the time in milliseconds between two OTLP metrics exports. Amaru defaults it to `1000` (1s) instead of the [OpenTelemetry default of 60s](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#periodic-exporting-metricreader).
 :::
 
@@ -294,7 +293,18 @@ You can then read Amaru logs with `journalctl -fu amaru`
 
 ## 5. Logs, Metrics and Monitoring
 
-Amaru uses OpenTelemetry to export its Metrics, Logs and Traces.
+Amaru uses OpenTelemetry (OTLP) to export its Metrics, Logs and Traces.
+
+```mermaid
+flowchart LR
+    A["Amaru node"] -->|"OTLP/gRPC"| C["OpenTelemetry Collector"]
+    C --> T["Tempo (traces)"]
+    C --> P["Prometheus (metrics)"]
+    C --> L["Loki (logs)"]
+    T --> G["Grafana"]
+    P --> G
+    L --> G
+```
 
 When running Amaru in CLI use `--log-otlp`:
 
@@ -409,7 +419,7 @@ cardano_node_metrics_slotInEpoch_int  153412
 
 ### Submitting a transaction
 
-Start the node with `--submit-api-listen-on` or `AMARU_SUBMIT_API_LISTEN_ON`, then `POST` the CBOR-encoded transaction:
+Start the node with `AMARU_SUBMIT_API_LISTEN_ON=127.0.0.1:8090`, then `POST` the CBOR-encoded transaction:
 
 ```bash
 curl -X POST \

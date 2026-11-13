@@ -13,7 +13,7 @@ The dashboard starts by default when Amaru runs in an interactive terminal on Li
 
 - Flag `--tui-off` is set
 - Environment variable `AMARU_TUI_OFF` is set to `true`
-- JSON traces are enabled
+- JSON logs are enabled with `--log-json` or `AMARU_LOG_JSON`
 - Environment variable `TERM` is set to `dumb`
 
 When the TUI is disabled, logs go to standard output. That mode is recommended when running with systemd or Docker.
