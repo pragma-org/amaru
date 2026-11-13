@@ -4783,31 +4783,6 @@
         "warn"
       ]
     },
-    "amaru::consensus::credentials::LEGACY_KEY_ENVELOPE": {
-      "type": "object",
-      "properties": {
-        "key_kind": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "key_kind",
-        "path"
-      ],
-      "optional": [],
-      "additionalProperties": false,
-      "name": "legacy_key_envelope",
-      "kind": "event",
-      "target": "amaru::consensus::credentials",
-      "description": "Loaded a legacy key text envelope; new keys should use raw binary files",
-      "public": true,
-      "levels": [
-        "trace"
-      ]
-    },
     "amaru::consensus::db_chain_migration::EXECUTE": {
       "type": "object",
       "properties": {
@@ -5457,6 +5432,31 @@
       "public": true,
       "levels": [
         "info"
+      ]
+    },
+    "amaru::io::envelope::LEGACY": {
+      "type": "object",
+      "properties": {
+        "envelope_type": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "envelope_type",
+        "path"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "legacy",
+      "kind": "event",
+      "target": "amaru::io::envelope",
+      "description": "Loaded a legacy cardano-cli text envelope",
+      "public": true,
+      "levels": [
+        "trace"
       ]
     },
     "amaru::ledger::account::PAY_OR_REFUND": {

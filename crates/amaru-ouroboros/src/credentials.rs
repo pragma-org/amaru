@@ -33,7 +33,7 @@ use crate::{
     envelope::{HasEnvelope, ReadEnvelopeError, read_cbor_or_envelope, read_key_file},
     kes,
     praos::header::AssertOperationalCertificateError,
-    vrf::{self, SecretKeyError as VrfKeyError},
+    vrf,
 };
 
 const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
@@ -83,7 +83,7 @@ impl InProcessCredentials {
         protocol_version: ProtocolVersion,
     ) -> Result<Self, CredentialsError> {
         let mut kes = kes::SecretKey::from_file(kes_signing_key)?;
-        let vrf = vrf::SecretKey::from_file(vrf_signing_key)?;
+        let vrf = load_vrf_signing_key(vrf_signing_key).map_err(CredentialsError::Vrf)?;
         let (certificate, cold) = load_operational_certificate(operational_certificate, protocol_version)?;
         let hot = kes::PublicKey::from(&mut kes);
         if *hot != *certificate.operational_cert_kes_verification_key {
@@ -265,7 +265,7 @@ pub enum CredentialsError {
     #[error("KES signing key: {0}")]
     Kes(#[from] kes::KesError),
     #[error("VRF signing key: {0}")]
-    Vrf(#[from] VrfKeyError),
+    Vrf(ReadEnvelopeError),
     #[error("operational certificate: {0}")]
     Certificate(#[from] ReadEnvelopeError),
     #[error("KES verification key does not match the operational certificate hot key")]
@@ -318,9 +318,18 @@ impl ColdSigningKey {
     }
 }
 
+/// Load a raw VRF signing seed or a legacy cardano-cli text envelope.
+pub fn load_vrf_signing_key(path: impl AsRef<Path>) -> Result<vrf::SecretKey, ReadEnvelopeError> {
+    read_key_file::<{ vrf::SecretKey::SIZE }, _, _, _>(path.as_ref(), &mut (), |seed| Ok(vrf::SecretKey::from(seed)))
+}
+
+impl HasEnvelope for vrf::SecretKey {
+    const ACCEPTED_TYPES: &'static [&'static str] = &["VrfSigningKey_PraosVRF"];
+}
+
 /// Load a raw 32-byte cold signing seed or a legacy cardano-cli text envelope.
 pub fn load_cold_signing_key(path: impl AsRef<Path>) -> Result<ColdSigningKey, ReadEnvelopeError> {
-    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), "cold_signing", &mut (), |seed| {
+    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), &mut (), |seed| {
         Ok(ColdSigningKey(ed25519::SigningKey::from_bytes(seed)))
     })
 }
@@ -371,7 +380,7 @@ pub fn load_cold_verification_key(
     protocol_version: ProtocolVersion,
 ) -> Result<VerificationKey, ReadEnvelopeError> {
     let mut ctx = protocol_version;
-    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), "cold_verification", &mut ctx, |raw| {
+    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), &mut ctx, |raw| {
         ColdVerificationKeyFile::new(VerificationKey::from(*raw)).map_err(ReadEnvelopeError::from)
     })
     .map(|key| key.0)
@@ -557,7 +566,7 @@ mod tests {
         assert_eq!(u32::from(kes.period()), 0, "a fresh cardano-cli KES file has no period");
         assert_eq!(kes::PublicKey::from(&mut kes).as_ref(), kes_vk.as_slice());
 
-        let vrf = vrf::SecretKey::from_file(&vrf_path).unwrap();
+        let vrf = load_vrf_signing_key(&vrf_path).unwrap();
         assert_eq!(vrf::PublicKey::from(&vrf).as_ref(), vrf_vk.as_slice());
         let input = vrf::Input::from(&[11u8; vrf::Input::SIZE]);
         let proof = vrf.prove(&input);

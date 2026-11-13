@@ -203,7 +203,7 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for KesVerificationKey
 
 fn read_kes_verification_key(path: &Path) -> anyhow::Result<VerificationKey> {
     let mut ctx = PROTOCOL_VERSION_12;
-    read_key_file::<32, _, _, ReadEnvelopeError>(path, "kes_verification", &mut ctx, |bytes| {
+    read_key_file::<32, _, _, ReadEnvelopeError>(path, &mut ctx, |bytes| {
         Ok(KesVerificationKey(VerificationKey::from(*bytes)))
     })
     .map(|key| key.0)

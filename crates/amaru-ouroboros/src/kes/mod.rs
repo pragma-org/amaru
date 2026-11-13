@@ -69,7 +69,7 @@ impl SecretKey {
     ///
     /// Raw files contain exactly [`Self::SIZE`] bytes, without a period suffix.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, KesError> {
-        envelope::read_key_file::<{ Self::SIZE }, _, _, _>(path.as_ref(), "kes_signing", &mut (), |bytes| {
+        envelope::read_key_file::<{ Self::SIZE }, _, _, _>(path.as_ref(), &mut (), |bytes| {
             Self::from_bytes(bytes.to_vec())
         })
     }
