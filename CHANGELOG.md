@@ -37,11 +37,17 @@ Other guiding principles:
 
 ## Unreleased
 
-## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
-
 ### Added
 
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
+
+### Changed
+
+- **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.
+
+## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
+
+### Added
 
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
 

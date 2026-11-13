@@ -1476,21 +1476,6 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
-## target: `amaru::consensus::credentials`
-
-| name | kind | levels | public | description | required fields | optional fields |
-| --- | --- | --- | --- | --- | --- | --- |
-| `legacy_key_envelope` | `event` | trace | public | Loaded a legacy key text envelope; new keys should use raw binary files | key_kind, path |  |
-
-<details><summary>event: `legacy_key_envelope`</summary>
-
-| field | type | required |
-| --- | --- | --- |
-| `key_kind` | `string` | ✓ |
-| `path` | `string` | ✓ |
-
-</details>
-
 ## target: `amaru::consensus::db_chain_migration`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -1740,6 +1725,21 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `mode` | `string` | ✓ |
 | `previous` | `string` | ✓ |
 | `slot` | `integer` | ✓ |
+
+</details>
+
+## target: `amaru::io::envelope`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `legacy` | `event` | trace | public | Loaded a legacy cardano-cli text envelope | envelope_type, path |  |
+
+<details><summary>event: `legacy`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `envelope_type` | `string` | ✓ |
+| `path` | `string` | ✓ |
 
 </details>
 
