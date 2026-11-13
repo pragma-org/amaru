@@ -145,13 +145,21 @@ jobs:
           chmod +x scripts/update-readme-installation-sections
           ./scripts/update-readme-installation-sections --version "${VERSION}"
 
-      - name: Update user guide installation versions
+      - name: Update user guide release references
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
           VERSION: ${{ needs.release-metadata.outputs.version }}
         run: |
+          set -euo pipefail
           [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]{8}$ ]] || exit 1
-          sed -i -E "s/[0-9]+\.[0-9]+\.[0-9]{8}/${VERSION}/g" docs/user-guide/*.md
+          release_commit="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha[0:7]')"
+          [[ "${release_commit}" =~ ^[0-9a-f]{7}$ ]] || exit 1
+          sed -i -E \
+            -e "s/([0-9]+\.[0-9]+\.[0-9]{8}) [(][0-9a-f]{7,40}[)]/\1 (${release_commit})/g" \
+            -e "s/[0-9]+\.[0-9]+\.[0-9]{8}/${VERSION}/g" \
+            docs/user-guide/*.md
 
       - name: Move released changelog entries
         shell: bash
@@ -183,7 +191,7 @@ jobs:
           body: |
             Updates packages metadata generated from the published release [`${{ needs.release-metadata.outputs.release_tag }}`](https://github.com/pragma-org/amaru/releases/tag/${{ needs.release-metadata.outputs.release_tag }}).
 
-            Updates the README and user guide installation instructions to reference the published release.
+            Updates the README and user guide release references, including version and commit examples.
 
             This PR was created automatically by the `release-published` workflow.
           add-paths: |
