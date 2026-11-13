@@ -14,11 +14,9 @@
 
 use std::net::SocketAddr;
 
-use amaru_kernel::{Transaction, cbor::WithOriginalBytes};
 use amaru_observability::{info, warn};
-use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin, TxRejectReason};
-use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
-use amaru_pure_stage::{CallError, Sender};
+use amaru_ouroboros::{TxInsertResult, TxRejectReason};
+use amaru_pure_stage::CallError;
 use anyhow::Context;
 use axum::{
     Json, Router,
@@ -31,17 +29,16 @@ use axum::{
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-/// For now we just need access to the mempool to route requests from the tx submission API.
-type SubmitApiState = Sender<MempoolMsg>;
+use crate::{MempoolError, MempoolServices};
 
 /// Starts the Submit API server on the specified address, using the provided mempool
 /// for transaction submission.
 pub async fn start(
     addr: SocketAddr,
-    mempool_sender: Sender<MempoolMsg>,
+    mempool: MempoolServices,
     shutdown: CancellationToken,
 ) -> anyhow::Result<(JoinHandle<()>, SocketAddr)> {
-    let app = Router::new().route("/api/submit/tx", post(submit_tx)).with_state(mempool_sender);
+    let app = Router::new().route("/api/submit/tx", post(submit_tx)).with_state(mempool);
 
     let listener =
         TcpListener::bind(addr).await.with_context(|| format!("failed to bind submit API address at {addr}"))?;
@@ -60,7 +57,7 @@ pub async fn start(
 
 /// Handle incoming transaction submission requests.
 /// The request body is expected to be a CBOR-encoded.
-async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn submit_tx(State(mempool): State<MempoolServices>, headers: HeaderMap, body: Bytes) -> Response {
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -74,20 +71,7 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
         return text_response(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/cbor");
     }
 
-    let tx: WithOriginalBytes<Transaction> = match minicbor::decode(&body) {
-        Ok(tx) => tx,
-        Err(e) => {
-            return text_response(StatusCode::BAD_REQUEST, format!("Invalid CBOR transaction: {e}"));
-        }
-    };
-
-    match mempool_sender
-        .call(
-            |caller| MempoolMsg::Insert { tx: Box::new(tx), origin: TxOrigin::Local, caller },
-            DEFAULT_MEMPOOL_INSERT_TIMEOUT.as_duration(),
-        )
-        .await
-    {
+    match mempool.submit(&body).await {
         Ok(TxInsertResult::Accepted { tx_id, .. }) => json_response(StatusCode::ACCEPTED, tx_id.to_string()),
         Ok(TxInsertResult::Rejected { reason, .. }) => text_response(
             match reason {
@@ -97,17 +81,24 @@ async fn submit_tx(State(mempool_sender): State<SubmitApiState>, headers: Header
             },
             reason.to_string(),
         ),
-        Err(CallError::TimedOut) => text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out"),
-        Err(CallError::SendFailed) => {
+        Err(error @ MempoolError::InvalidCbor(_)) => text_response(StatusCode::BAD_REQUEST, error.to_string()),
+        Err(error @ MempoolError::InputTooLarge { .. }) => {
+            text_response(StatusCode::PAYLOAD_TOO_LARGE, error.to_string())
+        }
+        Err(MempoolError::Closed) => text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool unavailable"),
+        Err(MempoolError::Call(CallError::TimedOut)) => {
+            text_response(StatusCode::SERVICE_UNAVAILABLE, "mempool timed out")
+        }
+        Err(MempoolError::Call(CallError::SendFailed)) => {
             warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "send_failed");
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
         }
-        Err(CallError::ResponseDropped) => {
+        Err(MempoolError::Call(CallError::ResponseDropped)) => {
             warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "response_dropped");
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool unavailable")
         }
-        Err(CallError::ResponseDeserializeFailed) => {
-            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = "deserialize_failed");
+        Err(error @ (MempoolError::Call(CallError::ResponseDeserializeFailed) | MempoolError::Lagged(_))) => {
+            warn!(node::submit_api::MEMPOOL_UNREACHABLE, reason = error.to_string());
             text_response(StatusCode::INTERNAL_SERVER_ERROR, "mempool returned an invalid response")
         }
     }
@@ -134,11 +125,11 @@ mod tests {
         to_cbor,
     };
     use amaru_mempool::{InMemoryMempool, MempoolConfig};
-    use amaru_ouroboros::{MempoolMsg, ResourceMempool};
+    use amaru_ouroboros::ResourceMempool;
     use amaru_ouroboros_traits::{Mempool, MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
     use amaru_protocols::store_effects::ResourceParameters;
     use amaru_pure_stage::{
-        Sender, StageGraph,
+        StageGraph, StageGraphRunning,
         tokio::{TokioBuilder, TokioRunning},
     };
     use axum::{
@@ -148,14 +139,14 @@ mod tests {
     };
     use reqwest::{Response, header::CONTENT_TYPE};
     use tokio::runtime::Handle;
-    use tokio_util::sync::CancellationToken;
+    use tokio_util::sync::{CancellationToken, DropGuard};
 
     use super::start;
-    use crate::{stages::config::Config, tests::test_data::create_transaction};
+    use crate::{MempoolServices, stages::config::Config, tests::test_data::create_transaction};
 
     #[tokio::test]
     async fn test_successful_submission() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let tx = create_transaction(0);
         let expected_tx_id = tx.tx_id();
@@ -172,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_submission_of_with_transaction_extracted_from_existing_block() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let expected_tx: Transaction = fixture_transaction();
         let expected_tx_id = expected_tx.tx_id();
@@ -191,9 +182,9 @@ mod tests {
     /// byte-identical to what was submitted rather than to our own re-encoding of it.
     #[tokio::test]
     async fn test_submission_preserves_original_transaction_bytes() -> anyhow::Result<()> {
-        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
-        let (addr, _shutdown) = start_test_server_with_mempool(mempool.clone()).await?;
+        let (addr, _guard) = start_test_server_with_mempool(mempool.clone()).await?;
 
         let tx = create_transaction(0);
         let expected_tx_id = tx.tx_id();
@@ -213,7 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_cbor() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let resp = submit_tx(addr, vec![0xDE, 0xAD, 0xBE, 0xEF]).await?;
         assert_eq!(resp.status(), 400);
@@ -223,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_transaction() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let tx = create_transaction(0);
         let body = amaru_kernel::to_cbor(&tx);
@@ -245,11 +236,11 @@ mod tests {
         let second = create_transaction(1);
 
         let max_bytes = to_cbor(&first).len() as u64;
-        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::new(
                 MempoolConfig::default().with_max_bytes(max_bytes),
             ));
-        let (addr, _shutdown) = start_test_server_with_mempool(mempool).await?;
+        let (addr, _guard) = start_test_server_with_mempool(mempool).await?;
 
         let resp = submit_tx(addr, amaru_kernel::to_cbor(&first)).await?;
         assert_eq!(resp.status(), 202);
@@ -262,9 +253,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_failure() -> anyhow::Result<()> {
-        let mempool: Arc<dyn amaru_ouroboros_traits::Mempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::new(Default::default()));
-        let (addr, _shutdown) =
+        let (addr, _guard) =
             start_test_server_with_mempool_and_validator(mempool, Arc::new(reject_transactions)).await?;
 
         let tx = create_transaction(0);
@@ -277,16 +268,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_unavailable() -> anyhow::Result<()> {
-        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
+        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
-        let (sender, running) = make_mempool_sender_and_running(mempool, Arc::new(MockCanValidateTxs));
-        running.abort();
+        let (services, running, _guard) = make_mempool_services(mempool, Arc::new(MockCanValidateTxs));
+        running.request_abort();
+        assert!(running.join().await?.unexpected_exits.is_empty());
 
         let tx = create_transaction(0);
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, "application/cbor".parse()?);
-        let resp = super::submit_tx(State(sender), headers, Bytes::from(amaru_kernel::to_cbor(&tx))).await;
-        assert_eq!(resp.status(), 500);
+        let resp = super::submit_tx(State(services), headers, Bytes::from(amaru_kernel::to_cbor(&tx))).await;
+        assert_eq!(resp.status(), 503);
         assert_eq!(resp.headers()[CONTENT_TYPE], "text/plain; charset=utf-8");
         assert_eq!(to_bytes(resp.into_body(), usize::MAX).await?, "mempool unavailable");
         Ok(())
@@ -294,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_wrong_content_type() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let resp = submit_tx_with_content_type(addr, "application/json", "{}").await?;
         assert_eq!(resp.status(), 415);
@@ -304,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_content_type_with_charset_is_accepted() -> anyhow::Result<()> {
-        let (addr, _shutdown) = start_test_server().await?;
+        let (addr, _guard) = start_test_server().await?;
 
         let tx = create_transaction(0);
         let body = amaru_kernel::to_cbor(&tx);
@@ -325,40 +317,33 @@ mod tests {
         [&[0x98, 0x04][..], &canonical[1..]].concat()
     }
 
-    async fn start_test_server() -> anyhow::Result<(SocketAddr, CancellationToken)> {
-        let mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>> =
+    async fn start_test_server() -> anyhow::Result<(SocketAddr, DropGuard)> {
+        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
             Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
         start_test_server_with_mempool(mempool).await
     }
 
     async fn start_test_server_with_mempool(
-        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
-    ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
+        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
+    ) -> anyhow::Result<(SocketAddr, DropGuard)> {
         start_test_server_with_mempool_and_validator(mempool, Arc::new(MockCanValidateTxs)).await
     }
 
     async fn start_test_server_with_mempool_and_validator(
-        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
         validator: ResourceTxValidation,
-    ) -> anyhow::Result<(SocketAddr, CancellationToken)> {
-        let sender = make_mempool_sender(mempool, validator);
+    ) -> anyhow::Result<(SocketAddr, DropGuard)> {
+        let (services, _running, guard) = make_mempool_services(mempool, validator);
         let shutdown = CancellationToken::new();
         let addr: SocketAddr = "127.0.0.1:0".parse()?;
-        let (_handle, local_addr) = start(addr, sender, shutdown.clone()).await?;
-        Ok((local_addr, shutdown))
+        let (_handle, local_addr) = start(addr, services, shutdown).await?;
+        Ok((local_addr, guard))
     }
 
-    fn make_mempool_sender(
-        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+    fn make_mempool_services(
+        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
         validator: ResourceTxValidation,
-    ) -> Sender<MempoolMsg> {
-        make_mempool_sender_and_running(mempool, validator).0
-    }
-
-    fn make_mempool_sender_and_running(
-        mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
-        validator: ResourceTxValidation,
-    ) -> (Sender<MempoolMsg>, TokioRunning) {
+    ) -> (MempoolServices, TokioRunning, DropGuard) {
         use amaru_consensus::stages::mempool;
 
         let config = Config::default();
@@ -370,13 +355,14 @@ mod tests {
         stage_graph.resources().put::<ResourceParameters>(config.global_parameters().clone());
         stage_graph.resources().put::<ResourceEraHistory>(config.era_history().clone());
         stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::default()));
-        stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
+        stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool.clone());
         stage_graph.resources().put::<ResourceTxValidation>(validator);
 
         let sender = stage_graph.input(mempool_stage.without_state());
         let running = stage_graph.run(Handle::current());
 
-        (sender, running)
+        let (services, guard) = MempoolServices::new(&mempool, sender, running.termination());
+        (services, running, guard)
     }
 
     fn reject_transactions(_tx: &Transaction) -> Result<(), TransactionValidationError> {
