@@ -76,6 +76,20 @@ pub fn read_envelope<C, T: for<'d> cbor::Decode<'d, C> + HasEnvelope>(
     Ok(value)
 }
 
+/// Read an exact-size raw key, otherwise use the envelope reader. File contents are zeroed on drop.
+pub fn read_key_file<const SIZE: usize, T, E: From<std::io::Error>>(
+    path: &Path,
+    from_raw: impl FnOnce(&[u8; SIZE]) -> Result<T, E>,
+    from_envelope: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let bytes = Zeroizing::new(fs::read(path)?);
+    if let Ok(raw) = <&[u8; SIZE]>::try_from(bytes.as_slice()) {
+        return from_raw(raw);
+    }
+    drop(bytes);
+    from_envelope()
+}
+
 /// The text envelope file could not be read or its payload was refused.
 #[derive(Debug, Error)]
 pub enum ReadEnvelopeError {

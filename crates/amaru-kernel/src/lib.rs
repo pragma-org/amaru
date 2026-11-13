@@ -28,6 +28,8 @@ pub use utils::byte_size::{ByteSize, ByteSizeError, SiByteSize};
 
 pub mod bech32;
 
+pub mod vrf;
+
 mod hasher;
 pub use hasher::Hasher;
 

@@ -25,7 +25,6 @@ use amaru_kernel::{
     OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
     cardano::fixed_bytes::FixedBytes,
     cbor, ed25519,
-    protocol_version::PROTOCOL_VERSION_12,
     size::BLOCK_BODY,
     utils::envelope::{HasEnvelope, ReadEnvelopeError, read_envelope},
 };
@@ -48,7 +47,7 @@ pub struct InProcessCredentials {
     inner: Mutex<KesState>,
     vrf: vrf::SecretKey,
     cold: VerificationKey,
-    vrf_verification_key: VerificationKey,
+    vrf_verification_key: vrf::PublicKey,
     operational_cert: OperationalCert,
     max_kes_evolutions: u64,
 }
@@ -75,16 +74,18 @@ impl InProcessCredentials {
     /// The KES verification key must be the certificate's hot key, and the cold
     /// signature over that key, the sequence number, and the start period must
     /// verify. The sequence compared with the chain is checked separately, once
-    /// the chain store is open.
+    /// the chain store is open. The certificate CBOR is decoded under the rules
+    /// of `protocol_version`.
     pub fn from_files(
         kes_signing_key: impl AsRef<Path>,
         vrf_signing_key: impl AsRef<Path>,
         operational_certificate: impl AsRef<Path>,
         max_kes_evolutions: u64,
+        protocol_version: ProtocolVersion,
     ) -> Result<Self, CredentialsError> {
         let mut kes = kes::SecretKey::from_file(kes_signing_key)?;
         let vrf = vrf::SecretKey::from_file(vrf_signing_key)?;
-        let (certificate, cold) = load_operational_certificate(operational_certificate)?;
+        let (certificate, cold) = load_operational_certificate(operational_certificate, protocol_version)?;
         let hot = kes::PublicKey::from(&mut kes);
         if *hot != *certificate.operational_cert_kes_verification_key {
             return Err(CredentialsError::HotKeyMismatch);
@@ -100,7 +101,7 @@ impl InProcessCredentials {
         .map_err(|error| CredentialsError::Signature(error.to_string()))?;
         Ok(Self {
             inner: Mutex::new(KesState { kes, period: certificate.operational_cert_kes_period }),
-            vrf_verification_key: VerificationKey::from(*vrf::PublicKey::from(&vrf)),
+            vrf_verification_key: vrf::PublicKey::from(&vrf),
             vrf,
             cold,
             operational_cert: certificate,
@@ -156,11 +157,12 @@ pub fn forging_credentials_from_files(
     kes_signing_key: Option<&Path>,
     vrf_signing_key: Option<&Path>,
     operational_certificate: Option<&Path>,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<InProcessCredentials>, CredentialsError> {
     match (network, kes_signing_key, vrf_signing_key, operational_certificate) {
         (_, None, None, None) => Ok(None),
         (_, Some(kes), Some(vrf), Some(certificate)) => {
-            Ok(Some(InProcessCredentials::from_files(kes, vrf, certificate, max_kes_evolutions)?))
+            Ok(Some(InProcessCredentials::from_files(kes, vrf, certificate, max_kes_evolutions, protocol_version)?))
         }
         _ => Err(CredentialsError::PartialFlags),
     }
@@ -202,7 +204,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
             slot: 0,
             prev_hash: Some(parent),
             issuer_verification_key: VerificationKey::zeroes(),
-            vrf_verification_key: VerificationKey::zeroes(),
+            vrf_verification_key: vrf::PublicKey::zeroes(),
             vrf_result: VrfCert { output: Bytes::default(), proof: FixedBytes::zeroes() },
             block_body_size: 0,
             block_body_hash: Hash::new([0u8; BLOCK_BODY]),
@@ -229,8 +231,8 @@ impl HasEnvelope for OperationalCertificateFile {
     const ACCEPTED_TYPES: &'static [&'static str] = &[OPERATIONAL_CERTIFICATE_ENVELOPE];
 }
 
-impl<'d> cbor::Decode<'d, ProtocolVersion> for OperationalCertificateFile {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut ProtocolVersion) -> Result<Self, cbor::decode::Error> {
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for OperationalCertificateFile {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         match d.array()? {
             Some(2) => {}
             Some(len) => {
@@ -248,13 +250,13 @@ impl<'d> cbor::Decode<'d, ProtocolVersion> for OperationalCertificateFile {
     }
 }
 
+/// Load an operational certificate and its cold verification key from a cardano-cli text
+/// envelope file, decoding the CBOR payload under the rules of `protocol_version`.
 pub fn load_operational_certificate(
     path: impl AsRef<Path>,
+    protocol_version: ProtocolVersion,
 ) -> Result<(OperationalCert, VerificationKey), ReadEnvelopeError> {
-    // TODO: hard-coded protocol version
-    //
-    // This is wrong. Shouldn't be hardcoded but taken as parameter.
-    let mut ctx = PROTOCOL_VERSION_12;
+    let mut ctx = protocol_version;
     let file: OperationalCertificateFile = read_envelope(path, &mut ctx)?;
     Ok((file.certificate, file.cold))
 }
@@ -296,8 +298,8 @@ impl HasEnvelope for ColdVerificationKeyFile {
     const ACCEPTED_TYPES: &'static [&'static str] = &["StakePoolVerificationKey_ed25519"];
 }
 
-impl<'d> cbor::Decode<'d, ProtocolVersion> for ColdVerificationKeyFile {
-    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut ProtocolVersion) -> Result<Self, cbor::decode::Error> {
+impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for ColdVerificationKeyFile {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let cold: VerificationKey = d.decode_with(ctx)?;
         if cold_verifying_key(&cold).is_none() {
             return Err(cbor::decode::Error::message("cold verification key is not a valid Ed25519 key"));
@@ -306,15 +308,16 @@ impl<'d> cbor::Decode<'d, ProtocolVersion> for ColdVerificationKeyFile {
     }
 }
 
-/// Load a stake pool cold verification key from a cardano-cli text envelope file.
+/// Load a stake pool cold verification key from a cardano-cli text envelope file,
+/// decoding the CBOR payload under the rules of `protocol_version`.
 ///
 /// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
 /// [`VerificationKey`] suitable for pool ID derivation.
-pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<VerificationKey, ReadEnvelopeError> {
-    // TODO: Hard-coded protocol version
-    //
-    // This is wrong and shouldn't be hard-coded.
-    let mut ctx = PROTOCOL_VERSION_12;
+pub fn load_cold_verification_key(
+    path: impl AsRef<Path>,
+    protocol_version: ProtocolVersion,
+) -> Result<VerificationKey, ReadEnvelopeError> {
+    let mut ctx = protocol_version;
     Ok(read_envelope::<_, ColdVerificationKeyFile>(path, &mut ctx)?.0)
 }
 
@@ -322,7 +325,11 @@ pub fn load_cold_verification_key(path: impl AsRef<Path>) -> Result<Verification
 mod tests {
     use std::{fs, path::Path};
 
-    use amaru_kernel::{IsHeader, Slot, cbor, ed25519::Signer};
+    use amaru_kernel::{
+        IsHeader, Slot, cbor,
+        ed25519::Signer,
+        protocol_version::{self, PROTOCOL_VERSION_10, PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
+    };
     use amaru_ouroboros_traits::{HeaderDraft, InMemoryChainStore, WriteChainStore, kes_message};
     use serde::Deserialize;
     use test_case::test_case;
@@ -409,7 +416,7 @@ mod tests {
     fn load(issued: &Issued) -> InProcessCredentials {
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), issued);
-        InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap()
+        InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS, PROTOCOL_VERSION_12).unwrap()
     }
 
     fn draft() -> HeaderDraft {
@@ -500,7 +507,9 @@ mod tests {
         let proof = vrf.prove(&input);
         proof.verify(&vrf::PublicKey::from(&vrf), &input).unwrap();
 
-        let credentials = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap();
+        let credentials =
+            InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS, PROTOCOL_VERSION_12)
+                .unwrap();
         assert_eq!(credentials.issuer_verification_key().as_slice(), cold_vk.as_slice());
         let fields = credentials.issuer_fields();
         assert_eq!(fields.operational_cert.operational_cert_kes_verification_key.as_slice(), kes_vk.as_slice());
@@ -548,7 +557,9 @@ mod tests {
         issued.certificate.operational_cert_kes_verification_key = FixedBytes::zeroes();
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), &issued);
-        let err = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap_err();
+        let err =
+            InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS, PROTOCOL_VERSION_12)
+                .unwrap_err();
         assert!(matches!(err, CredentialsError::HotKeyMismatch), "{err}");
     }
 
@@ -558,7 +569,9 @@ mod tests {
         corrupt_signature(&mut issued.certificate);
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), &issued);
-        let err = InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS).unwrap_err();
+        let err =
+            InProcessCredentials::from_files(&kes_path, &vrf_path, &cert_path, MAX_EVOLUTIONS, PROTOCOL_VERSION_12)
+                .unwrap_err();
         assert!(matches!(err, CredentialsError::Signature(_)), "{err}");
     }
 
@@ -570,12 +583,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("node.cert");
         fs::write(&path, wrong).unwrap();
-        let err = load_operational_certificate(&path).unwrap_err();
+        let err = load_operational_certificate(&path, PROTOCOL_VERSION_12).unwrap_err();
         assert!(matches!(err, ReadEnvelopeError::UnexpectedType { .. }), "{err}");
 
         let truncated = envelope(OPERATIONAL_CERTIFICATE_ENVELOPE, "8200");
         fs::write(&path, truncated).unwrap();
-        let err = load_operational_certificate(&path).unwrap_err();
+        let err = load_operational_certificate(&path, PROTOCOL_VERSION_12).unwrap_err();
         assert!(matches!(err, ReadEnvelopeError::Cbor(_)), "{err}");
     }
 
@@ -583,7 +596,11 @@ mod tests {
     #[test_case(NetworkName::Preprod)]
     #[test_case(NetworkName::Mainnet)]
     fn partial_flags_fail_and_no_flags_stay_a_follower(network: NetworkName) {
-        assert!(forging_credentials_from_files(network, MAX_EVOLUTIONS, None, None, None,).unwrap().is_none());
+        assert!(
+            forging_credentials_from_files(network, MAX_EVOLUTIONS, None, None, None, PROTOCOL_VERSION_12)
+                .unwrap()
+                .is_none()
+        );
 
         fn assert_partial_flags_error<T: fmt::Debug>(result: Result<T, CredentialsError>) {
             assert!(matches!(result, Err(CredentialsError::PartialFlags)), "{result:?}");
@@ -595,6 +612,7 @@ mod tests {
             Some(Path::new("kes.skey")),
             None,
             None,
+            PROTOCOL_VERSION_12,
         ));
 
         assert_partial_flags_error(forging_credentials_from_files(
@@ -603,6 +621,7 @@ mod tests {
             None,
             Some(Path::new("vrf.skey")),
             None,
+            PROTOCOL_VERSION_12,
         ));
 
         assert_partial_flags_error(forging_credentials_from_files(
@@ -611,6 +630,7 @@ mod tests {
             None,
             None,
             Some(Path::new("node.cert")),
+            PROTOCOL_VERSION_12,
         ));
     }
 
@@ -621,10 +641,16 @@ mod tests {
         let issued = issue(2, KesPeriod::from(1));
         let dir = tempfile::tempdir().unwrap();
         let (kes_path, vrf_path, cert_path) = write_files(dir.path(), &issued);
-        let loaded =
-            forging_credentials_from_files(network, MAX_EVOLUTIONS, Some(&kes_path), Some(&vrf_path), Some(&cert_path))
-                .unwrap()
-                .unwrap_or_else(|| panic!("{network} accepts the three files"));
+        let loaded = forging_credentials_from_files(
+            network,
+            MAX_EVOLUTIONS,
+            Some(&kes_path),
+            Some(&vrf_path),
+            Some(&cert_path),
+            PROTOCOL_VERSION_12,
+        )
+        .unwrap()
+        .unwrap_or_else(|| panic!("{network} accepts the three files"));
         assert_eq!(loaded.issuer_verification_key(), issued.cold_vk);
         assert_eq!(loaded.issuer_fields().operational_cert.operational_cert_sequence_number, 2);
     }
@@ -692,7 +718,7 @@ mod tests {
     fn issuer_from(issued: &Issued) -> IssuerFields {
         IssuerFields {
             issuer_verification_key: issued.cold_vk,
-            vrf_verification_key: VerificationKey::from(*vrf::PublicKey::from(&vrf::SecretKey::from(&[7u8; 32]))),
+            vrf_verification_key: vrf::PublicKey::from(&vrf::SecretKey::from(&[7u8; 32])),
             operational_cert: issued.certificate.clone(),
         }
     }
@@ -722,15 +748,30 @@ mod tests {
     #[test]
     fn load_cold_verification_key_from_fixture() {
         let cold_vkey_path = forging_fixture("cold.vkey");
-        let cold = load_cold_verification_key(&cold_vkey_path).expect("cold.vkey fixture should load");
+        let cold =
+            load_cold_verification_key(&cold_vkey_path, PROTOCOL_VERSION_12).expect("cold.vkey fixture should load");
         let credentials = InProcessCredentials::from_files(
             forging_fixture("kes.skey"),
             forging_fixture("vrf.skey"),
             forging_fixture("node.cert"),
             MAX_EVOLUTIONS,
+            PROTOCOL_VERSION_12,
         )
         .unwrap();
         assert_eq!(cold, credentials.issuer_verification_key(), "cold.vkey must match the key embedded in node.cert");
+    }
+
+    #[test]
+    fn load_cold_verification_key_decodes_under_the_given_protocol_version() {
+        let issued = issue(0, KesPeriod::from(0));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cold.vkey");
+        let chunked = format!("5f5820{}ff", hex::encode(&issued.cold_vk[..]));
+        fs::write(&path, envelope("StakePoolVerificationKey_ed25519", &chunked)).unwrap();
+        let cold = load_cold_verification_key(&path, PROTOCOL_VERSION_12).unwrap();
+        assert_eq!(cold, issued.cold_vk);
+        let err = load_cold_verification_key(&path, PROTOCOL_VERSION_11).unwrap_err();
+        assert!(matches!(err, ReadEnvelopeError::Cbor(_)), "{err}");
     }
 
     #[test]
@@ -738,7 +779,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bad.vkey");
         fs::write(&path, envelope("SomeOtherType", "5820aabbcc")).unwrap();
-        let err = load_cold_verification_key(&path).unwrap_err();
+        let err = load_cold_verification_key(&path, PROTOCOL_VERSION_12).unwrap_err();
         assert!(matches!(err, ReadEnvelopeError::UnexpectedType { .. }), "{err}");
     }
 
@@ -748,14 +789,15 @@ mod tests {
         let path = dir.path().join("bad.vkey");
         // y = 2 is not on the Ed25519 curve, so the 32 bytes cannot decompress to a point.
         fs::write(&path, envelope("StakePoolVerificationKey_ed25519", &format!("582002{}", "00".repeat(31)))).unwrap();
-        let err = load_cold_verification_key(&path).unwrap_err();
+        let err = load_cold_verification_key(&path, PROTOCOL_VERSION_12).unwrap_err();
         assert!(err.to_string().contains("not a valid Ed25519 key"), "{err}");
     }
 
     #[test]
     fn load_operational_certificate_is_public_and_matches_fixture() {
         let cert_path = forging_fixture("node.cert");
-        let (cert, cold) = load_operational_certificate(&cert_path).expect("node.cert fixture should load");
+        let (cert, cold) =
+            load_operational_certificate(&cert_path, PROTOCOL_VERSION_12).expect("node.cert fixture should load");
         assert_eq!(cert.operational_cert_sequence_number, 0);
         assert_eq!(u64::from(cert.operational_cert_kes_period), 7);
         let credentials = InProcessCredentials::from_files(
@@ -763,8 +805,32 @@ mod tests {
             forging_fixture("vrf.skey"),
             &cert_path,
             MAX_EVOLUTIONS,
+            PROTOCOL_VERSION_12,
         )
         .unwrap();
         assert_eq!(cold, credentials.issuer_verification_key());
+    }
+
+    /// Operator files are decoded at [`protocol_version::DEFAULT`], which callers do not choose.
+    /// As long as every supported version yields the same result for the files cardano-cli
+    /// actually writes, that choice cannot be observed. Once a version decodes them differently,
+    /// or stops accepting them, this breaks and the caller has to try several versions.
+    #[test]
+    fn cardano_cli_fixtures_decode_the_same_under_every_supported_protocol_version() {
+        let supported = [PROTOCOL_VERSION_10, PROTOCOL_VERSION_11, PROTOCOL_VERSION_12];
+        assert!(supported.contains(&protocol_version::DEFAULT), "the version used in production must be covered");
+        assert_eq!(*supported.first().unwrap(), protocol_version::MINIMUM_SUPPORTED);
+
+        let decoded = supported.map(|version| {
+            let (certificate, cold) = load_operational_certificate(forging_fixture("node.cert"), version)
+                .unwrap_or_else(|e| panic!("node.cert must decode at protocol version {version}: {e}"));
+            let cold_file = load_cold_verification_key(forging_fixture("cold.vkey"), version)
+                .unwrap_or_else(|e| panic!("cold.vkey must decode at protocol version {version}: {e}"));
+            (certificate, cold, cold_file)
+        });
+
+        for (version, result) in supported.iter().zip(decoded.iter()) {
+            assert_eq!(result, &decoded[0], "protocol version {version} decodes the fixtures differently");
+        }
     }
 }

@@ -44,6 +44,7 @@ ignored = [
   "futures-executor",
   "futures-sink",
   "futures-util",
+  "generic-array",
   "getrandom-468e82937335b1c9",
   "getrandom-6f8ce4dd05d13bba",
   "hashbrown",
@@ -72,6 +73,7 @@ ignored = [
   "rand-274715c4dabd11b0",
   "rand_chacha-274715c4dabd11b0",
   "rand_chacha-468e82937335b1c9",
+  "rand_core",
   "rand_core-3b31131e45eafb45",
   "rand_core-d8f496e17d97b5cb",
   "regex",
@@ -141,6 +143,7 @@ futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-executor = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
+generic-array = { version = "0.14", default-features = false, features = ["more_lengths"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
@@ -162,8 +165,7 @@ ppv-lite86 = { version = "0.2", default-features = false, features = ["simd", "s
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 rand_chacha-274715c4dabd11b0 = { package = "rand_chacha", version = "0.9", default-features = false, features = ["std"] }
 rand_chacha-468e82937335b1c9 = { package = "rand_chacha", version = "0.3" }
-rand_core-3b31131e45eafb45 = { package = "rand_core", version = "0.6", default-features = false, features = ["std"] }
-rand_core-d8f496e17d97b5cb = { package = "rand_core", version = "0.5", default-features = false, features = ["std"] }
+rand_core = { version = "0.6", default-features = false, features = ["std"] }
 regex = { version = "1", default-features = false, features = ["std", "unicode-perl"] }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "meta", "std", "unicode-perl", "unicode-word-boundary"] }
 regex-lite = { version = "0.1" }
@@ -190,6 +192,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive", "s
 zeroize = { version = "1", features = ["serde", "zeroize_derive"] }
 
 [build-dependencies]
+byteorder = { version = "1", features = ["i128"] }
 bytes = { version = "1", features = ["serde"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 dashu-base = { version = "0.4" }
@@ -197,6 +200,7 @@ digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["a
 either = { version = "1", features = ["use_std"] }
 form_urlencoded = { version = "1" }
 futures-core = { version = "0.3" }
+generic-array = { version = "0.14", default-features = false, features = ["more_lengths"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std", "wasm_js"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
