@@ -37,6 +37,14 @@ Other guiding principles:
 
 ## Unreleased
 
+### Added
+
+- **amaru-node**: embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.
+
+### Fixed
+
+- **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added
