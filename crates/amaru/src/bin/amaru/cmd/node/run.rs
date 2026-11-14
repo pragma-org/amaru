@@ -190,7 +190,12 @@ pub struct Args {
     )]
     peers_ephemeral_outbound_port: bool,
 
-    /// The maximum number of downstream peers allowed to connect.
+    /// How many inbound peers to keep.
+    ///
+    /// This is a soft limit. Amaru answers a further 30% (and at least one more) as
+    /// responder-only connections and closes them after 150ms, so a client such as
+    /// `cardano-cli ping` can read the tip while every kept slot is full. Connections
+    /// beyond that hard limit are refused.
     #[arg(
         long,
         value_name = amaru::value_names::UINT,

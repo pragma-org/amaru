@@ -37,6 +37,14 @@ Other guiding principles:
 
 ## Unreleased
 
+### Changed
+
+- **amaru**: the default peer limits are 50 upstream and 100 downstream. `--peers-max-upstream` and `--peers-max-downstream` still override them.
+
+### Fixed
+
+- **amaru**: when every downstream slot is full, Amaru still answers a few more inbound connections so `cardano-cli ping` can read the tip. Those connections only answer, for 150ms, and then close. The extra room is 30% of the downstream limit, and at least one connection. Anything beyond that is refused. ([#1576](https://github.com/pragma-org/amaru/issues/1576))
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added

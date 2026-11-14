@@ -94,9 +94,9 @@ pub const DEFAULT_LOCAL_PEER_ADDRESS: &str = "127.0.0.1:3001";
 /// Default cooldown after removing a misbehaving peer.
 pub const DEFAULT_PEER_REMOVAL_COOLDOWN: Duration = Duration::from_secs(600);
 
-pub const DEFAULT_PEERS_MAX_UPSTREAM: usize = 3;
+pub const DEFAULT_PEERS_MAX_UPSTREAM: usize = 50;
 
-pub const DEFAULT_PEERS_MAX_DOWNSTREAM: usize = 10;
+pub const DEFAULT_PEERS_MAX_DOWNSTREAM: usize = 100;
 
 /// Re-export CBOR-aware tracing layers for embedders that wire their own subscribers.
 ///
