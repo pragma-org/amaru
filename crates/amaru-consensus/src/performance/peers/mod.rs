@@ -40,7 +40,7 @@ pub use quality::{ChurnInput, ChurnRank, PeerScores, rank_churn};
 use record::PeerState;
 pub use reputation::{
     ADVERSARIAL_IMPULSE, CONNECT_FAIL_IMPULSE, DEFAULT_PEER_MALUS_HALF_LIFE, PeerShareFlags, SHARE_MALUS_THRESHOLD,
-    malus_at,
+    UNINTERESTING_IMPULSE, malus_at,
 };
 pub use retention::{
     BAN_STUB_GRACE, EVICTION_BATCH, EvictBatch, PEER_RECORD_CAP, PEER_RECORD_RETENTION, SHARED_PEERS_CAP,
