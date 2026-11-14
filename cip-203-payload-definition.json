@@ -1,11 +1,11 @@
 {
-  "format": 0,
-  "selector": {
+  "definition_format": 0,
+  "layout_version": {
     "bits": [
       20,
       21
     ],
-    "values": {
+    "layouts": {
       "0": {
         "fields": [
           {
