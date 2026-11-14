@@ -74,6 +74,8 @@ struct ScheduleEntry {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 struct ScheduleReport {
     epoch: Epoch,
+    pool_id: String,
+    nonce: Nonce,
     active_stake: Lovelace,
     pool_stake: Lovelace,
     share: String,
@@ -132,7 +134,7 @@ impl InspectArgs {
 
         // TODO: replace this scan with a VRF -> pool ID lookup once VRF uniqueness validation
         // introduces the corresponding index.
-        let (_, pool) = stake_summary
+        let (pool_id, pool) = stake_summary
             .pools
             .iter()
             .find(|(_, pool)| pool.parameters.vrf == vrf_hash)
@@ -154,6 +156,8 @@ impl InspectArgs {
             "{}",
             serde_json::to_string_pretty(&ScheduleReport {
                 epoch,
+                pool_id: pool_id.to_string(),
+                nonce,
                 active_stake: pool_summary.active_stake,
                 pool_stake: pool_summary.stake,
                 share: amaru_kernel::utils::string::format_share(pool_summary.stake, pool_summary.active_stake),

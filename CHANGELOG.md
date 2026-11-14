@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Changed
+
+- **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added
