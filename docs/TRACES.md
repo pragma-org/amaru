@@ -2730,7 +2730,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `accept_loop_stopped` | `event` | info | public | The accept loop terminated because the listener or channel closed | local |  |
+| `accept_loop_stopped` | `event` | info | public | The accept loop terminated because the channel to accept closed | local |  |
+| `accept_retry` | `event` | debug, warn | public | Accepting a pending connection failed; the accept loop keeps accepting, after a pause when the error is not about that one connection | local, error, pause_ms |  |
 | `listener_restart` | `event` | info | public | Aborted an existing listener task so the address can be rebound on restart | address |  |
 
 <details><summary>event: `accept_loop_stopped`</summary>
@@ -2738,6 +2739,16 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | field | type | required |
 | --- | --- | --- |
 | `local` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `accept_retry`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `local` | `string` | ✓ |
+| `error` | `string` | ✓ |
+| `pause_ms` | `integer` | ✓ |
 
 </details>
 

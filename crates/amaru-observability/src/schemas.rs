@@ -3317,7 +3317,15 @@ define_schemas! {
                     levels: debug
                     required local: String
                 }
-                /// The accept loop terminated because the listener or channel closed
+                /// Accepting a pending connection failed; the accept loop keeps accepting, after a
+                /// pause when the error is not about that one connection
+                public event ACCEPT_RETRY {
+                    levels: debug, warn
+                    required local: String
+                    required error: String
+                    required pause_ms: u64
+                }
+                /// The accept loop terminated because the channel to accept closed
                 public event ACCEPT_LOOP_STOPPED {
                     levels: info
                     required local: String

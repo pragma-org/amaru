@@ -7971,10 +7971,40 @@
       "name": "accept_loop_stopped",
       "kind": "event",
       "target": "amaru::network::connection",
-      "description": "The accept loop terminated because the listener or channel closed",
+      "description": "The accept loop terminated because the channel to accept closed",
       "public": true,
       "levels": [
         "info"
+      ]
+    },
+    "amaru::network::connection::ACCEPT_RETRY": {
+      "type": "object",
+      "properties": {
+        "local": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "pause_ms": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "local",
+        "error",
+        "pause_ms"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "accept_retry",
+      "kind": "event",
+      "target": "amaru::network::connection",
+      "description": "Accepting a pending connection failed; the accept loop keeps accepting, after a pause when the error is not about that one connection",
+      "public": true,
+      "levels": [
+        "debug",
+        "warn"
       ]
     },
     "amaru::network::connection::LISTENER_RESTART": {
