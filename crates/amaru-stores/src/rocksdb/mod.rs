@@ -34,6 +34,7 @@ use amaru_ledger::{
         TransactionalContext, columns as scolumns, columns::pots::Row as Pots,
     },
 };
+use amaru_metrics::RocksDbStore;
 use amaru_observability::{debug_span, info_span, trace_record, warn};
 use amaru_ouroboros_traits::BaseReadChainStore;
 use anyhow::anyhow;
@@ -50,6 +51,9 @@ pub mod common;
 use common::{PREFIX_LEN, as_key, as_value};
 
 pub mod consensus;
+
+mod metrics;
+pub use metrics::MetricsProbe;
 
 mod transaction;
 use transaction::OngoingTransaction;
@@ -123,8 +127,8 @@ pub struct RocksDB {
     /// same point). This is only sound when importing static data, but not when running live.
     incremental_save: bool,
 
-    /// An instance of RocksDB.
-    db: OptimisticTransactionDB,
+    /// An instance of RocksDB, shared (weakly) with the store's [`MetricsProbe`].
+    db: Arc<OptimisticTransactionDB>,
 
     ongoing_transaction: OngoingTransaction,
 
@@ -198,7 +202,7 @@ impl RocksDB {
             .map(|db| Self {
                 dir,
                 incremental_save: false,
-                db,
+                db: Arc::new(db),
                 ongoing_transaction: OngoingTransaction::new(),
                 chain_store: Mutex::new(None),
             })
@@ -214,7 +218,7 @@ impl RocksDB {
             .map(|db| Self {
                 dir,
                 incremental_save: true,
-                db,
+                db: Arc::new(db),
                 ongoing_transaction: OngoingTransaction::new(),
                 chain_store: Mutex::new(None),
             })
@@ -229,6 +233,15 @@ impl RocksDB {
             }
 
             Ok(())
+        })
+    }
+
+    /// A probe for the properties RocksDB reports about this store.
+    pub fn metrics_probe(&self) -> MetricsProbe {
+        let db = Arc::downgrade(&self.db);
+        MetricsProbe::new(move || {
+            let db = db.upgrade()?;
+            Some(metrics::read_metrics(RocksDbStore::Ledger, |name| db.property_int_value(name).ok().flatten()))
         })
     }
 

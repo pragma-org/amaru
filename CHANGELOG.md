@@ -42,6 +42,7 @@ Other guiding principles:
 ### Added
 
 - **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
+- **amaru**: the node reports the health of its ledger and chain databases as `amaru_rocksdb_*` metrics, labelled by `db` and sampled every 30 seconds: SST files per level, running compactions, background errors, block cache usage, estimated number of keys, size of the live SST files, pending compaction bytes, and whether writes are stopped. Each metric carries the name of the RocksDB property it reports. ([#759](https://github.com/pragma-org/amaru/issues/759))
 
 ### Changed
 

@@ -697,6 +697,7 @@ dependencies = [
  "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
+ "amaru-metrics",
  "amaru-observability",
  "amaru-ouroboros-traits",
  "amaru-uplc",
