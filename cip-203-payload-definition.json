@@ -1,0 +1,71 @@
+{
+  "format": 0,
+  "selector": {
+    "bits": [
+      20,
+      21
+    ],
+    "values": {
+      "0": {
+        "fields": [
+          {
+            "name": "days_since_amaru_epoch",
+            "type": "integer",
+            "bits": [
+              6,
+              19
+            ]
+          },
+          {
+            "name": "flag_1",
+            "type": "boolean",
+            "bits": [
+              5,
+              5
+            ]
+          },
+          {
+            "name": "flag_2",
+            "type": "boolean",
+            "bits": [
+              4,
+              4
+            ]
+          },
+          {
+            "name": "flag_3",
+            "type": "boolean",
+            "bits": [
+              3,
+              3
+            ]
+          },
+          {
+            "name": "flag_4",
+            "type": "boolean",
+            "bits": [
+              2,
+              2
+            ]
+          },
+          {
+            "name": "flag_5",
+            "type": "boolean",
+            "bits": [
+              1,
+              1
+            ]
+          },
+          {
+            "name": "flag_6",
+            "type": "boolean",
+            "bits": [
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
