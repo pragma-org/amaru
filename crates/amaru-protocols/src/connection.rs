@@ -421,11 +421,23 @@ async fn do_handshake(
     let (version_number, version_data) = match handshake_result {
         HandshakeResult::Accepted(version_number, version_data) => (version_number, version_data),
         HandshakeResult::Refused(refuse_reason) => {
-            error!(protocols::connection::HANDSHAKE_REFUSED, reason = format!("{refuse_reason:?}"));
+            error!(
+                protocols::connection::HANDSHAKE_REFUSED,
+                peer = &peer,
+                conn_id = conn_id.as_u64(),
+                role = role.to_string(),
+                reason = format!("{refuse_reason:?}")
+            );
             eff.terminate().await;
         }
         HandshakeResult::Query(version_table) => {
-            info!(protocols::connection::HANDSHAKE_QUERY_REPLY, version_table = format!("{version_table:?}"));
+            info!(
+                protocols::connection::HANDSHAKE_QUERY_REPLY,
+                peer = &peer,
+                conn_id = conn_id.as_u64(),
+                role = role.to_string(),
+                version_table = format!("{version_table:?}")
+            );
             eff.terminate().await;
         }
     };

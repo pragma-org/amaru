@@ -2927,8 +2927,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `accept_failed` | `event` | debug, error | public | An inbound connection could not be accepted. Reason ∈ {aborted, error}. | reason | error |
 | `child_died` | `event` | info | public | A mini-protocol stage running on a connection died | peer, conn_id, child |  |
 | `child_stopped` | `event` | info | public | A mini-protocol stage running on a connection stopped upon request | peer, conn_id, child |  |
-| `handshake_query_reply` | `event` | info | public | The peer answered a version query instead of negotiating | version_table |  |
-| `handshake_refused` | `event` | error | public | The peer refused our proposed protocol versions | reason |  |
+| `handshake_query_reply` | `event` | info | public | The handshake ended with a version query instead of a negotiation | peer, conn_id, role, version_table |  |
+| `handshake_refused` | `event` | error | public | The handshake ended without an agreed version. \`reason\` is our refusal as responder, and the peer's refusal (or why we rejected its acceptance) as initiator. | peer, conn_id, role, reason |  |
 
 <details><summary>event: `accept_failed`</summary>
 
@@ -2963,6 +2963,9 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | field | type | required |
 | --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `role` | `string` | ✓ |
 | `version_table` | `string` | ✓ |
 
 </details>
@@ -2971,6 +2974,9 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | field | type | required |
 | --- | --- | --- |
+| `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
+| `role` | `string` | ✓ |
 | `reason` | `string` | ✓ |
 
 </details>
