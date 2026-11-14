@@ -8450,11 +8450,23 @@
     "amaru::protocols::connection::HANDSHAKE_QUERY_REPLY": {
       "type": "object",
       "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "role": {
+          "type": "string"
+        },
         "version_table": {
           "type": "string"
         }
       },
       "required": [
+        "peer",
+        "conn_id",
+        "role",
         "version_table"
       ],
       "optional": [],
@@ -8462,7 +8474,7 @@
       "name": "handshake_query_reply",
       "kind": "event",
       "target": "amaru::protocols::connection",
-      "description": "The peer answered a version query instead of negotiating",
+      "description": "The handshake ended with a version query instead of a negotiation",
       "public": true,
       "levels": [
         "info"
@@ -8471,11 +8483,23 @@
     "amaru::protocols::connection::HANDSHAKE_REFUSED": {
       "type": "object",
       "properties": {
+        "peer": {
+          "type": "string"
+        },
+        "conn_id": {
+          "type": "integer"
+        },
+        "role": {
+          "type": "string"
+        },
         "reason": {
           "type": "string"
         }
       },
       "required": [
+        "peer",
+        "conn_id",
+        "role",
         "reason"
       ],
       "optional": [],
@@ -8483,7 +8507,7 @@
       "name": "handshake_refused",
       "kind": "event",
       "target": "amaru::protocols::connection",
-      "description": "The peer refused our proposed protocol versions",
+      "description": "The handshake ended without an agreed version. `reason` is our refusal as responder, and the peer's refusal (or why we rejected its acceptance) as initiator.",
       "public": true,
       "levels": [
         "error"

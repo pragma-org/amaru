@@ -2355,14 +2355,21 @@ define_schemas! {
                     required conn_id: u64
                     required child: String
                 }
-                /// The peer refused our proposed protocol versions
+                /// The handshake ended without an agreed version. `reason` is our refusal as
+                /// responder, and the peer's refusal (or why we rejected its acceptance) as initiator.
                 public event HANDSHAKE_REFUSED {
                     levels: error
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required role: String
                     required reason: String
                 }
-                /// The peer answered a version query instead of negotiating
+                /// The handshake ended with a version query instead of a negotiation
                 public event HANDSHAKE_QUERY_REPLY {
                     levels: info
+                    required peer: %amaru_kernel::Peer
+                    required conn_id: u64
+                    required role: String
                     required version_table: String
                 }
                 /// An inbound connection could not be accepted.
