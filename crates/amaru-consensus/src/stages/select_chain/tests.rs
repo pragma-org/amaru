@@ -1116,7 +1116,7 @@ mod cmp_tip_unit_tests {
     use std::cmp::Ordering;
 
     use amaru_kernel::{
-        Bytes, Hasher, Header, HeaderBody, HeaderHash, KesPeriod, OperationalCert, ProtocolVersion, VrfCert,
+        Bytes, Hasher, Header, HeaderBody, HeaderHash, IsHeader, KesPeriod, OperationalCert, ProtocolVersion, VrfCert,
         cardano::fixed_bytes::FixedBytes, size::BLOCK_BODY, to_cbor, vrf,
     };
 
@@ -1192,10 +1192,10 @@ mod cmp_tip_unit_tests {
     #[test]
     fn test_same_height_different_vrf_slot_diff_4() {
         // slot distance = 4 <= 5 → VRF decides (lower VRF wins)
-        let a = make_h(5, 10, 0, 5); // higher derived VRF
-        let b = make_h(5, 14, 0, 10); // lower derived VRF, distance 4
-        assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Less);
-        assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Greater);
+        let a = make_h(5, 10, 0, 5); // lower VRF output
+        let b = make_h(5, 14, 0, 10); // higher VRF output, distance 4
+        assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Greater);
+        assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Less);
     }
 
     #[test]
@@ -1203,8 +1203,40 @@ mod cmp_tip_unit_tests {
         // slot distance = 5 <= 5 → VRF decides
         let a = make_h(5, 10, 0, 5);
         let b = make_h(5, 15, 0, 10);
-        assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Less);
-        assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Greater);
+        assert_eq!(super::cmp_tip(Some(&a), Some(&b)), Ordering::Greater);
+        assert_eq!(super::cmp_tip(Some(&b), Some(&a)), Ordering::Less);
+    }
+
+    #[test]
+    fn test_same_height_vrf_output_decides_not_the_leader_value() {
+        // The VRF outputs of two blocks forged in preview slot 128008843 at the same height.
+        // `lower_output` is the one that stayed on chain; `lower_leader` has the lower leader value.
+        let lower_output = make_test_header(
+            5,
+            10,
+            None,
+            0,
+            &hex::decode(
+                "4a56fefa327af1504f7ba8e78c3304fdfb1814fe1f971fc784ef812518f7d685\
+                 f2d0d49d21f2333ce64113ac75dbfb48588ae91c77bc90ee4c63f2914d26d4d6",
+            )
+            .unwrap(),
+        );
+        let lower_leader = make_test_header(
+            5,
+            10,
+            None,
+            0,
+            &hex::decode(
+                "63305a5fea4f93168652ed1127dd1e2901e40e2f01adc7d84e4ceea469b38340\
+                 41a83de95172914b38c4c49887ade1e124e93c85074f868b059642816de8e969",
+            )
+            .unwrap(),
+        );
+        let leader = |header: &Header| vrf::Derivation::Leader.derive_tagged_vrf_output(header.vrf_output());
+        assert!(leader(&lower_leader) < leader(&lower_output));
+        assert_eq!(super::cmp_tip(Some(&lower_output), Some(&lower_leader)), Ordering::Greater);
+        assert_eq!(super::cmp_tip(Some(&lower_leader), Some(&lower_output)), Ordering::Less);
     }
 
     #[test]
@@ -1216,8 +1248,8 @@ mod cmp_tip_unit_tests {
     }
 
     #[test]
-    fn test_same_height_opcert_takes_precedence_when_vrf_leaders_match() {
-        // When VRF leaders are identical, opcert wins regardless of slot distance
+    fn test_same_height_opcert_takes_precedence_when_vrf_outputs_match() {
+        // When VRF outputs are identical, opcert wins regardless of slot distance
         let higher_opcert = make_h(5, 10, 100, 42);
         let lower_opcert = make_h(5, 100, 50, 42);
         assert_eq!(super::cmp_tip(Some(&higher_opcert), Some(&lower_opcert)), Ordering::Greater);

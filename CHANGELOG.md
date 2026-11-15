@@ -42,6 +42,10 @@ Other guiding principles:
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 
+### Fixed
+
+- **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added
