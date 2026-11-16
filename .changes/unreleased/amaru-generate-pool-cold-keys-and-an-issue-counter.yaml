@@ -1,0 +1,5 @@
+kind: Added
+body: 'generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.'
+time: 2026-11-25T13:06:41-05:00
+custom:
+    Area: amaru

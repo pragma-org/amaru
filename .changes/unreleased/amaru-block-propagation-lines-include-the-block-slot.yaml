@@ -1,0 +1,5 @@
+kind: Changed
+body: 'block propagation lines include the block slot and height. `block.received` also includes the raw block size in bytes. `tip.adopt` includes `adopt_kind`: `roll_forward` or `fork_switch`.'
+time: 2026-11-25T13:06:47-05:00
+custom:
+    Area: amaru

@@ -1,0 +1,5 @@
+kind: Changed
+body: 'a completed handshake logs the negotiated node-to-node version, whether diffusion is initiator-only, and whether peer sharing is enabled. `connection_died_handled` includes `conn_id`. Orderly shutdown of `node run` logs `lifecycle.shutdown` with `reason=node_restart` before connections are closed.'
+time: 2026-11-25T13:06:50-05:00
+custom:
+    Area: amaru

@@ -1,0 +1,5 @@
+kind: Added
+body: '`cardano_node_metrics_forks_counter` counts the times the adopted chain switched to a fork and rolled back at least one block. The metric appears after the first such switch.'
+time: 2026-11-25T13:06:44-05:00
+custom:
+    Area: amaru-consensus

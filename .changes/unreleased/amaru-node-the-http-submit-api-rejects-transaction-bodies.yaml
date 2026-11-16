@@ -1,0 +1,5 @@
+kind: Fixed
+body: 'the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.'
+time: 2026-11-25T13:06:55-05:00
+custom:
+    Area: amaru-node

@@ -1,0 +1,5 @@
+kind: Changed
+body: '`header.announced`, `block.requested`, `block.received`, and `block.adopted` are always debug, including while the node is live. `block.adopted` is recorded for every block placed on the best chain, including the blocks between a fork and the new tip. `tip.adopt` logs only the new tip: while syncing, at most one info line per second; once live, one info line per block.'
+time: 2026-11-25T13:06:48-05:00
+custom:
+    Area: amaru

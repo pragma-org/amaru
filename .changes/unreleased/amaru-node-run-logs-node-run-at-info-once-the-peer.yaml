@@ -1,0 +1,5 @@
+kind: Changed
+body: '`node run` logs `node.run` at info once the peer listener is bound and, when enabled, the submit API has bound. The line names this binary''s version, the node-to-node versions offered, the network, and the node-to-node listen addresses. `submit_api` is the address that API bound, and is omitted when the API is disabled. Port 0 is replaced by the assigned port. A failed submit API bind does not emit this line. The versions and listen addresses are lists. The configuration dump stays on the `amaru::cli` span of the same name.'
+time: 2026-11-25T13:06:49-05:00
+custom:
+    Area: amaru

@@ -1,0 +1,5 @@
+kind: Fixed
+body: 'only block producers report `cardano_node_metrics_currentKESPeriod_int`, from the wall-clock KES period of their forging key. Relays no longer export it, so monitoring tools no longer show KES information for a node that cannot forge.'
+time: 2026-11-25T13:06:52-05:00
+custom:
+    Area: amaru-consensus

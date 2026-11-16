@@ -166,8 +166,9 @@ The reader of `CHANGELOG.md` is a professional operator (a sysadmin), not a deve
 - Write in that voice: short and factual. Say what they will observe or need to do. Do not narrate refactors, internal type names, or where the work sits in a stack.
 - A PR may have several entries when it makes independent user-visible changes (or when operators would look them up under different crates). A PR may have none. Do not add an entry for every commit.
 - Tests, private API slimming, and implementation details that do not change what operators see do not get entries.
-- Put new entries under the unreleased version, never under a tag that has already been released. If this PR supersedes an unreleased entry, edit that entry instead of adding a contradictory one.
-- `./scripts/check-changelog` requires a new unreleased entry when crates change. If the PR truly has nothing operators should read, add a `Skip-Changelog` line to a commit message or the PR body.
+- Each entry is a changie fragment in `.changes/unreleased/`. Create it with `changie new -i=false --kind <Added|Changed|Deprecated|Removed|Fixed|Security> --custom Area=<crate> [--custom Issues=<n>] --body '<text>'`; for several crates or issues set `CHANGIE_CUSTOM_Area='crate-a, crate-b'` or `CHANGIE_CUSTOM_Issues='1550, 1577'` instead of the `--custom` flag. Never write reference-style links (`[#123][]`) in a body. Valid areas are the `Area` enumOptions in `.changie.yaml`.
+- Never edit `CHANGELOG.md` or a released `.changes/v*.md`; release automation writes both. If this PR supersedes an unreleased entry, edit that fragment instead of adding a contradictory one.
+- `./scripts/check-changelog` requires a new or edited fragment when crates change. If the PR truly has nothing operators should read, add a `Skip-Changelog` line to a commit message or the PR body.
 
 ### Testing and Simulation
 
