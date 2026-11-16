@@ -119,8 +119,9 @@ const CANDIDATE_MARKER: &str = ".candidate-";
 //
 // CBOR is used to serialize objects (as keys or values) into their binary equivalent.
 pub struct RocksDB {
-    /// The working directory where we store the various key/value stores.
-    dir: PathBuf,
+    /// The working directory where we store the various key/value stores, and the RocksDB `Env`
+    /// that every database opened from this store uses.
+    config: RocksDbConfig,
 
     /// Whether to allow saving data incrementally (i.e. calling multiple times 'save' with the
     /// same point). This is only sound when importing static data, but not when running live.
@@ -193,8 +194,6 @@ impl RocksDB {
 
     pub fn new(config: &RocksDbConfig) -> Result<Self, StoreError> {
         let dir = config.dir.clone();
-        // Remove candidate snapshots on a restart since the volatile DB starts empty.
-        remove_all_candidate_snapshots(&dir)?;
         assert_sufficient_snapshots(&dir)?;
         let live_dir = dir.join(DIR_LIVE_DB);
         let mut opts = set_default_opts(config.into());
@@ -206,7 +205,7 @@ impl RocksDB {
         // snapshots of a running node.
         remove_all_candidate_snapshots(&dir)?;
         Ok(Self {
-            dir,
+            config: config.clone(),
             incremental_save: false,
             db,
             ongoing_transaction: OngoingTransaction::new(),
@@ -221,7 +220,7 @@ impl RocksDB {
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
             .map(|db| Self {
-                dir,
+                config: config.clone(),
                 incremental_save: true,
                 db,
                 ongoing_transaction: OngoingTransaction::new(),
@@ -319,7 +318,7 @@ impl Store for RocksDB {
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch).in_scope(|| {
-            let path = self.dir.join(epoch.to_string());
+            let path = self.config.dir.join(epoch.to_string());
 
             remove_dir_if_exists(&path)?;
 
@@ -336,17 +335,17 @@ impl Store for RocksDB {
         epoch: Epoch,
         last_block: &HeaderHash,
     ) -> Result<impl Store + use<>, StoreError> {
-        let path = self.dir.join(candidate_dirname(epoch, last_block));
+        let path = self.config.dir.join(candidate_dirname(epoch, last_block));
         remove_dir_if_exists(&path)?;
 
         checkpoint::Checkpoint::new(&self.db)
             .and_then(|handle| handle.create_checkpoint(&path))
             .map_err(|err| StoreError::Internal(err.into()))?;
 
-        let opts = set_default_opts(Options::default());
+        let opts = set_default_opts((&self.config).into());
         OptimisticTransactionDB::open(&opts, &path)
             .map(|db| Self {
-                dir: self.dir.clone(),
+                config: self.config.clone(),
                 incremental_save: false,
                 db,
                 ongoing_transaction: OngoingTransaction::new(),
@@ -356,7 +355,7 @@ impl Store for RocksDB {
     }
 
     fn remove_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<(), StoreError> {
-        remove_dir_if_exists(&self.dir.join(candidate_dirname(epoch, last_block)))
+        remove_dir_if_exists(&self.config.dir.join(candidate_dirname(epoch, last_block)))
     }
 
     #[expect(clippy::panic)] // Expected
