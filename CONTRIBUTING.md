@@ -67,9 +67,18 @@ Every issue must be assigned to a GitHub milestone that maps directly to a budge
 
 ### Living CHANGELOG
 
-Add entries under the permanent `## Unreleased` heading. Release automation moves the entries present at the release tag into a versioned section; entries added afterward remain unreleased.
+Each changelog entry is its own file under [`.changes/unreleased/`](./.changes/unreleased), created with [changie](https://changie.dev) (`brew install changie`, or `go install github.com/miniscruff/changie@v1.26.0`):
 
-Any PRs that add, remove, modify or fix any *user-facing behaviour* must include a [CHANGELOG](./CHANGELOG.md) entry — short and factual. Automated/LLM-generated suggestions are welcome, but humans must verify wording.
+```sh
+changie new --kind Fixed --custom Area=amaru-ledger --custom Issues=1234 \
+  --body 'What operators will observe.'
+```
+
+Run `changie new` without flags to be prompted for each field. `Area` names the crate(s) the entry is about; to name several, pick them in the prompt or set `CHANGIE_CUSTOM_Area='amaru-ledger, amaru-kernel'`. `Issues` is optional and takes one or more issue or PR numbers; set `CHANGIE_CUSTOM_Issues='1550, 1577'` for several. Link issues through `Issues` or with inline links; reference-style links like `[#123][]` are rejected because nothing defines them. A new crate must be added to the `Area` options in [`.changie.yaml`](./.changie.yaml) before entries can name it.
+
+Do not edit [CHANGELOG.md](./CHANGELOG.md) or the released `.changes/v*.md` files. When a release is published, automation batches the fragments present at the release tag into `.changes/<tag>.md` and regenerates `CHANGELOG.md`. Fragments added afterward stay unreleased. To correct an entry that has not been released yet, edit its fragment.
+
+Any PRs that add, remove, modify or fix any *user-facing behaviour* must include a changelog fragment: short and factual. Automated/LLM-generated suggestions are welcome, but humans must verify wording. PRs with nothing user-facing can add a `Skip-Changelog` line to a commit message or the PR description.
 
 A user-facing behaviour is anything that a user of Amaru (as an executable or as a collection of libraries) may seemingly notice. This includes (but isn't limited to):
 

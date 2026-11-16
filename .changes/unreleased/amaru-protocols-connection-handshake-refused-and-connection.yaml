@@ -1,0 +1,6 @@
+kind: Changed
+body: '`connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction.'
+time: 2026-11-16T10:06:35.832578-05:00
+custom:
+    Area: amaru-protocols
+    Issues: "1634"

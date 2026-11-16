@@ -1,0 +1,5 @@
+kind: Changed
+body: '`amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.'
+time: 2026-11-16T10:06:35.822826-05:00
+custom:
+    Area: amaru

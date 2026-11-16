@@ -1,0 +1,57 @@
+changesDir: .changes
+unreleasedDir: unreleased
+headerPath: header.tpl.md
+changelogPath: CHANGELOG.md
+versionExt: md
+envPrefix: CHANGIE_
+fragmentFileFormat: '{{ .Custom.Area | replace ", " "-" }}-{{ regexReplaceAll "-[a-z0-9]*$" (regexReplaceAll "[^a-z0-9]+" (lower .Body) "-" | trimAll "-" | trunc 48) "" }}'
+versionFormat: '## [{{.Version}}](https://github.com/pragma-org/amaru/releases/tag/{{.Version}})'
+kindFormat: '### {{.Kind}}'
+changeFormat: >-
+  - **{{ .Custom.Area | replace ", " " / " }}**: {{ .Body | replace "\n" "\n  " }}
+  {{- if .Custom.Issues }} ({{ range $i, $n := splitList "," .Custom.Issues }}{{ if $i }}, {{ end }}{{ $n = trim $n }}[#{{ $n }}](https://github.com/pragma-org/amaru/issues/{{ $n }}){{ end }}){{ end }}
+body:
+  block: true
+kinds:
+  - label: Added
+  - label: Changed
+  - label: Deprecated
+  - label: Removed
+  - label: Fixed
+  - label: Security
+custom:
+  - key: Area
+    label: Crate(s) affected
+    type: enums
+    enumOptions:
+      - amaru
+      - amaru-bootstrap
+      - amaru-clock
+      - amaru-consensus
+      - amaru-kernel
+      - amaru-ledger
+      - amaru-mempool
+      - amaru-metrics
+      - amaru-minicbor-extra
+      - amaru-mithril
+      - amaru-network
+      - amaru-node
+      - amaru-observability
+      - amaru-ouroboros
+      - amaru-ouroboros-traits
+      - amaru-plutus
+      - amaru-protocols
+      - amaru-pure-stage
+      - amaru-sim
+      - amaru-stores
+      - amaru-tui
+      - amaru-uplc
+  - key: Issues
+    label: Issue or PR numbers, comma-separated (optional)
+    type: string
+    optional: true
+newlines:
+  beforeChangelogVersion: 1
+  beforeKind: 1
+  afterKind: 1
+  endOfVersion: 1
