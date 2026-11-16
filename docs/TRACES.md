@@ -1363,7 +1363,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `chain_lagging` | `event` | error | public | Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this. Emitted at most once a minute. | peer, live_slot, our_slot, lag |  |
+| `chain_lagging` | `event` | error | public | Near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. Sync that is still adopting faster than 10 blocks per second does not raise this, nor does a tip that has reached the height of the header seen at the previous check. Emitted at most once a minute. | peer, live_slot, our_slot, lag |  |
 | `initialized` | `event` | info | public | A chainsync session with an upstream peer was initialized | peer, conn_id |  |
 | `intersect_found` | `event` | info | public | An intersection with the peer's chain was found | peer, conn_id, current, highest, tip_height |  |
 | `intersect_not_found` | `event` | info | public | No intersection with the peer's chain was found, so chainsync with it stops | peer, highest |  |

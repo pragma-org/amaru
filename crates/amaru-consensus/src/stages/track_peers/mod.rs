@@ -162,7 +162,8 @@ pub struct TrackPeers {
     recheck_timer: Option<ScheduleId>,
     /// Last time a near-now header was compared with the adopted tip.
     last_chain_lag_check: Option<Instant>,
-    /// Lateness of the adopted tip at that check, while the tip was still behind.
+    /// Lateness of the adopted tip at that check and the height of the header that prompted it,
+    /// while the tip was still behind.
     chain_lag: Option<ChainLagSample>,
 }
 
@@ -424,8 +425,9 @@ impl TrackPeers {
     ///
     /// The first time the tip is behind, the sample is stored and nothing is logged. Finishing
     /// sync sees that header before the adoption that makes the tip live. A later sample logs
-    /// when the tip did not get closer and sync adoptions are no longer arriving faster than
-    /// 10 per second.
+    /// when the tip did not get closer, has not reached the height of the stored sample's header,
+    /// and sync adoptions are no longer arriving faster than 10 per second. A node at the tip
+    /// sees each header before adopting it, so two long gaps between blocks log nothing.
     async fn note_chain_lag(&mut self, eff: &Effects<TrackPeersMsg>, peer: Peer, header: &Header, now: Instant) {
         if self.last_chain_lag_check.is_some_and(|at| now.saturating_since(at) < CHAIN_LAG_LOG_INTERVAL) {
             return;
@@ -443,7 +445,9 @@ impl TrackPeers {
             return;
         }
         let catching_up_fast = eff.external(Performance::sync_adoption_is_fast(now)).await;
-        match judge_chain_lag(self.chain_lag, now, lateness, catching_up_fast) {
+        let live_height = header.block_height();
+        let our_height = tip.block_height();
+        match judge_chain_lag(self.chain_lag, now, lateness, live_height, our_height, catching_up_fast) {
             ChainLagWatch::CaughtUp => self.chain_lag = None,
             ChainLagWatch::Quiet(sample) => self.chain_lag = Some(sample),
             ChainLagWatch::Lagging(sample) => {

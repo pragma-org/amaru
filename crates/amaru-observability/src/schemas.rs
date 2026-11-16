@@ -541,7 +541,8 @@ define_schemas! {
                 }
                 /// Near-now headers have been arriving for a minute and the adopted tip is not
                 /// getting closer to the wall clock. Sync that is still adopting faster than 10
-                /// blocks per second does not raise this. Emitted at most once a minute.
+                /// blocks per second does not raise this, nor does a tip that has reached the
+                /// height of the header seen at the previous check. Emitted at most once a minute.
                 public event CHAIN_LAGGING {
                     levels: error
                     required peer: %amaru_kernel::Peer
