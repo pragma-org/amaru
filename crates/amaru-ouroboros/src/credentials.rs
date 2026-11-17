@@ -14,32 +14,31 @@
 
 //! In-process block-producer secrets for a testnet trial.
 //!
-//! The KES signing key, VRF signing key, and operational certificate are read from the
-//! unencrypted text envelopes cardano-cli already writes. The cold key stays in
-//! the certificate file; it is not loaded on its own.
+//! Keys are raw bytes and operational certificates are binary CBOR. Legacy cardano-cli
+//! text envelopes are also accepted. The certificate includes the cold verification key;
+//! the cold signing key stays offline.
 
 use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert,
-    cardano::fixed_bytes::FixedBytes,
-    cbor, ed25519,
+    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, cbor, ed25519,
     size::BLOCK_BODY,
-    utils::envelope::{HasEnvelope, ReadEnvelopeError, read_envelope},
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::{
+    envelope::{HasEnvelope, ReadEnvelopeError, read_cbor_or_envelope, read_key_file},
     kes,
     praos::header::AssertOperationalCertificateError,
-    vrf::{self, SecretKeyError as VrfKeyError},
+    vrf,
 };
 
 const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
 
-/// Block-producer secrets loaded from cardano-cli files and held in this process.
+/// Block-producer secrets loaded from files and held in this process.
 ///
 /// The KES signing key evolves in memory and is not written back. A later
 /// operational certificate is used only after the process starts again.
@@ -69,7 +68,7 @@ impl fmt::Debug for InProcessCredentials {
 }
 
 impl InProcessCredentials {
-    /// Load the three cardano-cli envelopes and check that they belong together.
+    /// Load the forging keys and certificate and check that they belong together.
     ///
     /// The KES verification key must be the certificate's hot key, and the cold
     /// signature over that key, the sequence number, and the start period must
@@ -84,7 +83,7 @@ impl InProcessCredentials {
         protocol_version: ProtocolVersion,
     ) -> Result<Self, CredentialsError> {
         let mut kes = kes::SecretKey::from_file(kes_signing_key)?;
-        let vrf = vrf::SecretKey::from_file(vrf_signing_key)?;
+        let vrf = load_vrf_signing_key(vrf_signing_key).map_err(CredentialsError::Vrf)?;
         let (certificate, cold) = load_operational_certificate(operational_certificate, protocol_version)?;
         let hot = kes::PublicKey::from(&mut kes);
         if *hot != *certificate.operational_cert_kes_verification_key {
@@ -220,8 +219,7 @@ fn header_parented_on(parent: HeaderHash) -> Header {
     )
 }
 
-/// Payload of a `NodeOperationalCertificate` envelope: the certificate followed by the
-/// cold verification key that issued it.
+/// Certificate file: the certificate followed by the cold verification key that issued it.
 struct OperationalCertificateFile {
     certificate: OperationalCert,
     cold: VerificationKey,
@@ -250,14 +248,14 @@ impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for OperationalCertifi
     }
 }
 
-/// Load an operational certificate and its cold verification key from a cardano-cli text
-/// envelope file, decoding the CBOR payload under the rules of `protocol_version`.
+/// Load an operational certificate and its cold verification key from binary CBOR or a legacy
+/// cardano-cli text envelope, decoding under the rules of `protocol_version`.
 pub fn load_operational_certificate(
     path: impl AsRef<Path>,
     protocol_version: ProtocolVersion,
 ) -> Result<(OperationalCert, VerificationKey), ReadEnvelopeError> {
     let mut ctx = protocol_version;
-    let file: OperationalCertificateFile = read_envelope(path, &mut ctx)?;
+    let file: OperationalCertificateFile = read_cbor_or_envelope(path, &mut ctx)?;
     Ok((file.certificate, file.cold))
 }
 
@@ -267,7 +265,7 @@ pub enum CredentialsError {
     #[error("KES signing key: {0}")]
     Kes(#[from] kes::KesError),
     #[error("VRF signing key: {0}")]
-    Vrf(#[from] VrfKeyError),
+    Vrf(ReadEnvelopeError),
     #[error("operational certificate: {0}")]
     Certificate(#[from] ReadEnvelopeError),
     #[error("KES verification key does not match the operational certificate hot key")]
@@ -291,8 +289,76 @@ pub enum CertificateRejected {
     ColdKey,
 }
 
+/// Generate a cold signing key and its verification key from operating-system randomness.
+pub fn generate_cold_key_pair() -> Result<(ColdSigningKey, VerificationKey), getrandom::Error> {
+    let mut seed = Zeroizing::new([0u8; 32]);
+    getrandom::fill(&mut *seed)?;
+    let secret = ColdSigningKey(ed25519::SigningKey::from_bytes(&seed));
+    let public = secret.verification_key();
+    Ok((secret, public))
+}
+
+/// A pool cold signing key. Its secret seed is wiped on drop.
+pub struct ColdSigningKey(ed25519::SigningKey);
+
+impl ColdSigningKey {
+    /// Raw 32-byte signing seed.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    /// The cold verification key identifying this pool.
+    pub fn verification_key(&self) -> VerificationKey {
+        VerificationKey::from(self.0.verifying_key().to_bytes())
+    }
+
+    /// Sign a message using the pool cold key.
+    pub fn sign(&self, message: &[u8]) -> Ed25519Signature {
+        Ed25519Signature::from(ed25519::Signer::sign(&self.0, message).to_bytes())
+    }
+}
+
+/// Load a raw VRF signing seed or a legacy cardano-cli text envelope.
+pub fn load_vrf_signing_key(path: impl AsRef<Path>) -> Result<vrf::SecretKey, ReadEnvelopeError> {
+    read_key_file::<{ vrf::SecretKey::SIZE }, _, _, _>(path.as_ref(), &mut (), |seed| Ok(vrf::SecretKey::from(seed)))
+}
+
+impl HasEnvelope for vrf::SecretKey {
+    const ACCEPTED_TYPES: &'static [&'static str] = &["VrfSigningKey_PraosVRF"];
+}
+
+/// Load a raw 32-byte cold signing seed or a legacy cardano-cli text envelope.
+pub fn load_cold_signing_key(path: impl AsRef<Path>) -> Result<ColdSigningKey, ReadEnvelopeError> {
+    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), &mut (), |seed| {
+        Ok(ColdSigningKey(ed25519::SigningKey::from_bytes(seed)))
+    })
+}
+
+impl HasEnvelope for ColdSigningKey {
+    const ACCEPTED_TYPES: &'static [&'static str] = &["StakePoolSigningKey_ed25519"];
+}
+
+impl<'d, C> cbor::Decode<'d, C> for ColdSigningKey {
+    fn decode(d: &mut cbor::Decoder<'d>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let bytes = Zeroizing::new(cbor::decode_bytes(d)?.into_owned());
+        let seed = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| cbor::decode::Error::message("expected a 32-byte cold signing key"))?;
+        Ok(Self(ed25519::SigningKey::from_bytes(seed)))
+    }
+}
+
 /// Payload of a `StakePoolVerificationKey_ed25519` envelope: the pool cold verification key.
 struct ColdVerificationKeyFile(VerificationKey);
+
+impl ColdVerificationKeyFile {
+    fn new(cold: VerificationKey) -> Result<Self, cbor::decode::Error> {
+        cold_verifying_key(&cold)
+            .map(|_| Self(cold))
+            .ok_or_else(|| cbor::decode::Error::message("cold verification key is not a valid Ed25519 key"))
+    }
+}
 
 impl HasEnvelope for ColdVerificationKeyFile {
     const ACCEPTED_TYPES: &'static [&'static str] = &["StakePoolVerificationKey_ed25519"];
@@ -300,25 +366,24 @@ impl HasEnvelope for ColdVerificationKeyFile {
 
 impl<'d, C: cbor::HasProtocolVersion> cbor::Decode<'d, C> for ColdVerificationKeyFile {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let cold: VerificationKey = d.decode_with(ctx)?;
-        if cold_verifying_key(&cold).is_none() {
-            return Err(cbor::decode::Error::message("cold verification key is not a valid Ed25519 key"));
-        }
-        Ok(Self(cold))
+        Self::new(d.decode_with(ctx)?)
     }
 }
 
-/// Load a stake pool cold verification key from a cardano-cli text envelope file,
+/// Load a raw 32-byte stake pool cold verification key or a legacy cardano-cli text envelope,
 /// decoding the CBOR payload under the rules of `protocol_version`.
 ///
-/// The file must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
+/// Envelopes must have type `StakePoolVerificationKey_ed25519`. The key bytes are returned as a
 /// [`VerificationKey`] suitable for pool ID derivation.
 pub fn load_cold_verification_key(
     path: impl AsRef<Path>,
     protocol_version: ProtocolVersion,
 ) -> Result<VerificationKey, ReadEnvelopeError> {
     let mut ctx = protocol_version;
-    Ok(read_envelope::<_, ColdVerificationKeyFile>(path, &mut ctx)?.0)
+    read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), &mut ctx, |raw| {
+        ColdVerificationKeyFile::new(VerificationKey::from(*raw)).map_err(ReadEnvelopeError::from)
+    })
+    .map(|key| key.0)
 }
 
 #[cfg(test)]
@@ -501,7 +566,7 @@ mod tests {
         assert_eq!(u32::from(kes.period()), 0, "a fresh cardano-cli KES file has no period");
         assert_eq!(kes::PublicKey::from(&mut kes).as_ref(), kes_vk.as_slice());
 
-        let vrf = vrf::SecretKey::from_file(&vrf_path).unwrap();
+        let vrf = load_vrf_signing_key(&vrf_path).unwrap();
         assert_eq!(vrf::PublicKey::from(&vrf).as_ref(), vrf_vk.as_slice());
         let input = vrf::Input::from(&[11u8; vrf::Input::SIZE]);
         let proof = vrf.prove(&input);

@@ -117,14 +117,17 @@ use amaru_observability_macros::define_schemas;
 
 define_schemas! {
     amaru {
-        consensus {
-            kes {
-                /// Loaded a legacy KES signing-key text envelope; new keys should use raw binary files
-                public event LEGACY_KEY_ENVELOPE {
+        io {
+            envelope {
+                /// Loaded a legacy cardano-cli text envelope
+                public event LEGACY {
                     levels: trace
+                    required envelope_type: String
                     required path: String
                 }
             }
+        }
+        consensus {
             db_chain_migration {
                 /// Migrate the database if necessary
                 public event EXECUTE {
