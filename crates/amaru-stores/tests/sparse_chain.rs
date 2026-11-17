@@ -114,6 +114,102 @@ fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_when_the_last_bl
 }
 
 #[test]
+fn a_rollback_after_the_last_block_of_an_epoch_is_stable_keeps_its_stake_distribution() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, stable, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // `k - 3` blocks after block4 make block1, the last block of epoch e, stable. The normal flush
+    // then takes the final snapshot of epoch e:
+    //
+    //       epoch e−1    ╎          epoch e           ╎                     epoch e+1
+    //     -------------- ╎ -------------------------- ╎ ---------------------------------------------------
+    //     stable blocks  ╎ fragment ── block1         ╎ block2 ── ... ── block3 ── block4 ── k - 3 blocks
+    //     slots          ╎                            ╎ b                b+w       b+w+1     b+w+2, …, t
+    //                    ╎                            ╎ └─ stability window ──┘
+    //
+    // b is `boundary_slot`, w is `stability_window` (3·k/f slots), and t is `tip_slot`.
+    let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
+    let first_slot_after_block4 = boundary_slot + stability_window + 2;
+    let tip_slot = first_slot_after_block4 + k - 4;
+    for slot in first_slot_after_block4..=tip_slot {
+        roll_forward(&mut state, &empty_block_at(slot));
+    }
+    assert!(stable.lock().unwrap().contains(&block1), "block1 is stable");
+    let summaries = next_publication(&published);
+    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
+
+    // The fork replaces block(t) only. block1 is no longer in the volatile DB, but it is stable:
+    // the rollback keeps the snapshot of epoch e and its stake distribution.
+    //
+    //       epoch e  ╎                               epoch e+1
+    //     ---------- ╎ ------------------------------------------------------------------
+    //     block1     ╎ block2 ── ... ── block3 ── block4 ── ... ── block(t-1) ── block(t)
+    //     (stable)   ╎                                                      │
+    //                ╎                                                      └── block'(t+1) ── block'(t+2)
+    let fork_point = empty_block_at(tip_slot - 1).point();
+    let fork = vec![empty_block_at(tip_slot + 1), empty_block_at(tip_slot + 2)];
+    match state.switch_to_fork(&fork_point, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Completed { .. }) => (),
+        other => panic!("expected the switch to complete, got: {other:?}"),
+    }
+
+    assert_eq!(state.most_recent_snapshot(), closing_epoch, "the final snapshot of epoch e is kept");
+    assert!(
+        published.try_iter().all(|summaries| summaries.by_epoch.contains_key(&closing_epoch)),
+        "the stake distribution of epoch e is available"
+    );
+}
+
+#[test]
+fn a_failed_switch_after_the_last_block_of_an_epoch_is_stable_keeps_its_stake_distribution() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, stable, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // `k - 3` blocks after block4 make block1, the last block of epoch e, stable. The normal flush
+    // then takes the final snapshot of epoch e:
+    //
+    //       epoch e−1    ╎          epoch e           ╎                     epoch e+1
+    //     -------------- ╎ -------------------------- ╎ ---------------------------------------------------
+    //     stable blocks  ╎ fragment ── block1         ╎ block2 ── ... ── block3 ── block4 ── k - 3 blocks
+    //     slots          ╎                            ╎ b                b+w       b+w+1     b+w+2, …, t
+    //                    ╎                            ╎ └─ stability window ──┘
+    //
+    // b is `boundary_slot`, w is `stability_window` (3·k/f slots), and t is `tip_slot`.
+    let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
+    let first_slot_after_block4 = boundary_slot + stability_window + 2;
+    let tip_slot = first_slot_after_block4 + k - 4;
+    for slot in first_slot_after_block4..=tip_slot {
+        roll_forward(&mut state, &empty_block_at(slot));
+    }
+    assert!(stable.lock().unwrap().contains(&block1), "block1 is stable");
+    let summaries = next_publication(&published);
+    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
+    let tip_before = state.tip().into_owned();
+
+    // The fork replaces block(t) only, and its last block is invalid. The ledger goes back to
+    // block(t), and keeps the snapshot of epoch e and its stake distribution, since block1 is stable.
+    //
+    //       epoch e  ╎                               epoch e+1
+    //     ---------- ╎ ------------------------------------------------------------------
+    //     block1     ╎ block2 ── ... ── block3 ── block4 ── ... ── block(t-1) ── block(t)
+    //     (stable)   ╎                                                      │
+    //                ╎                                                      └── block'(t+1) ── block'(t+2) (invalid)
+    let fork_point = empty_block_at(tip_slot - 1).point();
+    let fork = vec![empty_block_at(tip_slot + 1), invalid_block_at(tip_slot + 2)];
+    match state.switch_to_fork(&fork_point, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Failed { .. }) => (),
+        other => panic!("expected the switch to fail, got: {other:?}"),
+    }
+
+    assert_eq!(*state.tip(), tip_before, "the ledger is back on the chain it had before the switch");
+    assert_eq!(state.most_recent_snapshot(), closing_epoch, "the final snapshot of epoch e is kept");
+    assert!(
+        published.try_iter().all(|summaries| summaries.by_epoch.contains_key(&closing_epoch)),
+        "the stake distribution of epoch e is never withdrawn"
+    );
+}
+
+#[test]
 fn the_last_blocks_of_an_epoch_are_forced_to_the_stable_store_after_a_whole_epoch_with_fewer_than_k_blocks() {
     let SparseChain { mut state, boundary_slot, closing_epoch, published, block1, stable, .. } =
         make_sparse_chain_with_candidate_snapshot();
