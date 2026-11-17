@@ -945,7 +945,8 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
     expected.chain_lag = Some(ChainLagSample {
         at: now,
         lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
-        live_height: header.block_height(),
+        // The rejected header's claimed height is not kept as a baseline.
+        live_height: None,
     });
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
@@ -976,8 +977,9 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
 /// Three blocks 90 seconds apart, the last one at the current slot. Rolls forward the last
 /// header 90 seconds after the check that stored a sample for the middle one, with
-/// `headers[adopted]` as the adopted tip.
-fn roll_forward_after_chain_lag_sample(adopted: usize) -> Logs {
+/// `headers[adopted]` as the adopted tip. With `previous_rejected` the header behind the stored
+/// sample failed validation, so the sample has no height.
+fn roll_forward_after_chain_lag_sample(adopted: usize, previous_rejected: bool) -> Logs {
     let prep = test_prep();
     let peer = Peer::for_test(3001);
     let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
@@ -1005,8 +1007,9 @@ fn roll_forward_after_chain_lag_sample(adopted: usize) -> Logs {
     state.chain_lag = Some(ChainLagSample {
         at: previous_check,
         lateness: Duration::from_secs(90),
-        live_height: parent.block_height(),
+        live_height: (!previous_rejected).then(|| parent.block_height()),
     });
+    state.chain_lag_header = (!previous_rejected).then(|| parent.hash());
 
     let mut expected = state.clone();
     expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
@@ -1014,8 +1017,9 @@ fn roll_forward_after_chain_lag_sample(adopted: usize) -> Logs {
     expected.chain_lag = Some(ChainLagSample {
         at: now,
         lateness: tip_lateness(tip.slot(), now, &EraHistory::default()).expect("tip slot"),
-        live_height: header.block_height(),
+        live_height: Some(header.block_height()),
     });
+    expected.chain_lag_header = Some(header.hash());
 
     let (running, _guards, logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
@@ -1044,7 +1048,7 @@ fn roll_forward_after_chain_lag_sample(adopted: usize) -> Logs {
 /// previous block. Two gaps of 90 seconds in a row are not a node that fell behind.
 #[test]
 fn test_chain_lag_stays_quiet_when_the_tip_reached_the_previous_header() {
-    let mut logs = roll_forward_after_chain_lag_sample(1);
+    let mut logs = roll_forward_after_chain_lag_sample(1, false);
     logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
@@ -1053,10 +1057,21 @@ fn test_chain_lag_stays_quiet_when_the_tip_reached_the_previous_header() {
 /// The same headers with the adopted tip still below the previous one are reported.
 #[test]
 fn test_chain_lag_is_logged_when_the_tip_has_not_reached_the_previous_header() {
-    let mut logs = roll_forward_after_chain_lag_sample(0);
+    let mut logs = roll_forward_after_chain_lag_sample(0, false);
     logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#, "lag=180"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// A header that claimed a low height and was then rejected leaves no baseline: with the tip
+/// stalled at the claimed height, the next check is judged on lateness and reported.
+#[test]
+fn test_chain_lag_is_logged_after_the_previous_header_was_rejected() {
+    let mut logs = roll_forward_after_chain_lag_sample(1, true);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#, "lag=90"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
 }
 

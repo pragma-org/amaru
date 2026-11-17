@@ -19,8 +19,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    BlockHeight, Epoch, EraHistory, EraName, Header, IsHeader, ORIGIN_HASH, Peer, Point, Slot, from_cbor_no_leftovers,
-    num::CheckedSub,
+    BlockHeight, Epoch, EraHistory, EraName, Header, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, Slot,
+    from_cbor_no_leftovers, num::CheckedSub,
 };
 use amaru_observability::{
     CarriedHeader, ChainChoice, ChainSyncProcess, Instrument, TraceContext,
@@ -165,6 +165,8 @@ pub struct TrackPeers {
     /// Lateness of the adopted tip at that check and the height of the header that prompted it,
     /// while the tip was still behind.
     chain_lag: Option<ChainLagSample>,
+    /// Header that prompted the stored sample, so that its height can be dropped if it is rejected.
+    chain_lag_header: Option<HeaderHash>,
 }
 
 /// Per-connection tip tracking for a chainsync session.
@@ -386,6 +388,7 @@ impl TrackPeers {
             recheck_timer: None,
             last_chain_lag_check: None,
             chain_lag: None,
+            chain_lag_header: None,
         }
     }
 
@@ -442,21 +445,40 @@ impl TrackPeers {
         };
         if lateness < LIVE_TIP_LAG {
             self.chain_lag = None;
+            self.chain_lag_header = None;
             return;
         }
         let catching_up_fast = eff.external(Performance::sync_adoption_is_fast(now)).await;
         let live_height = header.block_height();
         let our_height = tip.block_height();
         match judge_chain_lag(self.chain_lag, now, lateness, live_height, our_height, catching_up_fast) {
-            ChainLagWatch::CaughtUp => self.chain_lag = None,
-            ChainLagWatch::Quiet(sample) => self.chain_lag = Some(sample),
+            ChainLagWatch::CaughtUp => {
+                self.chain_lag = None;
+                self.chain_lag_header = None;
+            }
+            ChainLagWatch::Quiet(sample) => {
+                self.chain_lag = Some(sample);
+                self.chain_lag_header = Some(header.hash());
+            }
             ChainLagWatch::Lagging(sample) => {
                 self.chain_lag = Some(sample);
+                self.chain_lag_header = Some(header.hash());
                 let live_slot = header.slot();
                 let our_slot = tip.slot();
                 let lag = live_slot - our_slot;
                 error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
             }
+        }
+    }
+
+    /// The header that prompted the stored chain-lag sample failed validation: keep the sample's
+    /// lateness, which was measured on the adopted tip, but not the height the header claimed.
+    fn forget_rejected_chain_lag_height(&mut self, rejected: HeaderHash) {
+        if self.chain_lag_header == Some(rejected) {
+            if let Some(sample) = self.chain_lag.as_mut() {
+                sample.live_height = None;
+            }
+            self.chain_lag_header = None;
         }
     }
 
@@ -786,6 +808,7 @@ impl TrackPeers {
                 )
                 .await;
 
+                self.forget_rejected_chain_lag_height(header.hash());
                 self.purge_connection(*conn_id);
                 eff.send(
                     &self.peer_selection,
