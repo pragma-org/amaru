@@ -934,7 +934,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         let keep_blocks = real_on_block.is_some();
         let mut deferred_blocks: Vec<Block> = Vec::with_capacity(if keep_blocks { blocks.size_hint().0 } else { 0 });
 
-        let mut applied_tip = initial_immutable_tip;
+        let mut applied_tip = *fork_point;
         let mut metrics = LedgerMetrics::default();
 
         // Try to apply each block in the fork, and stop at the first failure.
