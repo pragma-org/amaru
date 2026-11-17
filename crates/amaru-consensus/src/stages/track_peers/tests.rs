@@ -28,7 +28,7 @@ use amaru_pure_stage::{
 };
 
 use crate::{
-    consensus_mode::{ChainLagSample, tip_lateness},
+    consensus_mode::{Behind, ChainLagMonitor, PromptingHeader, tip_lateness},
     effects::{ValidateHeaderEffect, VolatileTipEffect},
     errors::ConsensusError,
     stages::{
@@ -941,14 +941,14 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let mut expected = prep.state.clone();
-    expected.last_chain_lag_check = Some(now);
-    expected.chain_lag = Some(ChainLagSample {
-        at: now,
-        lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
-        // The rejected header's claimed height is not kept as a baseline.
-        live_height: None,
-    });
-    expected.chain_lag_header = Some(header.hash());
+    expected.chain_lag = ChainLagMonitor::for_tests(
+        now,
+        Some(Behind {
+            lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
+            // Rejected, so its claimed height never becomes the baseline.
+            prompted_by: PromptingHeader::Unvalidated(header.hash()),
+        }),
+    );
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
@@ -1004,23 +1004,28 @@ fn roll_forward_after_chain_lag_sample(adopted: usize, previous_rejected: bool) 
     );
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
-    state.last_chain_lag_check = Some(previous_check);
-    state.chain_lag = Some(ChainLagSample {
-        at: previous_check,
-        lateness: Duration::from_secs(90),
-        live_height: (!previous_rejected).then(|| parent.block_height()),
-    });
+    state.chain_lag = ChainLagMonitor::for_tests(
+        previous_check,
+        Some(Behind {
+            lateness: Duration::from_secs(90),
+            prompted_by: if previous_rejected {
+                PromptingHeader::Unvalidated(parent.hash())
+            } else {
+                PromptingHeader::Validated(parent.block_height())
+            },
+        }),
+    );
 
     let mut expected = state.clone();
     expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
-    expected.last_chain_lag_check = Some(now);
-    expected.chain_lag = Some(ChainLagSample {
-        at: now,
-        lateness: tip_lateness(tip.slot(), now, &EraHistory::default()).expect("tip slot"),
-        // Validated, so its height is the baseline for the next check.
-        live_height: Some(header.block_height()),
-    });
-    expected.chain_lag_header = None;
+    expected.chain_lag = ChainLagMonitor::for_tests(
+        now,
+        Some(Behind {
+            lateness: tip_lateness(tip.slot(), now, &EraHistory::default()).expect("tip slot"),
+            // Validated, so its height is the baseline for the next check.
+            prompted_by: PromptingHeader::Validated(header.block_height()),
+        }),
+    );
 
     let (running, _guards, logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
@@ -1120,15 +1125,17 @@ fn test_chain_lag_sample_of_a_dropped_follow_up_has_no_height() {
                 "tp-1",
                 move |s| {
                     s.deferred.len() == 2
-                        && s.chain_lag.is_some_and(|sample| sample.live_height.is_none())
-                        && s.chain_lag_header == Some(hash)
+                        && s.chain_lag.behind().map(|b| b.prompted_by) == Some(PromptingHeader::Unvalidated(hash))
                 },
                 "follow-up sampled without a height",
             ),
             te_input("tp-1", &terminated).into(),
             tm_state::<TrackPeers>(
                 "tp-1",
-                |s| s.deferred.is_empty() && s.chain_lag.is_some_and(|sample| sample.live_height.is_none()),
+                move |s| {
+                    s.deferred.is_empty()
+                        && s.chain_lag.behind().map(|b| b.prompted_by) == Some(PromptingHeader::Unvalidated(hash))
+                },
                 "dropped follow-up leaves no height",
             ),
         ],
