@@ -40,6 +40,7 @@ Other guiding principles:
 ### Added
 
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
+- **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
 
 ### Changed
 

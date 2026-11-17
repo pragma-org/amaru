@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! In-process block-producer secrets for a testnet trial.
+//! Block-producer credentials and offline transaction signing keys.
 //!
 //! Keys are raw bytes and operational certificates are binary CBOR. Legacy cardano-cli
 //! text envelopes are also accepted. The certificate includes the cold verification key;
@@ -22,8 +22,8 @@ use std::{fmt, path::Path, sync::Mutex};
 
 use amaru_kernel::{
     Bytes, Ed25519Signature, Hash, Header, HeaderBody, HeaderHash, KesPeriod, KesSignature, NetworkName,
-    OperationalCert, Point, ProtocolVersion, VerificationKey, VrfCert, cardano::fixed_bytes::FixedBytes, cbor, ed25519,
-    size::BLOCK_BODY,
+    OperationalCert, Point, ProtocolVersion, TransactionId, VerificationKey, VerificationKeyWitness, VrfCert,
+    cardano::fixed_bytes::FixedBytes, cbor, ed25519, size::BLOCK_BODY,
 };
 use amaru_ouroboros_traits::{ChainStore, ForgingCredentials, ForgingCredentialsError, IssuerFields, StoreError};
 use thiserror::Error;
@@ -37,6 +37,39 @@ use crate::{
 };
 
 const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
+
+/// A non-extended Ed25519 transaction signing key. Its seed is wiped on drop.
+pub struct TransactionSigningKey(ColdSigningKey);
+
+impl TransactionSigningKey {
+    /// Load a raw 32-byte Ed25519 signing seed or a cardano-cli text envelope.
+    ///
+    /// Payment, stake, and pool cold signing keys are supported. Extended and Byron keys are not.
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, ReadEnvelopeError> {
+        read_key_file::<32, _, _, ReadEnvelopeError>(path.as_ref(), &mut (), |seed| {
+            Ok(Self(ColdSigningKey(ed25519::SigningKey::from_bytes(seed))))
+        })
+    }
+
+    /// Sign the hash of the original transaction body.
+    pub fn witness(&self, transaction_id: TransactionId) -> VerificationKeyWitness {
+        VerificationKeyWitness {
+            verification_key: self.0.verification_key(),
+            signature: self.0.sign(transaction_id.as_slice()),
+        }
+    }
+}
+
+impl HasEnvelope for TransactionSigningKey {
+    const ACCEPTED_TYPES: &'static [&'static str] =
+        &["PaymentSigningKeyShelley_ed25519", "StakeSigningKeyShelley_ed25519", "StakePoolSigningKey_ed25519"];
+}
+
+impl<'d, C> cbor::Decode<'d, C> for TransactionSigningKey {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(Self)
+    }
+}
 
 /// Block-producer secrets loaded from files and held in this process.
 ///
@@ -406,6 +439,42 @@ mod tests {
 
     fn envelope(r#type: &str, cbor_hex: &str) -> String {
         format!(r#"{{"type":"{type}","description":"","cborHex":"{cbor_hex}"}}"#)
+    }
+
+    #[test_case(None; "raw seed")]
+    #[test_case(Some("PaymentSigningKeyShelley_ed25519"); "payment envelope")]
+    #[test_case(Some("StakeSigningKeyShelley_ed25519"); "stake envelope")]
+    #[test_case(Some("StakePoolSigningKey_ed25519"); "pool envelope")]
+    fn transaction_signing_key_produces_valid_witness(envelope_type: Option<&str>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("transaction.skey");
+        let seed = [42u8; 32];
+        match envelope_type {
+            Some(kind) => fs::write(&path, envelope(kind, &format!("5820{}", hex::encode(seed)))).unwrap(),
+            None => fs::write(&path, seed).unwrap(),
+        }
+        let key = TransactionSigningKey::from_file(&path).unwrap();
+        let transaction_id = TransactionId::new(Hash::new([7u8; 32]));
+        let witness = key.witness(transaction_id);
+        let expected = ed25519::SigningKey::from_bytes(&seed).verifying_key();
+        assert_eq!(witness.verification_key.as_slice(), expected.as_bytes());
+        expected
+            .verify_strict(transaction_id.as_slice(), &ed25519::Signature::from_bytes(witness.signature.as_array()))
+            .unwrap();
+        if matches!(envelope_type, Some("PaymentSigningKeyShelley_ed25519" | "StakeSigningKeyShelley_ed25519")) {
+            assert!(matches!(load_cold_signing_key(&path), Err(ReadEnvelopeError::UnexpectedType { .. })));
+        }
+    }
+
+    #[test_case("PaymentExtendedSigningKeyShelley_ed25519_bip32", "5820", 32; "extended key")]
+    #[test_case("PaymentSigningKeyShelley_ed25519", "581f", 31; "short seed")]
+    #[test_case("PaymentSigningKeyShelley_ed25519", "5821", 33; "long seed")]
+    #[test_case("PaymentSigningKeyShelley_ed25519", "5820", 33; "trailing byte")]
+    fn transaction_signing_key_rejects_invalid_envelopes(kind: &str, prefix: &str, length: usize) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid.skey");
+        fs::write(&path, envelope(kind, &format!("{prefix}{}", "00".repeat(length)))).unwrap();
+        assert!(TransactionSigningKey::from_file(&path).is_err());
     }
 
     /// cardano-cli writes the VRF seed followed by the verification key.
