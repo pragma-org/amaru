@@ -7,11 +7,11 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   prepare:
     name: Build Amaru & restore bootstrap DBs
+    if: github.repository == 'pragma-org/amaru' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     env:
       AMARU_NETWORK: preprod
@@ -86,6 +86,7 @@ jobs:
   test-tools:
     name: Test ${{ matrix.tool.name }}
     needs: prepare
+    if: github.repository == 'pragma-org/amaru' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -138,10 +139,9 @@ jobs:
               grep -q 'apply' tool-output.txt
 
           - name: Yaci Store
+            release-repository: bloxbean/yaci-store
             install: |
-              version=$(curl -sSf --dump-header /dev/stderr \
-                "https://api.github.com/repos/bloxbean/yaci-store/releases/latest" \
-                | jq -r '.tag_name | ltrimstr("v")')
+              version=$(jq -er '.tag_name | ltrimstr("v")' "$RUNNER_TEMP/tool-release.json")
               echo "Installing yaci-store $version"
               curl -LsSf -o yaci-store.zip \
                 "https://github.com/bloxbean/yaci-store/releases/download/rel-native-${version}/yaci-store-${version}-linux-x64-all.zip"
@@ -169,12 +169,13 @@ jobs:
               grep -q 'Handshake Ok' tool-output.txt
 
           - name: nview
+            release-repository: blinklabs-io/nview
             metrics: "true"
             timeout: 300
             install: |
               mkdir -p nview-bin
-              download_url=$(curl -fsSL https://api.github.com/repos/blinklabs-io/nview/releases/latest \
-                | jq -er '.assets[] | select(.name | test("^nview-.*-linux-amd64$")) | .browser_download_url')
+              download_url=$(jq -er '.assets[] | select(.name | test("^nview-.*-linux-amd64$")) | .browser_download_url' \
+                "$RUNNER_TEMP/tool-release.json")
               curl -fsSL -o nview-bin/nview "$download_url"
               chmod +x nview-bin/nview
             test: .github/scripts/test-nview 2>&1 | tee tool-output.txt
@@ -192,6 +193,18 @@ jobs:
             test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
 
     steps:
+      - name: Fetch tool release metadata
+        if: matrix.tool.release-repository != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ matrix.tool.release-repository }}
+        run: |
+          curl -sSf --dump-header /dev/stderr \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$RELEASE_REPOSITORY/releases/latest" \
+            -o "$RUNNER_TEMP/tool-release.json"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # https://github.com/actions/checkout/releases/tag/v7.0.1
         with:
           persist-credentials: false
