@@ -35,8 +35,9 @@ pub struct ChainLagSample {
     pub at: Instant,
     /// `wall clock − tip slot onset`. Larger means further behind.
     pub lateness: Duration,
-    /// Block height of the near-now header that prompted the check. `None` once that header was
-    /// rejected, since its claimed height says nothing about the chain.
+    /// Block height of the near-now header that prompted the check, once that header passed
+    /// validation. A height claimed by a header that was rejected or never validated says nothing
+    /// about the chain.
     pub live_height: Option<BlockHeight>,
 }
 
@@ -106,23 +107,22 @@ pub fn tip_lateness(slot: Slot, now: Instant, era: &EraHistory) -> Option<Durati
 /// next one is not overdue. The first sample while behind is quiet, so the end of sync does not
 /// raise an error before the tip has had a minute to move.
 ///
-/// `live_height` is the block height of the near-now header and `our_height` that of the adopted
-/// tip. The header is seen before it can be adopted, so at the tip `lateness` is the time since
-/// the previous block. A tip that reached the height of the previous sample's header has kept up,
-/// and what is left is a quiet stretch on chain. A previous sample without a height is judged on
-/// lateness alone.
+/// `our_height` is the block height of the adopted tip. The near-now header is seen before it can
+/// be adopted, so at the tip `lateness` is the time since the previous block. A tip that reached
+/// the height of the previous sample's header has kept up, and what is left is a quiet stretch on
+/// chain. The returned sample has no height: the caller adds it once the header is validated. A
+/// previous sample without a height is judged on lateness alone.
 pub fn judge_chain_lag(
     previous: Option<ChainLagSample>,
     now: Instant,
     lateness: Duration,
-    live_height: BlockHeight,
     our_height: BlockHeight,
     catching_up_fast: bool,
 ) -> ChainLagWatch {
     if lateness < LIVE_TIP_LAG {
         return ChainLagWatch::CaughtUp;
     }
-    let sample = ChainLagSample { at: now, lateness, live_height: Some(live_height) };
+    let sample = ChainLagSample { at: now, lateness, live_height: None };
     match previous {
         None => ChainLagWatch::Quiet(sample),
         Some(prev) if lateness < prev.lateness => ChainLagWatch::Quiet(sample),
@@ -229,13 +229,13 @@ mod tests {
 
     #[test]
     fn first_behind_sample_is_quiet_and_a_closer_tip_stays_quiet() {
-        let first = judge_chain_lag(None, at(0), Duration::from_secs(90), height(10), height(5), false);
+        let first = judge_chain_lag(None, at(0), Duration::from_secs(90), height(5), false);
         let ChainLagWatch::Quiet(sample) = first else { panic!("first sample must not log") };
-        assert_eq!(sample.live_height, Some(height(10)));
-        let closer = judge_chain_lag(Some(sample), at(60), Duration::from_secs(70), height(13), height(9), false);
+        assert_eq!(sample.live_height, None, "the height is added once the header is validated");
+        let closer = judge_chain_lag(Some(sample), at(60), Duration::from_secs(70), height(9), false);
         assert!(matches!(closer, ChainLagWatch::Quiet(_)));
         assert!(matches!(
-            judge_chain_lag(Some(sample), at(60), Duration::from_secs(30), height(13), height(11), false),
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(30), height(11), false),
             ChainLagWatch::CaughtUp
         ));
     }
@@ -244,11 +244,11 @@ mod tests {
     fn unchanged_lateness_logs_unless_sync_is_still_fast() {
         let sample = ChainLagSample { at: at(0), lateness: Duration::from_secs(90), live_height: Some(height(10)) };
         assert!(matches!(
-            judge_chain_lag(Some(sample), at(60), Duration::from_secs(90), height(13), height(8), false),
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(90), height(8), false),
             ChainLagWatch::Lagging(_)
         ));
         assert!(matches!(
-            judge_chain_lag(Some(sample), at(60), Duration::from_secs(120), height(13), height(6), true),
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(120), height(6), true),
             ChainLagWatch::Quiet(_)
         ));
     }
@@ -257,18 +257,14 @@ mod tests {
     fn a_tip_that_reached_the_previous_header_stays_quiet() {
         // Blocks 9, 10 and 11 at slots 10, 100 and 190: both headers arrive 90 seconds after their parent.
         let sample = ChainLagSample { at: at(100), lateness: Duration::from_secs(90), live_height: Some(height(10)) };
-        let kept_up = judge_chain_lag(Some(sample), at(190), Duration::from_secs(90), height(11), height(10), false);
+        let kept_up = judge_chain_lag(Some(sample), at(190), Duration::from_secs(90), height(10), false);
         assert_eq!(
             kept_up,
-            ChainLagWatch::Quiet(ChainLagSample {
-                at: at(190),
-                lateness: Duration::from_secs(90),
-                live_height: Some(height(11))
-            })
+            ChainLagWatch::Quiet(ChainLagSample { at: at(190), lateness: Duration::from_secs(90), live_height: None })
         );
         // The same headers with block 10 still not adopted.
         assert!(matches!(
-            judge_chain_lag(Some(sample), at(190), Duration::from_secs(180), height(11), height(9), false),
+            judge_chain_lag(Some(sample), at(190), Duration::from_secs(180), height(9), false),
             ChainLagWatch::Lagging(_)
         ));
     }
@@ -278,7 +274,7 @@ mod tests {
         // The header that prompted the sample claimed height 2 and was rejected.
         let sample = ChainLagSample { at: at(0), lateness: Duration::from_secs(90), live_height: None };
         assert!(matches!(
-            judge_chain_lag(Some(sample), at(60), Duration::from_secs(150), height(13), height(10), false),
+            judge_chain_lag(Some(sample), at(60), Duration::from_secs(150), height(10), false),
             ChainLagWatch::Lagging(_)
         ));
     }

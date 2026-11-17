@@ -948,6 +948,7 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
         // The rejected header's claimed height is not kept as a baseline.
         live_height: None,
     });
+    expected.chain_lag_header = Some(header.hash());
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
@@ -1009,7 +1010,6 @@ fn roll_forward_after_chain_lag_sample(adopted: usize, previous_rejected: bool) 
         lateness: Duration::from_secs(90),
         live_height: (!previous_rejected).then(|| parent.block_height()),
     });
-    state.chain_lag_header = (!previous_rejected).then(|| parent.hash());
 
     let mut expected = state.clone();
     expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
@@ -1017,9 +1017,10 @@ fn roll_forward_after_chain_lag_sample(adopted: usize, previous_rejected: bool) 
     expected.chain_lag = Some(ChainLagSample {
         at: now,
         lateness: tip_lateness(tip.slot(), now, &EraHistory::default()).expect("tip slot"),
+        // Validated, so its height is the baseline for the next check.
         live_height: Some(header.block_height()),
     });
-    expected.chain_lag_header = Some(header.hash());
+    expected.chain_lag_header = None;
 
     let (running, _guards, logs) =
         setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
@@ -1073,6 +1074,65 @@ fn test_chain_lag_is_logged_after_the_previous_header_was_rejected() {
         .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
         .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#, "lag=90"])
         .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// A near-now header that arrives while its connection is deferred is sampled but not validated.
+/// Its claimed height is not a baseline, and the connection terminating before validation leaves
+/// the sample without one.
+#[test]
+fn test_chain_lag_sample_of_a_dropped_follow_up_has_no_height() {
+    let prep = test_prep();
+    let peer = Peer::for_test(3001);
+    let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
+    let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    let parent = make_block_header(1, curr_slot - 1, None);
+    let header = make_block_header(2, curr_slot, Some(parent.hash()));
+    let mut state = prep.state.clone();
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), parent.clone(), header.point());
+
+    let roll_forward = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer,
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
+    });
+    let terminated = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer,
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Terminated,
+    });
+
+    let (running, _guards, _logs) = setup_base(
+        &prep.rt_handle(),
+        state.clone(),
+        [roll_forward.clone(), terminated.clone()],
+        build_store(&[]),
+        |_| {},
+    );
+    let hash = header.hash();
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &roll_forward).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                move |s| {
+                    s.deferred.len() == 2
+                        && s.chain_lag.is_some_and(|sample| sample.live_height.is_none())
+                        && s.chain_lag_header == Some(hash)
+                },
+                "follow-up sampled without a height",
+            ),
+            te_input("tp-1", &terminated).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.is_empty() && s.chain_lag.is_some_and(|sample| sample.live_height.is_none()),
+                "dropped follow-up leaves no height",
+            ),
+        ],
+    );
 }
 
 /// A slot beyond the foreseeable horizon (`EraHistoryError::PastTimeHorizon`) is adversarial.

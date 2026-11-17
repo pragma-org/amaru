@@ -165,7 +165,7 @@ pub struct TrackPeers {
     /// Lateness of the adopted tip at that check and the height of the header that prompted it,
     /// while the tip was still behind.
     chain_lag: Option<ChainLagSample>,
-    /// Header that prompted the stored sample, so that its height can be dropped if it is rejected.
+    /// Header that prompted the stored sample, until it passes validation and its height is added.
     chain_lag_header: Option<HeaderHash>,
 }
 
@@ -449,9 +449,8 @@ impl TrackPeers {
             return;
         }
         let catching_up_fast = eff.external(Performance::sync_adoption_is_fast(now)).await;
-        let live_height = header.block_height();
         let our_height = tip.block_height();
-        match judge_chain_lag(self.chain_lag, now, lateness, live_height, our_height, catching_up_fast) {
+        match judge_chain_lag(self.chain_lag, now, lateness, our_height, catching_up_fast) {
             ChainLagWatch::CaughtUp => {
                 self.chain_lag = None;
                 self.chain_lag_header = None;
@@ -471,12 +470,13 @@ impl TrackPeers {
         }
     }
 
-    /// The header that prompted the stored chain-lag sample failed validation: keep the sample's
-    /// lateness, which was measured on the adopted tip, but not the height the header claimed.
-    fn forget_rejected_chain_lag_height(&mut self, rejected: HeaderHash) {
-        if self.chain_lag_header == Some(rejected) {
+    /// A header passed validation: if it prompted the stored chain-lag sample, its height becomes
+    /// the baseline for the next check. A header that is rejected, or dropped with its connection
+    /// before validation, never sets one.
+    fn confirm_chain_lag_height(&mut self, validated: &Header) {
+        if self.chain_lag_header == Some(validated.hash()) {
             if let Some(sample) = self.chain_lag.as_mut() {
-                sample.live_height = None;
+                sample.live_height = Some(validated.block_height());
             }
             self.chain_lag_header = None;
         }
@@ -792,7 +792,10 @@ impl TrackPeers {
 
         let result = self.validate_header(peer, *conn_id, *variant, header, *tip, &ledger, &store, now).await;
         let validated = match result {
-            Ok(validated) => validated,
+            Ok(validated) => {
+                self.confirm_chain_lag_height(header);
+                validated
+            }
             Err(error) => {
                 if let Some(dh) = self.try_defer_for_stake(&args, &error) {
                     return Err(dh);
@@ -808,7 +811,6 @@ impl TrackPeers {
                 )
                 .await;
 
-                self.forget_rejected_chain_lag_height(header.hash());
                 self.purge_connection(*conn_id);
                 eff.send(
                     &self.peer_selection,
