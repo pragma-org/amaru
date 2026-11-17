@@ -81,8 +81,8 @@ fn a_candidate_snapshot_is_taken_after_the_stability_window_without_writing_to_t
 }
 
 #[test]
-fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_when_the_last_block_of_its_epoch_is_stable() {
-    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, .. } =
+fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_at_the_epoch_boundary_after_its_last_block_is_stable() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, stable, .. } =
         make_sparse_chain_with_candidate_snapshot();
 
     // block3 is the first block after the stability window: it takes the candidate snapshot of
@@ -107,10 +107,28 @@ fn the_stake_distribution_of_a_candidate_snapshot_becomes_final_when_the_last_bl
     for offset in 0..k - 3 {
         roll_forward(&mut state, &empty_block_at(first_slot_after_block4 + offset));
     }
+    assert!(stable.lock().unwrap().contains(&block1), "block1 is stable");
 
-    let summaries = next_publication(&published);
-    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is still available");
-    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
+    // The candidate snapshot is settled: the stake distribution and rewards computation still reads
+    // it. The first block of epoch e+2 joins that computation, and the stake distribution of epoch e
+    // is published again, without the candidate tag:
+    //
+    //             epoch e            ╎                     epoch e+1                     ╎   epoch e+2
+    //     -------------------------- ╎ ------------------------------------------------- ╎ -------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4 ── k - 3 blocks ╎ block5
+    //     slots                      ╎ b                b+w       b+w+1     b+w+2, …     ╎ b'
+    //
+    // b' is the first slot of epoch e+2.
+    let next_boundary_slot = boundary_slot + PREPROD_GLOBAL_PARAMETERS.epoch_length();
+    assert_eq!(epoch_of(next_boundary_slot), closing_epoch + 2, "b' is the first slot of epoch e+2");
+    roll_forward(&mut state, &empty_block_at(next_boundary_slot));
+
+    let summaries = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
+        .find(|summaries| summaries.candidates.is_empty());
+    assert!(
+        summaries.is_some_and(|summaries| summaries.by_epoch.contains_key(&closing_epoch)),
+        "the stake distribution of epoch e is published as final"
+    );
 }
 
 #[test]
@@ -135,8 +153,6 @@ fn a_rollback_after_the_last_block_of_an_epoch_is_stable_keeps_its_stake_distrib
         roll_forward(&mut state, &empty_block_at(slot));
     }
     assert!(stable.lock().unwrap().contains(&block1), "block1 is stable");
-    let summaries = next_publication(&published);
-    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
 
     // The fork replaces block(t) only. block1 is no longer in the volatile DB, but it is stable:
     // the rollback keeps the snapshot of epoch e and its stake distribution.
@@ -182,8 +198,6 @@ fn a_failed_switch_after_the_last_block_of_an_epoch_is_stable_keeps_its_stake_di
         roll_forward(&mut state, &empty_block_at(slot));
     }
     assert!(stable.lock().unwrap().contains(&block1), "block1 is stable");
-    let summaries = next_publication(&published);
-    assert!(summaries.candidates.is_empty(), "the stake distribution of epoch e is final: {:?}", summaries.candidates);
     let tip_before = state.tip().into_owned();
 
     // The fork replaces block(t) only, and its last block is invalid. The ledger goes back to
@@ -374,14 +388,15 @@ fn a_rollback_past_the_last_block_of_an_epoch_discards_its_candidate_snapshot() 
 }
 
 #[test]
-fn a_rollback_into_the_epoch_of_a_candidate_snapshot_discards_it_even_if_its_last_block_stays() {
+fn a_rollback_into_the_epoch_of_a_candidate_snapshot_keeps_it_if_its_last_block_stays() {
     let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, .. } =
         make_sparse_chain_with_candidate_snapshot();
 
-    // The fork starts at block1, so block1 stays on the chain. But the rollback goes back into
-    // epoch e, so the ledger discards the candidate snapshot and cancels the background task
-    // computing rewards started at block3. This task belongs to epoch e+1: if it survived, the
-    // replay of the boundary e → e+1 would join it, and the epoch transition would panic on its epoch check.
+    // The fork starts at block1, so block1 stays on the chain, and the candidate snapshot still
+    // matches the chain. But the rollback goes back into epoch e, so the ledger cancels the
+    // background task computing rewards started at block3. This task belongs to epoch e+1: if it
+    // survived, the replay of the boundary e → e+1 would join it, and the epoch transition would
+    // panic on its epoch check.
     //
     //             epoch e            ╎        epoch e+1
     //     -------------------------- ╎ -------------------------------------------
@@ -396,14 +411,15 @@ fn a_rollback_into_the_epoch_of_a_candidate_snapshot_discards_it_even_if_its_las
         other => panic!("expected the switch to complete, got: {other:?}"),
     }
 
-    assert_eq!(state.candidate_snapshot(), None, "the candidate snapshot of epoch e is discarded");
+    assert_eq!(state.candidate_snapshot(), Some((closing_epoch, block1)), "the candidate snapshot of epoch e stays");
     let summaries = next_publication(&published);
     assert!(
         !summaries.by_epoch.contains_key(&closing_epoch) && !summaries.candidates.contains_key(&closing_epoch),
         "the stake distribution of epoch e is withdrawn"
     );
 
-    // After the stability window, the fork takes a new candidate snapshot, which also ends at block1.
+    // After the stability window, the fork computes the stake distribution again, from the same
+    // candidate snapshot.
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
     roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
 
@@ -412,7 +428,7 @@ fn a_rollback_into_the_epoch_of_a_candidate_snapshot_discards_it_even_if_its_las
     assert_eq!(
         summaries.candidates.get(&closing_epoch),
         Some(&block1),
-        "the stake distribution of epoch e is computed again from the new candidate snapshot"
+        "the stake distribution of epoch e is computed again from the candidate snapshot"
     );
 }
 

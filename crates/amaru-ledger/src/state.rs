@@ -17,7 +17,7 @@ use std::{
     cmp::max,
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -130,11 +130,7 @@ where
 
     /// The candidate snapshot of the closing epoch, when the ledger needed the snapshot of that
     /// epoch before its last blocks were stable. See [`Store::create_candidate_snapshot`].
-    candidate_snapshot: Option<CandidateSnapshot>,
-
-    /// The stake distribution that the stake distribution and rewards computation computes from the
-    /// candidate snapshot, as published. Shared with that computation.
-    candidate_distribution: Option<Arc<Mutex<CandidateDistribution>>>,
+    candidate_snapshot: CandidateSnapshot,
 
     /// Background computation calculating rewards and stake distributions
     stake_distribution_and_rewards_task: Option<StakeDistributionAndRewardsTask>,
@@ -275,8 +271,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
             observers: LedgerObservers::default(),
 
-            candidate_snapshot: None,
-            candidate_distribution: None,
+            candidate_snapshot: CandidateSnapshot::Absent,
 
             stake_distribution_and_rewards_task: None,
             rewards_cancelled: Arc::new(AtomicBool::new(false)),
@@ -317,7 +312,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// The most recent epoch with a snapshot, final or candidate.
     pub fn most_recent_snapshot(&self) -> Epoch {
         let most_recent_final = self.volatile.most_recent_snapshot(&self.snapshots);
-        self.candidate_snapshot.as_ref().map_or(most_recent_final, |candidate| candidate.epoch.max(most_recent_final))
+        self.candidate_snapshot.epoch().map_or(most_recent_final, |epoch| epoch.max(most_recent_final))
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -341,10 +336,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         self.volatile.view_back().map(|fragment| fragment.tip())
     }
 
-    /// The epoch and the last block of the candidate snapshot, if one exists.
+    /// The epoch and the last block of the candidate snapshot, if one exists and is not settled.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn candidate_snapshot(&self) -> Option<(Epoch, Point)> {
-        self.candidate_snapshot.as_ref().map(|candidate| (candidate.epoch, candidate.last_block))
+        self.candidate_snapshot.candidate()
     }
 
     /// Points of the blocks of the closing epoch that are still volatile, oldest first.
@@ -446,12 +441,14 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             }
 
             // The final snapshot of the previous epoch exists now: either the normal flush took it during
-            // this epoch, or the forced flush above just took it. The rewards task, the only reader of the
-            // candidate snapshot, is joined. So the candidate snapshot is no longer needed.
-            if let Some(candidate) = self.candidate_snapshot.take() {
-                self.remove_candidate_snapshot_directory(&candidate);
-            }
-            self.candidate_distribution = None;
+            // this epoch, or with the forced flush above. We can now remove the candidate snapshot
+            self.remove_settled_candidate_snapshot();
+            // A rollback to the last block of the epoch of the candidate snapshot keeps it: the replay
+            // of the boundary out of that epoch is the only one that it crosses.
+            debug_assert!(
+                self.candidate_snapshot.epoch().is_none_or(|epoch| epoch == next_epoch - 1),
+                "only the candidate snapshot of the closing epoch survives the epoch boundary"
+            );
 
             let db = &self.stable;
 
@@ -592,13 +589,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             //            └ snapshot c−3: the stake that the rewards are shared on
             let rewards_snapshot = self.snapshots.for_epoch(current_epoch - 3)?;
 
-            match &self.candidate_snapshot {
+            match self.candidate_snapshot.candidate() {
                 // A candidate snapshot exists only until the next epoch boundary, and the final snapshot
                 // of the same epoch is taken after the stake distribution and rewards computation starts.
-                Some(candidate) => {
-                    debug_assert_eq!(candidate.epoch, current_epoch - 1);
-                    let last_block = candidate.last_block;
-                    let previous_epoch = self.snapshots.for_candidate_epoch(candidate.epoch, &last_block.hash())?;
+                Some((epoch, last_block)) => {
+                    debug_assert_eq!(epoch, current_epoch - 1);
+                    let previous_epoch = self.snapshots.for_candidate_epoch(epoch, &last_block.hash())?;
                     self.spawn_stake_distribution_and_rewards(
                         current_epoch,
                         previous_epoch,
@@ -622,23 +618,19 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn spawn_stake_distribution_and_rewards(
         &mut self,
         current_epoch: Epoch,
-        previous_epoch: impl Snapshot + Send + 'static,
+        previous_epoch_snapshot: impl Snapshot + Send + 'static,
         rewards_snapshot: impl Snapshot + Send + 'static,
         candidate_last_block: Option<Point>,
     ) {
-        self.candidate_distribution =
-            candidate_last_block.map(|_| Arc::new(Mutex::new(CandidateDistribution::default())));
-        let candidate = candidate_last_block.zip(self.candidate_distribution.clone());
-
         // Only rotate if we don't already have the distribution; this can happen on restart.
         let rotation = match self.stake_distributions.front() {
-            Some(front) if front.epoch >= previous_epoch.epoch() => None,
+            Some(front) if front.epoch >= previous_epoch_snapshot.epoch() => None,
             front => Some(StakeDistributionRotation { retained: pool_summaries_for(front.into_iter()) }),
         };
 
         let tasks = StakeDistributionAndRewards {
             cancelled: self.rewards_cancelled.clone(),
-            previous_epoch,
+            previous_epoch_snapshot,
             rewards_snapshot,
             rotation,
             epoch: current_epoch,
@@ -648,7 +640,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             era_history: self.era_history().clone(),
             on_stake_dist_updated: self.on_stake_dist_updated.clone(),
             on_ledger_snapshot: self.observers.on_ledger_snapshot.clone(),
-            candidate,
+            candidate_last_block,
         };
 
         // The rewards task is a fresh thread, so it does not inherit the caller's subscriber.
@@ -708,7 +700,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
         if self.volatile.is_draining_empty() {
             self.flush_overlay()?;
-        } else if self.candidate_snapshot.is_none() {
+        } else if self.candidate_snapshot.is_absent() {
             self.make_candidate_snapshot()?;
         }
 
@@ -740,8 +732,8 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         );
 
         self.write_candidate_snapshot()?;
-        if let Some(candidate) = &self.candidate_snapshot {
-            candidate.trace(CandidateSnapshotOutcome::Created);
+        if let Some((epoch, last_block)) = self.candidate_snapshot.candidate() {
+            CandidateSnapshotOutcome::Created.trace(epoch, last_block);
         }
 
         Ok(())
@@ -771,7 +763,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
         candidate.with_transaction(|batch| self.volatile.end_epoch(batch))?;
 
-        self.candidate_snapshot = Some(CandidateSnapshot { epoch, last_block });
+        self.candidate_snapshot = CandidateSnapshot::Candidate { epoch, last_block };
 
         Ok(())
     }
@@ -805,26 +797,30 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn flush_overlay(&mut self) -> Result<(), StateError> {
         self.volatile.apply_transition(&self.stable)?;
         self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
-        if let Some(candidate) = &self.candidate_snapshot {
-            candidate.trace(CandidateSnapshotOutcome::Final);
-        }
-        self.publish_candidate_distribution_as_final();
+        // Mark a candidate snapshot as settled but don't remove it yet, the stake distribution +
+        // rewards computation might still read it.
+        self.settle_candidate_snapshot();
         Ok(())
     }
 
-    /// Mark the stake distribution computed from the candidate snapshot as final, now that the
-    /// last block of its epoch is stable. If the stake distribution and rewards computation already
-    /// published it, publish it again without the candidate tag; otherwise, the computation
-    /// publishes it without the tag.
-    fn publish_candidate_distribution_as_final(&self) {
-        let Some(shared) = &self.candidate_distribution else {
+    /// Settle the candidate snapshot, now that the final snapshot of its epoch exists: a rollback
+    /// can no longer discard it. The next epoch boundary removes it, once the stake distribution
+    /// and rewards computation that reads it is joined.
+    fn settle_candidate_snapshot(&mut self) {
+        let Some((epoch, last_block)) = self.candidate_snapshot.take_candidate() else {
             return;
         };
-        let mut distribution = shared.lock().unwrap_or_else(PoisonError::into_inner);
-        distribution.is_final = true;
-        if let (Some(mut summaries), Some(notify)) = (distribution.published.take(), &self.on_stake_dist_updated) {
-            summaries.candidates.clear();
-            notify(summaries);
+        CandidateSnapshotOutcome::Final.trace(epoch, last_block);
+        self.candidate_snapshot = CandidateSnapshot::Settled { epoch, last_block };
+    }
+
+    /// Remove a settled candidate snapshot, and publish the stake distribution again, without the
+    /// candidate tag. The stake distribution and rewards computation published it with that tag,
+    /// and the tag makes the validation of each header walk back to the last block of the snapshot.
+    fn remove_settled_candidate_snapshot(&mut self) {
+        if let Some((epoch, last_block)) = self.candidate_snapshot.take_settled() {
+            self.remove_candidate_snapshot_directory(epoch, last_block);
+            self.publish_stake_distributions();
         }
     }
 
@@ -1206,7 +1202,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
         // Drop recovery without restoring — new tip is committed.
         // Remove the candidate snapshot if a new one has been computed
-        let candidate_before = state_recovery.candidate_before.clone();
+        let candidate_before = state_recovery.candidate_before;
         drop(state_recovery);
         self.remove_replaced_candidate_snapshot(candidate_before);
 
@@ -1248,55 +1244,69 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         }
 
         // The replay discarded, created or removed a candidate snapshot: bring back the one that
-        // matches the restored chain, and restart the stake distribution and rewards computation
+        // matches the restored chain. Then restart the stake distribution and rewards computation
         // from it now. The next header can need the stake distribution, and no block can arrive
         // before that header is accepted.
-        if self.candidate_snapshot != rollback_guard.candidate_before {
+        if self.candidate_snapshot.candidate() != rollback_guard.candidate_before {
             self.cancel_stake_distribution_and_rewards();
-            if let Some(replayed) = self.candidate_snapshot.take() {
-                self.remove_candidate_snapshot_directory(&replayed);
+            if let Some((epoch, last_block)) = self.candidate_snapshot.take_candidate() {
+                self.remove_candidate_snapshot_directory(epoch, last_block);
             }
             if rollback_guard.candidate_before.is_some() {
                 // The snapshot is written again from the restored volatile blocks. Trace the
                 // snapshot that was written, if any, not the one that was expected.
                 self.write_candidate_snapshot()?;
-                debug_assert_eq!(self.candidate_snapshot, rollback_guard.candidate_before);
-                if let Some(candidate) = &self.candidate_snapshot {
-                    candidate.trace(CandidateSnapshotOutcome::Restored);
+                debug_assert_eq!(self.candidate_snapshot.candidate(), rollback_guard.candidate_before);
+                if let Some((epoch, last_block)) = self.candidate_snapshot.candidate() {
+                    CandidateSnapshotOutcome::Restored.trace(epoch, last_block);
                 }
             }
             self.publish_stake_distributions();
-            self.try_compute_stake_distribution_and_rewards()?;
         }
+        // The rollback can also cancel the computation and keep the candidate snapshot: restart it
+        // in both cases. This does nothing while a computation runs, or before it is due.
+        self.try_compute_stake_distribution_and_rewards()?;
 
         Ok(())
     }
 
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
         let immutable_tip = self.immutable_tip();
-        let candidate_before = self.candidate_snapshot.clone();
+        let candidate_before = self.candidate_snapshot.candidate();
         let kind = self.rollback_volatile_to(to)?;
         self.discard_rolled_back_candidate_snapshot();
         Ok(RollbackGuard { immutable_tip, candidate_before, kind })
     }
 
-    /// Forget the candidate snapshot when a rollback removed its last block: the snapshot, the
-    /// stake distribution computed from it, and the rewards computed from it no longer match the
-    /// chain. Its directory stays on disk until the fork switch ends, so that a failed switch can
-    /// restore it.
+    /// Handle a rollback that goes back into the epoch of a candidate snapshot.
     ///
-    /// Also forget it when the rollback goes back into its epoch, even if its last block stays: the
-    /// stake distribution and rewards computation was started in the next epoch, and the
-    /// transition out of that next epoch pays the rewards that it computes. The replay of the
-    /// epoch boundary must not use them.
+    /// Forget the candidate snapshot when the rollback removes the last block of its epoch: the
+    /// snapshot no longer matches the chain. Its directory stays on disk until the fork switch ends,
+    /// so that a failed switch can restore it. A rollback to that last block keeps the snapshot: a
+    /// fork from that block has the same end of epoch.
+    ///
+    /// A settled snapshot stays: the last block of its epoch is stable, so no rollback removes it.
+    ///
+    /// In both cases, cancel the stake distribution and rewards computation.
     fn discard_rolled_back_candidate_snapshot(&mut self) {
-        let Some(candidate) = self.candidate_snapshot.take_if(|candidate| {
-            !self.volatile.has_point(&candidate.last_block) || self.volatile.epoch() <= candidate.epoch
-        }) else {
+        let Some((epoch, last_block)) = self.candidate_snapshot.candidate() else {
             return;
         };
-        candidate.trace(CandidateSnapshotOutcome::Discarded);
+        if self.volatile.epoch() > epoch {
+            return;
+        }
+        if !self.volatile.has_point(&last_block) {
+            self.candidate_snapshot = CandidateSnapshot::Absent;
+            CandidateSnapshotOutcome::Discarded.trace(epoch, last_block);
+        }
 
+        // The computation started in the next epoch, even when its inputs still match the chain:
+        //
+        // - The replay of the boundary into the next epoch joins any running computation: it would
+        //   fail its epoch check, or pay the rewards that are due one epoch later.
+        // - The computation published the stake distributions of the epoch before the snapshot and
+        //   of the epoch of the snapshot. The headers of the epoch of the snapshot need the stake
+        //   distribution of two epochs before: publish the stake distributions in memory again.
         self.cancel_stake_distribution_and_rewards();
         self.publish_stake_distributions();
     }
@@ -1308,7 +1318,6 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             let _ = task.handle.join();
             self.rewards_cancelled.store(false, Ordering::Relaxed);
         }
-        self.candidate_distribution = None;
     }
 
     /// Publish the stake distributions held in memory, for example after a stake distribution and
@@ -1322,25 +1331,28 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// Delete the candidate snapshot recorded before a fork switch, unless it is still the current
     /// one. A fork point at or after its last block leaves it untouched. A fork point before its
     /// last block always discards it: the fork cannot contain the same last block.
-    fn remove_replaced_candidate_snapshot(&self, candidate_before: Option<CandidateSnapshot>) {
-        if let Some(candidate) = candidate_before
-            && self.candidate_snapshot.as_ref() != Some(&candidate)
+    ///
+    /// A replay that settled it leaves it untouched too: the stake distribution and rewards
+    /// computation still reads it.
+    fn remove_replaced_candidate_snapshot(&self, candidate_before: Option<(Epoch, Point)>) {
+        if let Some((epoch, last_block)) = candidate_before
+            && self.candidate_snapshot.epoch_and_last_block() != candidate_before
         {
-            self.remove_candidate_snapshot_directory(&candidate);
+            self.remove_candidate_snapshot_directory(epoch, last_block);
         }
     }
 
     /// Delete the directory of a candidate snapshot that no longer serves. A failure only emits a
     /// warning: nothing reads this directory, and the store deletes all candidate snapshots when it
     /// opens.
-    fn remove_candidate_snapshot_directory(&self, candidate: &CandidateSnapshot) {
-        match self.stable.remove_candidate_snapshot(candidate.epoch, &candidate.last_block.hash()) {
-            Ok(()) => candidate.trace(CandidateSnapshotOutcome::Removed),
+    fn remove_candidate_snapshot_directory(&self, epoch: Epoch, last_block: Point) {
+        match self.stable.remove_candidate_snapshot(epoch, &last_block.hash()) {
+            Ok(()) => CandidateSnapshotOutcome::Removed.trace(epoch, last_block),
             Err(error) => {
                 warn!(
                     ledger::candidate_snapshot::REMOVE_FAILED,
-                    epoch = candidate.epoch,
-                    last_block = candidate.last_block,
+                    epoch = epoch,
+                    last_block = last_block,
                     reason = error.to_string()
                 );
             }
@@ -1547,23 +1559,66 @@ struct StakeDistributionRotation {
     retained: PoolSummaries,
 }
 
-/// A snapshot of an epoch, taken while the last blocks of that epoch are still volatile.
-#[derive(Debug, Clone, PartialEq)]
-struct CandidateSnapshot {
-    epoch: Epoch,
-    /// The last block of `epoch`. A rollback that removes it makes the snapshot invalid.
-    last_block: Point,
+/// A snapshot of an epoch, taken while the last blocks of that epoch are still volatile, from its
+/// creation to the removal of its directory. `last_block` is the last block of `epoch`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CandidateSnapshot {
+    /// No candidate snapshot exists.
+    Absent,
+    /// The last block of its epoch is volatile. A rollback past that block, or into that epoch,
+    /// discards it.
+    Candidate { epoch: Epoch, last_block: Point },
+    /// The last block of its epoch is stable, so the final snapshot of that epoch exists. The stake
+    /// distribution and rewards computation still reads it: the epoch boundary that joins that
+    /// computation removes it.
+    Settled { epoch: Epoch, last_block: Point },
 }
 
 impl CandidateSnapshot {
-    /// Trace a change of state of this candidate snapshot.
-    fn trace(&self, outcome: CandidateSnapshotOutcome) {
-        info!(
-            ledger::candidate_snapshot::UPDATE,
-            epoch = self.epoch,
-            last_block = self.last_block,
-            outcome = outcome.as_str()
-        );
+    fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+
+    /// The epoch and the last block of the snapshot, candidate or settled.
+    fn epoch_and_last_block(&self) -> Option<(Epoch, Point)> {
+        match *self {
+            Self::Absent => None,
+            Self::Candidate { epoch, last_block } | Self::Settled { epoch, last_block } => Some((epoch, last_block)),
+        }
+    }
+
+    /// The epoch of the snapshot, candidate or settled.
+    fn epoch(&self) -> Option<Epoch> {
+        match *self {
+            Self::Absent => None,
+            Self::Candidate { epoch, .. } | Self::Settled { epoch, .. } => Some(epoch),
+        }
+    }
+
+    /// The epoch and the last block of the snapshot, while the last block of its epoch is volatile.
+    fn candidate(&self) -> Option<(Epoch, Point)> {
+        match *self {
+            Self::Candidate { epoch, last_block } => Some((epoch, last_block)),
+            Self::Absent | Self::Settled { .. } => None,
+        }
+    }
+
+    /// Take the snapshot, while the last block of its epoch is volatile. A settled snapshot stays.
+    fn take_candidate(&mut self) -> Option<(Epoch, Point)> {
+        let candidate = self.candidate()?;
+        *self = Self::Absent;
+        Some(candidate)
+    }
+
+    /// Take the snapshot, once the last block of its epoch is stable. A candidate snapshot stays.
+    fn take_settled(&mut self) -> Option<(Epoch, Point)> {
+        match *self {
+            Self::Settled { epoch, last_block } => {
+                *self = Self::Absent;
+                Some((epoch, last_block))
+            }
+            Self::Absent | Self::Candidate { .. } => None,
+        }
     }
 }
 
@@ -1583,6 +1638,11 @@ enum CandidateSnapshotOutcome {
 }
 
 impl CandidateSnapshotOutcome {
+    /// Trace this change of state of the candidate snapshot of `epoch`, which ends with `last_block`.
+    fn trace(self, epoch: Epoch, last_block: Point) {
+        info!(ledger::candidate_snapshot::UPDATE, epoch = epoch, last_block = last_block, outcome = self.as_str());
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Self::Created => "created",
@@ -1601,7 +1661,7 @@ struct StakeDistributionAndRewards<Previous, Snap> {
     cancelled: Arc<AtomicBool>,
     /// Snapshot of the previous epoch; source of the rotated stake distribution as well as the
     /// block issuers and pots for the rewards calculation.
-    previous_epoch: Previous,
+    previous_epoch_snapshot: Previous,
     /// Snapshot the rewards stake distribution is computed from, three epochs back.
     rewards_snapshot: Snap,
     /// Set when the in-memory stake distributions do not include the previous epoch yet.
@@ -1613,20 +1673,8 @@ struct StakeDistributionAndRewards<Previous, Snap> {
     era_history: EraHistory,
     on_stake_dist_updated: Option<Arc<dyn Fn(PoolSummaries) + Send + Sync>>,
     on_ledger_snapshot: Option<Arc<dyn Fn(LedgerStateSnapshot<'_>) + Send + Sync>>,
-    /// Set when `previous_epoch` is a candidate snapshot: its last block, and the published stake
-    /// distribution, shared with the ledger.
-    candidate: Option<(Point, Arc<Mutex<CandidateDistribution>>)>,
-}
-
-/// The stake distribution that a stake distribution and rewards computation computed from a
-/// candidate snapshot.
-#[derive(Default)]
-struct CandidateDistribution {
-    /// Set by the ledger when the last block of the epoch became stable.
-    is_final: bool,
-    /// The pool summaries last published with the candidate tag; kept so that the ledger can
-    /// publish them again, without the tag.
-    published: Option<PoolSummaries>,
+    /// Set when `previous_epoch_snapshot` is a candidate snapshot: the last block of its epoch.
+    candidate_last_block: Option<Point>,
 }
 
 impl<Previous: Snapshot, Snap: Snapshot> StakeDistributionAndRewards<Previous, Snap> {
@@ -1647,12 +1695,12 @@ impl<Previous: Snapshot, Snap: Snapshot> StakeDistributionAndRewards<Previous, S
     /// Compute the stake distribution from the previous epoch now that it is stable, and notify
     /// consumers (e.g. header validation) with pool summaries covering the refreshed epochs.
     fn rotate_stake_distribution(&self, rotation: StakeDistributionRotation) -> Result<StakeDistribution, StateError> {
-        let finality = match &self.candidate {
-            Some((last_block, _)) => SnapshotFinality::Candidate { last_block: *last_block },
+        let finality = match self.candidate_last_block {
+            Some(last_block) => SnapshotFinality::Candidate { last_block },
             None => SnapshotFinality::Final,
         };
         let distribution = compute_stake_distribution(
-            &self.previous_epoch,
+            &self.previous_epoch_snapshot,
             self.network,
             &self.era_history,
             self.on_ledger_snapshot.as_deref().map(|notify| (notify, finality)),
@@ -1669,19 +1717,10 @@ impl<Previous: Snapshot, Snap: Snapshot> StakeDistributionAndRewards<Previous, S
         );
 
         if let Some(notify) = &self.on_stake_dist_updated {
-            match &self.candidate {
-                Some((last_block, shared)) => {
-                    // Publish under the lock, so that the ledger cannot mark the distribution as
-                    // final between the check and the publication.
-                    let mut shared = shared.lock().unwrap_or_else(PoisonError::into_inner);
-                    if !shared.is_final {
-                        summaries.candidates.insert(distribution.epoch, *last_block);
-                        shared.published = Some(summaries.clone());
-                    }
-                    notify(summaries);
-                }
-                None => notify(summaries),
+            if let Some(last_block) = self.candidate_last_block {
+                summaries.candidates.insert(distribution.epoch, last_block);
             }
+            notify(summaries);
         }
 
         Ok(distribution)
@@ -1709,11 +1748,11 @@ impl<Previous: Snapshot, Snap: Snapshot> StakeDistributionAndRewards<Previous, S
                 stake_summary,
                 &self.global_parameters,
                 &self.protocol_parameters,
-                self.previous_epoch
+                self.previous_epoch_snapshot
                     .iter_block_issuers()
                     .map_err(StateError::Storage)?
                     .map(|(_, block)| block.slot_leader),
-                self.previous_epoch.pots()?,
+                self.previous_epoch_snapshot.pots()?,
             ))
         })
     }
@@ -1786,7 +1825,7 @@ fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
 struct RollbackGuard<'a> {
     immutable_tip: Point,
     /// The candidate snapshot before the rollback; restored if the fork switch fails.
-    candidate_before: Option<CandidateSnapshot>,
+    candidate_before: Option<(Epoch, Point)>,
     kind: StateRecovery<'a>,
 }
 
