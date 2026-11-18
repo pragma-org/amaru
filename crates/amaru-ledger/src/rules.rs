@@ -162,6 +162,7 @@ fn prepare_certificate<'a>(context: &mut impl PreparationContext<'a>, certificat
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub(crate) mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},

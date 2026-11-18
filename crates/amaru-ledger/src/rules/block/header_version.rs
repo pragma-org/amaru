@@ -29,6 +29,7 @@ pub fn block_header_version_valid(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::{Block, ProtocolParameters, ProtocolVersion, include_cbor};
     use test_case::test_case;

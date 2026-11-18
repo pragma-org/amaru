@@ -34,6 +34,7 @@ pub fn block_ex_units_valid(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::{Block, ExUnits, ProtocolParameters, include_cbor};
     use test_case::test_case;
