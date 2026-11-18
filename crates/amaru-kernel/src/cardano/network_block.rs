@@ -237,6 +237,25 @@ mod network_block_tests {
             let fetched = block.decode_block_in(&history).unwrap();
             let stored = NetworkBlock::try_from(block.raw_block()).unwrap();
             assert_eq!(stored.decode_block_in(&history).unwrap(), fetched);
+
+            // The published legacy fixture has six wire entries and five distinct pairs.
+            // Preserve its repeats in the input to both era decoders.
+            let bytes = include_bytes!("../../tests/data/witness_encoding/key-0-repeated-element.input.cbor");
+            let mut legacy = fetched;
+            legacy.transaction_witnesses[0] = cbor::WithSize::new(cbor::decode(bytes).unwrap(), bytes.len());
+            let repeated = NetworkBlock::from_encoded_block(&history, header.slot(), to_cbor(&legacy)).unwrap();
+            let stored = NetworkBlock::try_from(repeated.raw_block()).unwrap();
+            for decoded in [repeated.decode_block_in(&history), stored.decode_block_in(&history)] {
+                if expected == EraName::Conway {
+                    let decoded = decoded.unwrap();
+                    let keys = decoded.transaction_witnesses[0].verification_key_witness.as_ref().unwrap();
+                    assert_eq!(keys.iter_wire().count(), 6);
+                    assert_eq!(keys.len(), 5);
+                } else {
+                    let err = decoded.unwrap_err();
+                    assert!(err.to_string().contains("duplicate"), "{err}");
+                }
+            }
         }
     }
 

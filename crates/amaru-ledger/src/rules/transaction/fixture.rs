@@ -47,14 +47,20 @@ use crate::{
 pub(super) struct Fixture {
     #[serde(default)]
     pub(super) category: Option<String>,
-    pub(super) network: NetworkName,
-    pub(super) era_history: RefOrInline<EraHistory>,
     pub(super) protocol_parameters: RefOrInline<ProtocolParameters>,
-    pub(super) initial_state: InitialState,
-    pub(super) point: TransactionPointer,
+    #[serde(flatten)]
+    pub(super) ledger: LedgerFixture,
     #[serde(deserialize_with = "hex_to_bytes")]
     pub(super) transaction: Vec<u8>,
     pub(super) expected: Expected,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LedgerFixture {
+    pub(super) network: NetworkName,
+    pub(super) era_history: RefOrInline<EraHistory>,
+    pub(super) initial_state: InitialState,
+    pub(super) point: TransactionPointer,
 }
 
 #[derive(Deserialize)]
@@ -354,29 +360,25 @@ pub(super) enum Predicate {
     WrongNetworkWithdrawal,
 }
 
-impl From<TransactionInvalid> for Expected {
+impl From<TransactionInvalid> for Predicate {
     fn from(err: TransactionInvalid) -> Self {
         match err {
-            TransactionInvalid::PhaseOne(err) => Expected::from(err),
+            TransactionInvalid::PhaseOne(err) => Predicate::from(err),
             TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(_)) => {
-                Expected::Fail(Predicate::ValidationTagMismatch {
-                    description: TagMismatchDescription::FailedUnexpectedly,
-                })
+                Predicate::ValidationTagMismatch { description: TagMismatchDescription::FailedUnexpectedly }
             }
             TransactionInvalid::PhaseTwo(TagMismatch::PassedUnexpectedly) => {
-                Expected::Fail(Predicate::ValidationTagMismatch {
-                    description: TagMismatchDescription::PassedUnexpectedly,
-                })
+                Predicate::ValidationTagMismatch { description: TagMismatchDescription::PassedUnexpectedly }
             }
         }
     }
 }
 
-impl From<PhaseOneError> for Expected {
+impl From<PhaseOneError> for Predicate {
     fn from(err: PhaseOneError) -> Self {
-        Expected::Fail(match err {
+        match err {
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::Duplicate) => {
-                return Expected::DecodingFailure;
+                unreachable!("the fixture decoder must reject duplicate key witnesses before ledger validation")
             }
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
@@ -577,6 +579,6 @@ impl From<PhaseOneError> for Expected {
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")
             }
-        })
+        }
     }
 }

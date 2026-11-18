@@ -140,12 +140,17 @@ mod tests {
     };
 
     use amaru_kernel::{
-        EraHistory, Lovelace, ProtocolParameters, Transaction, cbor, json, utils::serde::FilesystemRefResolver,
+        EraHistory, Lovelace, ProtocolParameters, Transaction, cbor, json,
+        utils::serde::{FilesystemRefResolver, RefOrInline},
     };
     use amaru_uplc::arena_pool::ArenaPool;
     use test_case::test_case;
 
-    use super::fixture::{Expected, Fixture, Predicate, VotingState};
+    use super::{
+        TransactionInvalid,
+        fixture::{Expected, Fixture, LedgerFixture, Predicate, VotingState},
+        phase_one::{InvalidVerificationKeyWitness, PhaseOneError},
+    };
     use crate::{
         context::DefaultValidationContext, rules::block::validate_transaction, state::volatile::VolatileFragment,
     };
@@ -158,17 +163,15 @@ mod tests {
         use amaru_kernel::{
             VerificationKeyWitness,
             protocol_version::{PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
-            utils::serde::RefOrInline,
         };
 
         let scenario = "scenarios/00036-pass-simple-transfer";
         let mut tx: Transaction = cbor::decode(&load(scenario).transaction).unwrap();
         let verify = |version, tx: &Transaction| {
-            let mut fixture = load(scenario);
-            let mut params = fixture.protocol_parameters.resolve(&FilesystemRefResolver::new(fixtures_dir())).unwrap();
+            let fixture = load(scenario);
+            let mut params = resolve_protocol_parameters(fixture.protocol_parameters);
             params.protocol_version = version;
-            fixture.protocol_parameters = RefOrInline::Inline(params);
-            validate(fixture, tx).1
+            validate(fixture.ledger, tx, &params).0
         };
         let witness = tx.witnesses.verification_key_witness.as_ref().unwrap().first().clone();
         let with_pair = |second| {
@@ -182,18 +185,44 @@ mod tests {
         assert!(verify(PROTOCOL_VERSION_12, &tx).is_ok());
         tx.witnesses = repeated;
         assert!(verify(PROTOCOL_VERSION_11, &tx).is_ok());
-        assert!(matches!(verify(PROTOCOL_VERSION_12, &tx), Err(Expected::DecodingFailure)));
+        assert!(matches!(
+            verify(PROTOCOL_VERSION_12, &tx),
+            Err(TransactionInvalid::PhaseOne(PhaseOneError::VerificationKeyWitness(
+                InvalidVerificationKeyWitness::Duplicate
+            )))
+        ));
+
+        let bytes = cbor::to_cbor(&tx);
+        for (version, expected, label) in [
+            (PROTOCOL_VERSION_11, Expected::Pass, "pass"),
+            (PROTOCOL_VERSION_12, Expected::DecodingFailure, "DecodingFailure"),
+        ] {
+            let mut fixture = load(scenario);
+            let mut params = resolve_protocol_parameters(fixture.protocol_parameters);
+            params.protocol_version = version;
+            fixture.protocol_parameters = RefOrInline::Inline(params);
+            fixture.transaction = bytes.clone();
+            fixture.expected = expected;
+            assert_eq!(check_conformance(fixture), label);
+        }
+
         tx.witnesses = different;
-        assert!(matches!(verify(PROTOCOL_VERSION_12, &tx), Err(Expected::Fail(Predicate::InvalidWitnessesUTXOW))));
+        assert!(matches!(
+            verify(PROTOCOL_VERSION_12, &tx),
+            Err(TransactionInvalid::PhaseOne(PhaseOneError::VerificationKeyWitness(
+                InvalidVerificationKeyWitness::InvalidSignatures { .. }
+            )))
+        ));
     }
 
     #[test_case("scenarios/00361-pass-transaction-with-a-treasury-donation", 1_000_000)]
     #[test_case("scenarios/00296-pass-invalid-transaction-with-a-treasury-donation", 0)]
     fn treasury_donation_is_credited_only_by_valid_transactions(fixture_path: &str, credited: Lovelace) {
         let fixture = load(fixture_path);
-        let tx: Transaction = cbor::decode(&fixture.transaction).expect("decode tx");
-
-        let (_, result, ctx) = validate(fixture, &tx);
+        let params = resolve_protocol_parameters(fixture.protocol_parameters);
+        let mut version = params.protocol_version;
+        let tx: Transaction = cbor::decode_with(&fixture.transaction, &mut version).expect("decode tx");
+        let (result, ctx) = validate(fixture.ledger, &tx, &params);
 
         assert!(result.is_ok(), "expected pass, got error: {result:?}");
         assert_eq!(VolatileFragment::from(ctx).donations, credited);
@@ -267,39 +296,50 @@ mod tests {
             return;
         }
 
-        let decoded = cbor::decode::<Transaction>(&fixture.transaction);
+        emit_conformance_result(fixture_path, &check_conformance(fixture));
+    }
+
+    fn resolve_protocol_parameters(parameters: RefOrInline<ProtocolParameters>) -> ProtocolParameters {
+        parameters.resolve(&FilesystemRefResolver::new(fixtures_dir())).expect("resolve protocol_parameters")
+    }
+
+    fn check_conformance(fixture: Fixture) -> String {
+        let params = resolve_protocol_parameters(fixture.protocol_parameters);
+        let mut version = params.protocol_version;
+        let decoded = cbor::decode_with::<_, Transaction>(&fixture.transaction, &mut version);
 
         if matches!(fixture.expected, Expected::DecodingFailure) {
             assert!(
                 decoded.is_err(),
                 "expected the transaction to fail to be decoded, but it was successfully decoded",
             );
-            emit_conformance_result(fixture_path, "DecodingFailure");
-            return;
+            return "DecodingFailure".to_owned();
         }
 
         let tx: Transaction = decoded.expect("decode tx");
 
-        let (expected, result, _) = validate(fixture, &tx);
+        let (result, _) = validate(fixture.ledger, &tx, &params);
 
-        match (expected, result) {
-            (Expected::Pass, Ok(_)) => emit_conformance_result(fixture_path, "pass"),
+        match (fixture.expected, result) {
+            (Expected::Pass, Ok(_)) => "pass".to_owned(),
             (Expected::Pass, Err(actual)) => panic!("expected pass, got error: {actual:?}"),
-            (Expected::Fail(expected), Err(Expected::Fail(actual))) => {
+            (Expected::Fail(expected), Err(error)) => {
+                let actual = Predicate::from(error);
                 assert_eq!(actual, expected, "expected {expected:?}, got {actual:?}");
-                emit_conformance_result(fixture_path, &predicate_name(&actual));
+                predicate_name(&actual)
             }
-            (Expected::Fail(expected), Err(actual)) => panic!("expected {expected:?}, got {actual:?}"),
             (Expected::Fail(expected), Ok(_)) => panic!("expected fail ({expected:?}), got pass"),
             (Expected::DecodingFailure, _) => unreachable!("handled before decoding the transaction"),
         }
     }
 
-    fn validate(fixture: Fixture, tx: &Transaction) -> (Expected, Result<(), Expected>, DefaultValidationContext) {
+    fn validate(
+        fixture: LedgerFixture,
+        tx: &Transaction,
+        protocol_parameters: &ProtocolParameters,
+    ) -> (Result<(), TransactionInvalid>, DefaultValidationContext) {
         let resolver = FilesystemRefResolver::new(fixtures_dir());
         let era_history: EraHistory = fixture.era_history.resolve(&resolver).expect("resolve era_history");
-        let protocol_parameters: ProtocolParameters =
-            fixture.protocol_parameters.resolve(&resolver).expect("resolve protocol_parameters");
 
         let super::fixture::InitialState {
             utxo,
@@ -334,17 +374,16 @@ mod tests {
             &mut ctx,
             &arena_pool,
             fixture.network,
-            &protocol_parameters,
+            protocol_parameters,
             &era_history,
             fixture.network.as_global_parameters().expect("missing global parameters for network"),
             governance_activity,
             guardrail_script,
             fixture.point,
             tx.tx_ref(),
-        )
-        .map_err(Expected::from);
+        );
 
-        (fixture.expected, result, ctx)
+        (result, ctx)
     }
 
     #[test]

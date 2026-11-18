@@ -139,7 +139,9 @@ fn new_v12_tip_rechecks_legacy_witnesses() {
     tx.witnesses = WithSize::new(witnesses, size);
     let tx: WithOriginalBytes<Transaction> = tx.into();
 
+    let duplicate_rejections = Arc::new(AtomicUsize::new(0));
     let validator = |version| -> ResourceTxValidation {
+        let duplicate_rejections = duplicate_rejections.clone();
         Arc::new(move |tx: &Transaction| {
             verification_key_witness::execute(
                 &mut DefaultValidationContext::default(),
@@ -148,6 +150,11 @@ fn new_v12_tip_rechecks_legacy_witnesses() {
                 tx.witnesses.bootstrap_witness.as_deref(),
                 tx.witnesses.verification_key_witness.as_ref(),
             )
+            .inspect_err(|error| {
+                if matches!(error, verification_key_witness::InvalidVerificationKeyWitness::Duplicate) {
+                    duplicate_rejections.fetch_add(1, Ordering::Relaxed);
+                }
+            })
             .map_err(|error| anyhow::Error::new(error).into())
         })
     };
@@ -171,10 +178,12 @@ fn new_v12_tip_rechecks_legacy_witnesses() {
     let stage = StageRef::named_for_tests("mempool-1");
     running.enqueue_msg(&stage, [MempoolMsg::NewTip(tip)]);
     running.run(Run::skip_and_resolve());
+    assert_eq!(duplicate_rejections.load(Ordering::Relaxed), 1);
     assert!(mempool.read().iter().next().is_none());
 
     running.enqueue_msg(&stage, [insert]);
     running.run(Run::skip_and_resolve());
+    assert_eq!(duplicate_rejections.load(Ordering::Relaxed), 2);
     assert!(mempool.read().iter().next().is_none());
 }
 
