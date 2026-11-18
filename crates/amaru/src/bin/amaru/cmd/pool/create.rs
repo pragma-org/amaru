@@ -14,17 +14,18 @@
 
 use std::{
     collections::BTreeSet,
+    fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-use amaru::lifecycle::{Runnable, RuntimeKind};
+use amaru::lifecycle::{Runnable, RuntimeKind, ShutdownHandle};
 use amaru_kernel::{Credential, Hasher, NetworkName, PoolId, RewardAccount, ShelleyAddress, StakeReference};
 use amaru_ouroboros::credentials::{generate_cold_key_pair, generate_payment_key_pair, generate_stake_key_pair};
 use anyhow::{Context, ensure};
 
 use super::{
-    cold::{IssueCounter, prepare_counter},
+    cold::{IssueCounter, check_counter_lock, prepare_counter, recovery_path},
     ensure_absent, prepare_file, publish_new,
 };
 
@@ -72,10 +73,11 @@ pub struct CreateArgs {
 
 impl CreateArgs {
     pub fn into_runnable(self) -> Runnable {
-        Runnable::exit_on_signal(RuntimeKind::Simple, move || async move { self.run() })
+        Runnable::soft(RuntimeKind::Simple, move |shutdown, _meter| async move { self.run(shutdown) })
     }
 
-    pub fn run(self) -> anyhow::Result<()> {
+    pub fn run(self, shutdown: ShutdownHandle) -> anyhow::Result<()> {
+        ensure!(!shutdown.is_cancelled(), "pool creation cancelled before publishing files");
         ensure!(
             self.payment_signing_key.is_some() == self.payment_verification_key.is_some(),
             "payment signing and verification key paths must be supplied together",
@@ -94,10 +96,25 @@ impl CreateArgs {
             self.stake_verification_key.as_deref(),
         ]
         .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-        ensure!(paths.iter().collect::<BTreeSet<_>>().len() == paths.len(), "output paths must differ");
-        paths.into_iter().try_for_each(ensure_absent)?;
+        .flatten();
+        let counter = resolve_output_path(&self.counter)?;
+        let lock = check_counter_lock(&counter)?;
+        let recovery = recovery_path(&counter);
+        ensure_absent(&recovery).with_context(|| {
+            format!(
+                "cannot use counter path {}: resolve the prior certificate issuance at {} or choose another counter path",
+                self.counter.display(),
+                recovery.display(),
+            )
+        })?;
+        let mut destinations = BTreeSet::new();
+        for path in paths {
+            ensure_absent(path)?;
+            let resolved = resolve_output_path(path)?;
+            ensure!(destinations.insert(resolved), "output paths must differ");
+        }
+        ensure_path_reserved(&destinations, &recovery)?;
+        ensure_path_reserved(&destinations, &lock)?;
 
         let (cold, cold_public) = generate_cold_key_pair().context("could not generate cold key")?;
         let payment_paths = self.payment_signing_key.as_deref().zip(self.payment_verification_key.as_deref());
@@ -128,7 +145,6 @@ impl CreateArgs {
         let mut files = vec![
             (self.cold_signing_key.as_path(), prepare_file(&self.cold_signing_key, cold.as_bytes())?),
             (self.cold_verification_key.as_path(), prepare_file(&self.cold_verification_key, cold_public.as_slice())?),
-            (self.counter.as_path(), prepare_counter(&IssueCounter { next: 0, cold: cold_public }, &self.counter)?),
         ];
         if let (Some((key, public_key)), Some((signing, verification))) = (&payment, payment_paths) {
             files.push((signing, prepare_file(signing, key.as_bytes())?));
@@ -138,9 +154,39 @@ impl CreateArgs {
             files.push((signing, prepare_file(signing, key.as_bytes())?));
             files.push((verification, prepare_file(verification, public_key.as_slice())?));
         }
+        files.push((
+            self.counter.as_path(),
+            prepare_counter(&IssueCounter { next: 0, cold: cold_public }, &self.counter)?,
+        ));
+        ensure!(!shutdown.is_cancelled(), "pool creation cancelled before publishing files");
         publish_new(files)?;
         let mut output = io::stdout().lock();
         serde_json::to_writer_pretty(&mut output, &public).context("keys saved, but could not write public values")?;
         writeln!(output).context("keys saved, but could not finish writing public values")
     }
+}
+
+/// Resolve an output's existing parent while leaving its new filename intact.
+fn resolve_output_path(path: &Path) -> anyhow::Result<PathBuf> {
+    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().with_context(|| format!("output path {} has no filename", path.display()))?;
+    Ok(parent
+        .canonicalize()
+        .with_context(|| format!("could not resolve output directory {}", parent.display()))?
+        .join(name))
+}
+
+/// Probe filesystem name matching without creating the actual reserved file or any output.
+fn ensure_path_reserved(destinations: &BTreeSet<PathBuf>, reserved: &Path) -> anyhow::Result<()> {
+    let parent = reserved.parent().context("reserved path has no parent")?;
+    let probe = tempfile::tempdir_in(parent)
+        .with_context(|| format!("could not check reserved filename in {}", parent.display()))?;
+    fs::File::create_new(probe.path().join(reserved.strip_prefix(parent)?))
+        .context("could not create reserved filename probe")?;
+    for destination in destinations.iter().filter(|path| path.parent() == Some(parent)) {
+        ensure_absent(&probe.path().join(destination.strip_prefix(parent)?)).with_context(|| {
+            format!("output {} conflicts with reserved path {}", destination.display(), reserved.display())
+        })?;
+    }
+    probe.close().context("could not remove reserved filename probe")
 }
