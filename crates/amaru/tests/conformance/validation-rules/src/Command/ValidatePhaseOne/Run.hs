@@ -575,7 +575,7 @@ normalizePoolFailure = \case
     WrongNetworkPOOL{} ->
         "WrongNetworkPOOL"
     PoolMedataHashTooBig{} ->
-        "PoolMedataHashTooBig"
+        "PoolMetadataHashTooBig"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
