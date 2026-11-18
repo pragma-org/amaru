@@ -327,6 +327,7 @@ pub(super) enum Predicate {
     ProposalProcedureNetworkIdMismatch,
     ProposalProceduresFieldNotSupported,
     ProposalReturnAccountDoesNotExist,
+    ReferenceInputsNotDisjointFromInputs,
     ScriptsNotPaidUTxO,
     ScriptWitnessNotValidatingUTXOW,
     StakeCredentialInvalidPoolDelegation,
@@ -502,9 +503,11 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::ScriptPreparation(
                 PreparationError::MissingInput(_)
                 | PreparationError::TransactionTranslation(_)
-                | PreparationError::ScriptDeserialization(_)
-                | PreparationError::NonDisjointRefInputs { .. },
+                | PreparationError::ScriptDeserialization(_),
             ) => unreachable!("no predicate mapping yet for {err}"),
+            PhaseOneError::ScriptPreparation(PreparationError::NonDisjointRefInputs { .. }) => {
+                Predicate::ReferenceInputsNotDisjointFromInputs
+            }
             PhaseOneError::ScriptPreparation(PreparationError::MissingCostModel(_)) => Predicate::MissingCostModel,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,
