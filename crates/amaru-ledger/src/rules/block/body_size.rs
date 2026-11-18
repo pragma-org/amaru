@@ -30,6 +30,7 @@ pub fn block_body_size_valid(block: &Block) -> Result<(), InvalidBlockDetails> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::{Block, include_cbor};
     use test_case::test_case;

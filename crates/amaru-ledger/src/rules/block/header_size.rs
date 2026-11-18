@@ -34,6 +34,7 @@ pub fn block_header_size_valid(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::{Block, cbor};
 

@@ -478,6 +478,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::WitnessSet;
 
