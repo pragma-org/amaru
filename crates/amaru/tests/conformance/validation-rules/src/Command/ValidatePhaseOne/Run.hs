@@ -599,6 +599,8 @@ normalizeGovFailure = \case
         "InvalidPrevGovActionId"
     ZeroTreasuryWithdrawals{} ->
         "TreasuryWithdrawalsAllZeros"
+    TreasuryWithdrawalsNetworkIdMismatch{} ->
+        "TreasuryWithdrawalsNetworkIdMismatch"
     VotersDoNotExist{} ->
         "VotersDoNotExist"
     GovActionsDoNotExist{} ->
