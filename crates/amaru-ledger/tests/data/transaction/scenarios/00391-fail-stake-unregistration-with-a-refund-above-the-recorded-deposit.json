@@ -1,0 +1,34 @@
+{
+  "title": "stake unregistration with a refund above the recorded deposit",
+  "description": "A Conway stake unregistration certificate declaring a 3 ADA refund for an account whose recorded deposit is 2 ADA.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820a3d7f1c9e5b2084f6c1a9e3d7b5f2c8a0e4d6b1f9c3a7e5d2b8f0c6a4e1d9b3f00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820a3d7f1c9e5b2084f6c1a9e3d7b5f2c8a0e4d6b1f9c3a7e5d2b8f0c6a4e1d9b3f000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a0067c280021a00030d4004d901028183088200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd81a002dc6c0a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258400cccfcd0b88262128b45bf6e7d01754a7c057fc0a5c1e11d4c49aa107ae422d861421d8593c60ffd0727c950dd9e64ec5cc60ca902e7636fae1cd7cf48840501f5f6",
+  "expected": {
+    "predicate": "IncorrectDepositDELEG"
+  }
+}
