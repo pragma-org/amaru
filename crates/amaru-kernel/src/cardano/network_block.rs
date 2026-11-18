@@ -216,6 +216,31 @@ mod network_block_tests {
     prop_cbor_roundtrip!(NetworkBlock);
 
     #[test]
+    fn fetch_and_replay_follow_the_configured_fork_slot() {
+        let mut conway = EraHistory::default().current_era_summary().clone();
+        let epoch_slots = conway.params.epoch_size_slots;
+        let fork = crate::EraBound {
+            slot: Slot::from(epoch_slots),
+            epoch: crate::Epoch::from(1),
+            time: std::time::Duration::from_secs(epoch_slots),
+        };
+        let mut dijkstra = conway.clone();
+        conway.end = Some(fork.clone());
+        dijkstra.start = fork;
+        dijkstra.params.era_name = EraName::Dijkstra;
+        let history = EraHistory::new(&[conway, dijkstra], Slot::from(25920));
+
+        for (slot, expected) in [(epoch_slots - 1, EraName::Conway), (epoch_slots, EraName::Dijkstra)] {
+            let header = crate::make_header(1, slot, None);
+            let block = make_network_block(&header, &history);
+            assert_eq!(block.era_tag(), expected);
+            let fetched = block.decode_block_in(&history).unwrap();
+            let stored = NetworkBlock::try_from(block.raw_block()).unwrap();
+            assert_eq!(stored.decode_block_in(&history).unwrap(), fetched);
+        }
+    }
+
+    #[test]
     fn block_fetch_and_replay_use_the_codec_for_the_blocks_era() {
         let conway = EraHistory::default();
         let mut summary = conway.current_era_summary().clone();

@@ -119,6 +119,66 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 }
 
 #[test]
+fn new_v12_tip_rechecks_legacy_witnesses() {
+    use amaru_kernel::{
+        cardano::network_block::NETWORK_BLOCK,
+        protocol_version::{PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
+    };
+    use amaru_ledger::{context::DefaultValidationContext, rules::transaction::phase_one::verification_key_witness};
+    use amaru_pure_stage::simulation::Run;
+
+    use crate::effects::ResourceTxValidation;
+
+    let block = NETWORK_BLOCK.decode_block().unwrap();
+    let tip = block.point();
+    let (_, mut tx) = block.into_iter().next().unwrap();
+    let mut witnesses = tx.witnesses.into_inner();
+    let witness = witnesses.verification_key_witness.as_ref().unwrap().first().clone();
+    witnesses.verification_key_witness = Some(vec![witness.clone(), witness].try_into().unwrap());
+    let size = to_cbor(&witnesses).len();
+    tx.witnesses = WithSize::new(witnesses, size);
+    let tx: WithOriginalBytes<Transaction> = tx.into();
+
+    let validator = |version| -> ResourceTxValidation {
+        Arc::new(move |tx: &Transaction| {
+            verification_key_witness::execute(
+                &mut DefaultValidationContext::default(),
+                tx.tx_id(),
+                version,
+                tx.witnesses.bootstrap_witness.as_deref(),
+                tx.witnesses.verification_key_witness.as_ref(),
+            )
+            .map_err(|error| anyhow::Error::new(error).into())
+        })
+    };
+    let insert = MempoolMsg::Insert {
+        tx: Box::new(tx.clone()),
+        origin: TxOrigin::Local,
+        caller: StageRef::named_for_tests("caller"),
+    };
+    let mempool = Arc::new(InMemoryMempool::default());
+    let prep = TestPrep {
+        msg: insert.clone(),
+        rt: crate::stages::test_utils::test_runtime(),
+        mempool: mempool.clone(),
+        validator: validator(PROTOCOL_VERSION_11),
+        chain_store: Arc::new(InMemoryChainStore::default()),
+    };
+    let (mut running, _guards, _logs) = setup(&prep);
+    assert_eq!(mempool.read().get(&[tx.tx_id()]), vec![&tx]);
+
+    running.resources().put(validator(PROTOCOL_VERSION_12));
+    let stage = StageRef::named_for_tests("mempool-1");
+    running.enqueue_msg(&stage, [MempoolMsg::NewTip(tip)]);
+    running.run(Run::skip_and_resolve());
+    assert!(mempool.read().iter().next().is_none());
+
+    running.enqueue_msg(&stage, [insert]);
+    running.run(Run::skip_and_resolve());
+    assert!(mempool.read().iter().next().is_none());
+}
+
+#[test]
 fn the_oldest_result_is_dropped_when_too_many_invalid_transactions_are_cached() {
     let result = |index: u16| {
         let tx = create_transaction(index);

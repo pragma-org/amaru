@@ -61,6 +61,11 @@ impl VerificationKeyWitnesses {
         self.wire.first()
     }
 
+    /// Whether the submitted list contains a repeated (key, signature) pair.
+    pub fn has_duplicates(&self) -> bool {
+        self.distinct.is_some()
+    }
+
     /// Submitted order, including repeated pairs in a legacy transaction.
     pub fn iter_wire(&self) -> impl Iterator<Item = &VerificationKeyWitness> {
         self.wire.iter()

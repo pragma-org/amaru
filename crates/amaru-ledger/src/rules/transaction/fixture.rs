@@ -354,23 +354,30 @@ pub(super) enum Predicate {
     WrongNetworkWithdrawal,
 }
 
-impl From<TransactionInvalid> for Predicate {
+impl From<TransactionInvalid> for Expected {
     fn from(err: TransactionInvalid) -> Self {
         match err {
-            TransactionInvalid::PhaseOne(err) => Predicate::from(err),
+            TransactionInvalid::PhaseOne(err) => Expected::from(err),
             TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(_)) => {
-                Predicate::ValidationTagMismatch { description: TagMismatchDescription::FailedUnexpectedly }
+                Expected::Fail(Predicate::ValidationTagMismatch {
+                    description: TagMismatchDescription::FailedUnexpectedly,
+                })
             }
             TransactionInvalid::PhaseTwo(TagMismatch::PassedUnexpectedly) => {
-                Predicate::ValidationTagMismatch { description: TagMismatchDescription::PassedUnexpectedly }
+                Expected::Fail(Predicate::ValidationTagMismatch {
+                    description: TagMismatchDescription::PassedUnexpectedly,
+                })
             }
         }
     }
 }
 
-impl From<PhaseOneError> for Predicate {
+impl From<PhaseOneError> for Expected {
     fn from(err: PhaseOneError) -> Self {
-        match err {
+        Expected::Fail(match err {
+            PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::Duplicate) => {
+                return Expected::DecodingFailure;
+            }
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
             }
@@ -570,6 +577,6 @@ impl From<PhaseOneError> for Predicate {
             | PhaseOneError::VotingProcedures(InvalidVotingProcedures::EraHistory(_)) => {
                 unreachable!("no predicate mapping yet for {err}")
             }
-        }
+        })
     }
 }
