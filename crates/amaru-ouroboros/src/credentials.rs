@@ -38,6 +38,36 @@ use crate::{
 
 const OPERATIONAL_CERTIFICATE_ENVELOPE: &str = "NodeOperationalCertificate";
 
+/// An Ed25519 payment signing key for authorizing spending funds. Its seed is wiped on drop.
+pub struct PaymentSigningKey(ed25519::SigningKey);
+
+impl PaymentSigningKey {
+    /// Raw 32-byte signing seed.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    /// The payment verification key.
+    pub fn verification_key(&self) -> VerificationKey {
+        VerificationKey::from(self.0.verifying_key().to_bytes())
+    }
+}
+
+/// An Ed25519 stake signing key for authorizing stake operations. Its seed is wiped on drop.
+pub struct StakeSigningKey(ed25519::SigningKey);
+
+impl StakeSigningKey {
+    /// Raw 32-byte signing seed.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    /// The stake verification key.
+    pub fn verification_key(&self) -> VerificationKey {
+        VerificationKey::from(self.0.verifying_key().to_bytes())
+    }
+}
+
 /// A non-extended Ed25519 transaction signing key. Its seed is wiped on drop.
 pub struct TransactionSigningKey(ColdSigningKey);
 
@@ -327,6 +357,24 @@ pub fn generate_cold_key_pair() -> Result<(ColdSigningKey, VerificationKey), get
     let mut seed = Zeroizing::new([0u8; 32]);
     getrandom::fill(&mut *seed)?;
     let secret = ColdSigningKey(ed25519::SigningKey::from_bytes(&seed));
+    let public = secret.verification_key();
+    Ok((secret, public))
+}
+
+/// Generate a payment signing key and its verification key from operating-system randomness.
+pub fn generate_payment_key_pair() -> Result<(PaymentSigningKey, VerificationKey), getrandom::Error> {
+    let mut seed = Zeroizing::new([0u8; 32]);
+    getrandom::fill(&mut *seed)?;
+    let secret = PaymentSigningKey(ed25519::SigningKey::from_bytes(&seed));
+    let public = secret.verification_key();
+    Ok((secret, public))
+}
+
+/// Generate a stake signing key and its verification key from operating-system randomness.
+pub fn generate_stake_key_pair() -> Result<(StakeSigningKey, VerificationKey), getrandom::Error> {
+    let mut seed = Zeroizing::new([0u8; 32]);
+    getrandom::fill(&mut *seed)?;
+    let secret = StakeSigningKey(ed25519::SigningKey::from_bytes(&seed));
     let public = secret.verification_key();
     Ok((secret, public))
 }

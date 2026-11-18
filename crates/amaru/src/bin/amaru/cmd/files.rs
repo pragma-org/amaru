@@ -64,11 +64,18 @@ pub(super) fn publish_new<'a>(files: impl IntoIterator<Item = (&'a Path, NamedTe
     let mut published: Vec<&Path> = Vec::new();
     for (path, file) in files {
         if let Err(error) = file.persist_noclobber(path) {
-            for path in published {
-                fs::remove_file(path)
-                    .with_context(|| format!("could not remove partially created {}", path.display()))?;
+            let mut cleanup_failures = Vec::new();
+            for published_path in published {
+                if let Err(cleanup_error) = fs::remove_file(published_path) {
+                    cleanup_failures.push(format!("{} ({cleanup_error})", published_path.display()));
+                }
             }
-            return Err(error).with_context(|| format!("could not save {}", path.display()));
+            let mut message = format!("could not save {}", path.display());
+            if !cleanup_failures.is_empty() {
+                message
+                    .push_str(&format!("; could not remove partially created files: {}", cleanup_failures.join(", ")));
+            }
+            return Err(error).context(message);
         }
         published.push(path);
     }

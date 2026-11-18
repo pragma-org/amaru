@@ -27,7 +27,7 @@ use anyhow::{Context, ensure};
 use tempfile::NamedTempFile;
 
 use super::super::{
-    cold::{IssueCounter, prepare_counter},
+    cold::{IssueCounter, check_counter_lock, prepare_counter, recovery_path},
     ensure_absent, prepare_file, sync_parent,
 };
 
@@ -120,12 +120,6 @@ fn issue_certificate(
     Ok((encoder.into_writer(), IssueCounter { next, cold: public }))
 }
 
-fn recovery_path(counter: &Path) -> PathBuf {
-    let mut path = counter.as_os_str().to_owned();
-    path.push(".cert-recovery");
-    PathBuf::from(path)
-}
-
 /// Make the certificate recoverable independently of its temporary file before replacing the counter.
 fn advance_counter(
     certificate: &[u8],
@@ -169,12 +163,7 @@ fn publish_certificate(file: NamedTempFile, destination: &Path, recovery: &Path)
 
 /// The lock lives beside the counter, because atomic counter replacement changes its inode.
 fn lock_counter(counter: &Path) -> anyhow::Result<File> {
-    let mut path = counter.as_os_str().to_owned();
-    path.push(".lock");
-    let path = PathBuf::from(path);
-    if let Ok(metadata) = fs::symlink_metadata(&path) {
-        ensure!(metadata.is_file(), "counter lock must be a regular file: {}", path.display());
-    }
+    let path = check_counter_lock(counter)?;
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
