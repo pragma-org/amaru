@@ -672,6 +672,7 @@
                 "ProposalProcedureNetworkIdMismatch",
                 "ProposalProceduresFieldNotSupported",
                 "ProposalReturnAccountDoesNotExist",
+                "ReferenceInputsNotDisjointFromInputs",
                 "ScriptWitnessNotValidatingUTXOW",
                 "ScriptsNotPaidUTxO",
                 "StakeCredentialInvalidPoolDelegation",
