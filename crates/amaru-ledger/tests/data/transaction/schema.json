@@ -687,6 +687,7 @@
                 "TreasuryDonationFieldNotSupported",
                 "TreasuryWithdrawalReturnAccountsDoNotExist",
                 "TreasuryWithdrawalsAllZeros",
+                "TreasuryWithdrawalsNetworkIdMismatch",
                 "UnspendableUTxONoDatumHash",
                 "ValidationTagMismatch",
                 "ValueNotConservedUTxO",
