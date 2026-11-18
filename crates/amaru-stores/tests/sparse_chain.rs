@@ -355,6 +355,10 @@ fn a_rollback_past_the_last_block_of_an_epoch_discards_its_candidate_snapshot() 
     //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4            rolled back
     //            │                   ╎
     //            └──── block1'       ╎ block2' ── block3' ── block4'                replayed
+    //
+    // block1' comes after the stability window of epoch e, but starts no rewards computation: the
+    // boundary into epoch e+1 already joined it, and block2' replays that boundary with the
+    // computed rewards that the rollback kept.
     let fork = vec![
         empty_block_at(boundary_slot - 1),
         empty_block_at(boundary_slot + 1),

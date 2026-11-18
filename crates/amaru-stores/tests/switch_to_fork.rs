@@ -54,11 +54,13 @@
 //!   2. Full volatile window (k blocks) + invalid block on the fork.
 //!   3. Full volatile window (k blocks) + fork across and epoch boundary + invalid block after the boundary.
 //!   4. Full volatile window (k blocks) + fork across and epoch boundary + valid block after the boundary but failed epoch transition.
+//!   5. Fork across an epoch boundary that the replaced chain did not cross + invalid block after the boundary.
 //!
 //!  COMPLETED SWITCH:
 //!   1. Successful fork with no epoch transition but the ledger is not extended (the fork has the same length as the replaced chain).
 //!   2. Successful fork with no epoch transition and the ledger is extended (the fork has one more block).
 //!   3. Switch to a fork across an epoch transition.
+//!   4. Switch to a fork across an epoch transition, with a block in the stable part of the epoch before the boundary.
 //!
 //!  PARTIAL SWITCH:
 //!   1. Fewer than `k` blocks in epoch e+1 + fork across the boundary of epoch e+2 (forced flush)
@@ -71,8 +73,8 @@ use amaru_uplc::arena_pool::ArenaPool;
 
 use crate::{
     MockStore, StateAcrossEpochBoundary, assert_invalid_switch_to_fork_from, empty_block_at, epoch_of, forward_to,
-    invalid_block_at, make_state_across_epoch_boundary, make_state_in_epoch, make_state_in_epoch_with_store, point,
-    roll_forward,
+    invalid_block_at, make_state_across_epoch_boundary, make_state_in_epoch, make_state_in_epoch_with_snapshots,
+    make_state_in_epoch_with_store, point, roll_forward,
 };
 
 // ASSERTIONS
@@ -309,6 +311,42 @@ fn the_volatile_db_is_restored_when_there_is_a_failed_epoch_transition() {
 // ----------------------------------------------------------------------------
 
 #[test]
+fn a_failed_switch_across_an_epoch_boundary_restarts_the_rewards_computation_of_the_replaced_chain() {
+    let first_slot = 69_200_000;
+    let epoch = epoch_of(first_slot);
+    let boundary_slot = (first_slot..).find(|slot| epoch_of(*slot) != epoch).unwrap_or_default();
+    let (mut state, stable) = make_state_in_epoch_with_snapshots(epoch, &[epoch - 3, epoch - 2, epoch - 1]);
+
+    // block1 comes after the stability window of epoch e, so the rewards computation starts.
+    forward_to(&mut state, point(boundary_slot - 3));
+    let block1 = empty_block_at(boundary_slot - 2);
+    roll_forward(&mut state, &block1);
+
+    // The replay of the fork crosses the boundary and joins the rewards computation, then block3
+    // is invalid. The switch restores the replaced chain, which did not cross the boundary yet:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ --------------------------
+    //     fragment ── block1         ╎                    rolled back
+    //        │                       ╎
+    //        └─────── block2 ────────╎ block3 (invalid)   replayed
+    let block2 = empty_block_at(boundary_slot - 1);
+    let block3 = invalid_block_at(boundary_slot + 1);
+    let result = state.switch_to_fork(&point(boundary_slot - 3), vec![block2, block3], &ArenaPool::new(1024, 0));
+    match result {
+        Ok(ForkSwitchOutcome::Failed { .. }) => (),
+        other => panic!("expected a rolled back switch, got: {other:?}"),
+    }
+    assert_eq!(*state.tip(), block1.point(), "the pre-switch tip is restored");
+
+    // The replaced chain needs a new rewards computation to cross the boundary.
+    let block4 = empty_block_at(boundary_slot);
+    roll_forward(&mut state, &block4);
+    assert_eq!(*state.tip(), block4.point(), "the replaced chain crosses the boundary");
+    assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
+}
+
+#[test]
 fn a_switch_to_fork_can_be_successful_without_extending_the_ledger() {
     let first_slot = 69_200_000; // inside epoch 163
     let epoch = epoch_of(first_slot);
@@ -409,6 +447,34 @@ fn a_switch_to_fork_can_be_successful_across_an_epoch_transition() {
         other => panic!("expected the re-crossing switch to complete, got: {other:?}"),
     }
     assert_eq!(*state.tip(), block3_tip, "the ledger follows the fork across the boundary");
+    assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
+}
+
+#[test]
+fn a_switch_to_fork_across_an_epoch_transition_reuses_the_computed_rewards() {
+    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, .. } =
+        make_state_across_epoch_boundary();
+
+    // Switch to a fork whose first block is still in epoch e, after its stability window. The
+    // rollback re-crosses the boundary and turns the effective rewards back into computed ones.
+    // Then block3 comes after the stability window: no new rewards computation starts, since the
+    // boundary already joined it. block4 replays the epoch transition with the computed rewards:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ --------------------------
+    //     fragment ── block1         ╎ block2         rolled back
+    //                      │         ╎
+    //                      └─ block3 ╎ block4         replayed
+    let block3 = empty_block_at(boundary_slot - 1);
+    let block4 = empty_block_at(boundary_slot + 1);
+    let block4_tip = block4.point();
+    let result = state.switch_to_fork(&block_before.point(), vec![block3, block4], &ArenaPool::new(1024, 0));
+
+    match result {
+        Ok(ForkSwitchOutcome::Completed { .. }) => (),
+        other => panic!("expected the re-crossing switch to complete, got: {other:?}"),
+    }
+    assert_eq!(*state.tip(), block4_tip, "the ledger follows the fork across the boundary");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");
 }
 

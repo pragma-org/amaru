@@ -420,6 +420,8 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
+    type Snapshot = RocksDBSnapshot;
+
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
 
@@ -439,16 +441,12 @@ impl HistoricalStores for RocksDBHistoricalStores {
         RocksDB::snapshots(&self.config.dir)
     }
 
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static, StoreError> {
+    fn for_epoch(&self, epoch: Epoch) -> Result<Self::Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
     }
 
     /// Return a snapshot that was created as a candidate (with non-stable blocks).
-    fn for_candidate_epoch(
-        &self,
-        epoch: Epoch,
-        last_block: &HeaderHash,
-    ) -> Result<impl Snapshot + Send + 'static, StoreError> {
+    fn for_candidate_epoch(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Snapshot, StoreError> {
         RocksDBHistoricalStores::open_snapshot(&self.config, epoch, &candidate_dirname(epoch, last_block))
     }
 }
