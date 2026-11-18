@@ -1,0 +1,36 @@
+{
+  "title": "invalid transaction with a legacy stake deregistration",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a legacy stake deregistration certificate whose refund is accounted for by the outputs.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258202a7d4f9c1e6b3a8d0f5c2e7a4b9d1f6c3e8a0b5d7f2c4a9e1b6d3f8a5c0e7b2d00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a00989680"
+      },
+      {
+        "input": "825820e5b9d3a7f1c4e8b2d6a0f3c9e5b1d7a4f8c2e6b0d3a9f5c1e7b4d8a2f6c0e3b900",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "accounts": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d90102818258202a7d4f9c1e6b3a8d0f5c2e7a4b9d1f6c3e8a0b5d7f2c4a9e1b6d3f8a5c0e7b2d000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00b34a70021a0003d09004d901028182018200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd80b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820e5b9d3a7f1c4e8b2d6a0f3c9e5b1d7a4f8c2e6b0d3a9f5c1e7b4d8a2f6c0e3b9000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406717717a14db1f14dbf7be1cd584540752f7a09b2a134dfd1ba60941e08f9c4925c890e6887d4fa33c16f3ab1104c723aa169daf6bac8dfcb72a18f2d8377a0a05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
