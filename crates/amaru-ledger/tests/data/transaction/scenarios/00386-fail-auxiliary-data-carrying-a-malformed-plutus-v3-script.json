@@ -1,0 +1,33 @@
+{
+  "title": "auxiliary data carrying a malformed plutus v3 script",
+  "description": "A simple transfer whose auxiliary data carries well-formed Plutus V1 and V2 scripts and a Plutus V3 script with an invalid flat term tag.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181a200581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00021a00030d40075820a8f0c1336bbeac1bb4225af0e99b4ab8d91824db3782d6618452d78b5d9043ed0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258409ecc6bfeec9b070ca6b50854cd4169ff0db5f2f32db3b1f694207c3596d81f5b136887958f4a991f1b1d5f47c53d0ef6f6ebc67758fe91c7cbc8599ed6ab540bf5d90103a30281454401000061038145440100006104814544010100f1",
+  "expected": {
+    "predicate": "InvalidMetadata"
+  }
+}

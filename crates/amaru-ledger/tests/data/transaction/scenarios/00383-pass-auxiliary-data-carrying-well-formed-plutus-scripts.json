@@ -1,0 +1,31 @@
+{
+  "title": "auxiliary data carrying well-formed plutus scripts",
+  "description": "A simple transfer whose auxiliary data carries one well-formed Plutus V1, V2 and V3 script.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d500",
+        "output": "bf00581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40ff"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d9010281825820827273a8722791f640b59ba20ba9340cb0398535b36e1957ed8e8dde693976d5000181a200581d60a1c146c212acfe02048afbf8d2e5e9c806165934d9935c696f85c3dc011a00493e00021a00030d40075820c31ee822bfc8b2516d260567d39526ddc1b13cbcb9a8ae0e9d41dc66e511fa9d0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258406c01bafed2989b6c2c2e448c0e6531d39c98434fc8c3db8e00c8ef8621e8d6446c6d9f5ee3afc2b198ec131e55d4684dbcdb772bc72045ee40962f067a5df807f5d90103a3028145440100006103814544010000610481454401010061",
+  "expected": "Pass"
+}
