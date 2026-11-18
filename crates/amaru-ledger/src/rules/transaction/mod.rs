@@ -166,18 +166,23 @@ mod tests {
         };
 
         let scenario = "scenarios/00036-pass-simple-transfer";
-        let mut tx: Transaction = cbor::decode(&load(scenario).transaction).unwrap();
+        let mut v11 = PROTOCOL_VERSION_11;
+        let mut v12 = PROTOCOL_VERSION_12;
+        let mut tx: Transaction = cbor::decode_with(&load(scenario).transaction, &mut v12)
+            .expect("the signed transfer with one key witness decodes at v12");
         let verify = |version, tx: &Transaction| {
             let fixture = load(scenario);
             let mut params = resolve_protocol_parameters(fixture.protocol_parameters);
             params.protocol_version = version;
             validate(fixture.ledger, tx, &params).0
         };
-        let witness = tx.witnesses.verification_key_witness.as_ref().unwrap().first().clone();
-        let with_pair = |second| {
+        let witnesses = tx.witnesses.verification_key_witness.as_ref().unwrap();
+        assert_eq!(witnesses.iter_wire().count(), 1);
+        let witness = witnesses.first().clone();
+        let mut with_pair = |second| {
             let mut set = (*tx.witnesses).clone();
             set.verification_key_witness = Some(vec![witness.clone(), second].try_into().unwrap());
-            let size = cbor::to_cbor(&set).len();
+            let size = cbor::to_cbor_with(&set, &mut v11).len();
             cbor::WithSize::new(set, size)
         };
         let repeated = with_pair(witness.clone());
@@ -192,7 +197,9 @@ mod tests {
             )))
         ));
 
-        let bytes = cbor::to_cbor(&tx);
+        let bytes = cbor::to_cbor_with(&tx, &mut v11);
+        let err = cbor::decode_with::<_, Transaction>(&bytes, &mut v12).unwrap_err();
+        assert!(err.to_string().contains("found duplicate elements"), "{err}");
         for (version, expected, label) in [
             (PROTOCOL_VERSION_11, Expected::Pass, "pass"),
             (PROTOCOL_VERSION_12, Expected::DecodingFailure, "DecodingFailure"),
