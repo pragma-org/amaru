@@ -48,6 +48,10 @@ Other guiding principles:
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 - **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.
 
+### Fixed
+
+- **amaru-kernel**: repeated verification-key witnesses count once on Conway and are rejected when decoding at protocol version 12. ([#1351](https://github.com/pragma-org/amaru/issues/1351))
+
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
 ### Added

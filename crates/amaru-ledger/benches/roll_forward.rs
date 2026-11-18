@@ -19,9 +19,9 @@ use std::{cell::RefCell, sync::LazyLock};
 
 use amaru_kernel::{
     Address, Block, BlockBodyBuilder, BlockBuilderConstraints, BlockHeight, Credential, Epoch, EraHistory,
-    GlobalParameters, Hash, Hasher, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName,
-    NonEmptyVec, Point, PoolId, ProposalsRoots, ProtocolParameters, ShelleyAddress, Transaction, TransactionBody,
-    TransactionInput, Value, VerificationKey, VerificationKeyWitness, WitnessSet,
+    GlobalParameters, Hash, Hasher, Lovelace, MemoizedDatum, MemoizedTransactionOutput, Network, NetworkName, Point,
+    PoolId, ProposalsRoots, ProtocolParameters, ShelleyAddress, Transaction, TransactionBody, TransactionInput, Value,
+    VerificationKey, VerificationKeyWitness, VerificationKeyWitnesses, WitnessSet,
     cbor::WithSize,
     ed25519::{Signer, SigningKey},
     make_header, to_cbor,
@@ -293,7 +293,7 @@ impl Utxo {
         let next = Utxo { input: TransactionInput { transaction_id: body.id(), index: 0 }, lovelace: output_amount };
 
         let witnesses = WitnessSet {
-            verification_key_witness: Some(NonEmptyVec::singleton(VerificationKeyWitness {
+            verification_key_witness: Some(VerificationKeyWitnesses::singleton(VerificationKeyWitness {
                 verification_key: *DEFAULT_VERIFICATION_KEY,
                 signature: DEFAULT_SIGNING_KEY.sign(body.id().as_slice()).to_bytes().into(),
             })),

@@ -14,7 +14,7 @@
 
 use crate::{
     BootstrapWitness, NativeScript, NonEmptyUniqueVec, NonEmptyVec, PlutusDataSet, PlutusScript, Redeemers,
-    VerificationKeyWitness, cbor,
+    VerificationKeyWitnesses, cbor,
 };
 
 /// FIXME(cbor): Accidentally not a set
@@ -37,14 +37,14 @@ use crate::{
 #[cbor(map)]
 pub struct WitnessSet {
     #[n(0)]
-    pub verification_key_witness: Option<NonEmptyVec<VerificationKeyWitness>>,
+    pub verification_key_witness: Option<VerificationKeyWitnesses>,
 
     #[n(1)]
     pub native_script: Option<NonEmptyVec<NativeScript>>,
 
     /// FIXME(cbor): Accidentally not a set
     ///
-    /// See note on verification_key_witness.
+    /// See the note on legacy witness fields on [`WitnessSet`].
     #[n(2)]
     pub bootstrap_witness: Option<NonEmptyVec<BootstrapWitness>>,
 
@@ -131,6 +131,48 @@ mod tests {
         let encoded = cbor::to_cbor_with(&witnesses, &mut protocol_version);
         let expected = format!("a100d9010281825820{KEY}5840{SIGNATURE}");
         assert_eq!(hex::encode(encoded), expected);
+    }
+
+    #[test]
+    fn verification_key_witnesses_follow_the_haskell_version_boundary() {
+        use crate::protocol_version::{PROTOCOL_VERSION_11, PROTOCOL_VERSION_12};
+
+        // cardano-cbor-dataset @ 7543411152a41b98053eb32fdad3a64304b44e72:
+        // dijkstra/transaction_witness_set/manual-invalid/key-0-repeated-element.input.cbor
+        let bytes = include_bytes!("../../tests/data/witness_encoding/key-0-repeated-element.input.cbor");
+        let mut v11 = PROTOCOL_VERSION_11;
+        let mut v12 = PROTOCOL_VERSION_12;
+        let archived: cbor::WithOriginalBytes<WitnessSet> = cbor::from_cbor_no_leftovers_with(bytes, &mut v11).unwrap();
+        let witnesses = archived.verification_key_witness.as_ref().unwrap();
+        assert_eq!(witnesses.len(), 5);
+        assert_eq!(cbor::to_cbor_with(&archived, &mut v11), bytes);
+
+        let err = cbor::from_cbor_no_leftovers_with::<_, WitnessSet>(bytes, &mut v12).unwrap_err();
+        assert!(err.to_string().contains("duplicate"), "{err}");
+
+        // Stored legacy lists and compact v11 encodings retain all six wire entries.
+        let stored = serde_json::to_value(witnesses).unwrap();
+        assert_eq!(stored.as_array().unwrap().len(), 6);
+        assert_eq!(&serde_json::from_value::<crate::VerificationKeyWitnesses>(stored).unwrap(), witnesses);
+        let compact = cbor::to_cbor_with(witnesses, &mut v11);
+        assert_eq!(cbor::Decoder::new(&compact).array().unwrap(), Some(6));
+
+        let upgraded = cbor::to_cbor_with(&*archived, &mut v12);
+        let decoded: WitnessSet = cbor::from_cbor_no_leftovers_with(&upgraded, &mut v12).unwrap();
+        assert_eq!(decoded.verification_key_witness.as_deref(), Some(&witnesses[..]));
+        let unique = crate::VerificationKeyWitnesses::try_from(witnesses.to_vec()).unwrap();
+        assert_eq!(cbor::to_cbor_with(witnesses, &mut v12), cbor::to_cbor_with(&unique, &mut v12));
+    }
+
+    #[test]
+    fn verification_key_witnesses_with_the_same_key_and_different_signatures_are_distinct() {
+        let a = crate::VerificationKeyWitness { verification_key: [7; 32].into(), signature: [1; 64].into() };
+        let b = crate::VerificationKeyWitness { signature: [2; 64].into(), ..a.clone() };
+        let witnesses = crate::VerificationKeyWitnesses::try_from(vec![a.clone(), b.clone()]).unwrap();
+        let mut v12 = crate::protocol_version::PROTOCOL_VERSION_12;
+        let bytes = cbor::to_cbor_with(&witnesses, &mut v12);
+        let decoded: crate::VerificationKeyWitnesses = cbor::from_cbor_no_leftovers_with(&bytes, &mut v12).unwrap();
+        assert_eq!(&decoded[..], &[a, b]);
     }
 
     /// The ledger reads this map with `decodeSparseKeyed`, which fails on a key it does not know

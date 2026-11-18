@@ -18,7 +18,7 @@ use std::sync::{
 };
 
 use amaru_kernel::{
-    NonEmptyVec, Transaction, VerificationKeyWitness, WitnessSet,
+    Transaction, VerificationKeyWitness, VerificationKeyWitnesses, WitnessSet,
     cbor::{WithOriginalBytes, WithSize},
     to_cbor,
 };
@@ -256,7 +256,10 @@ fn create_transaction_with_signature(input_index: u16, signature: u8) -> WithOri
     let mut tx: Transaction = (*create_transaction(input_index)).clone();
     let witness = VerificationKeyWitness { verification_key: [0; 32].into(), signature: [signature; 64].into() };
     tx.witnesses = WithSize::new(
-        WitnessSet { verification_key_witness: Some(NonEmptyVec::singleton(witness)), ..WitnessSet::default() },
+        WitnessSet {
+            verification_key_witness: Some(VerificationKeyWitnesses::singleton(witness)),
+            ..WitnessSet::default()
+        },
         1,
     );
     tx.into()
