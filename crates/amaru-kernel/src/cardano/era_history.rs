@@ -635,6 +635,12 @@ impl EraHistory {
         Ok(Slot::new(elapsed))
     }
 
+    /// Return true if the slot is valid for a given epoch and inside the stability window.
+    pub fn is_stable(&self, slot: Slot) -> bool {
+        let Ok(relative_slot) = self.slot_in_epoch(slot, slot) else { return false };
+        relative_slot >= self.stability_window
+    }
+
     /// Returns the era index (0-based) for the given slot.
     ///
     /// The era index should correspond to the position in the era history vector:

@@ -514,6 +514,8 @@ pub trait ReadStore {
 // ----------------------------------------------------------------------------
 
 pub trait HistoricalStores {
+    type Snapshot: Snapshot + Send + 'static;
+
     /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
     fn snapshots(&self) -> Result<Vec<Epoch>>;
 
@@ -545,11 +547,11 @@ pub trait HistoricalStores {
 
     /// Access a `Snapshot` for a specific `Epoch`. The snapshot is an owned handle that can move
     /// to another thread (e.g. the rewards background computation).
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static>;
+    fn for_epoch(&self, epoch: Epoch) -> Result<Self::Snapshot>;
 
     /// Access the candidate snapshot of `epoch` that ends with `last_block`, read-only. See
     /// [`Store::create_candidate_snapshot`].
-    fn for_candidate_epoch(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<impl Snapshot + Send + 'static>;
+    fn for_candidate_epoch(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Snapshot>;
 }
 
 // TransactionalContext

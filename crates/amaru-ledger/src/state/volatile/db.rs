@@ -18,9 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    TransactionInput, size::SCRIPT,
+    Credential, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -35,7 +34,7 @@ use crate::{
             VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store, TransactionalContext},
+    store::{Store, TransactionalContext},
 };
 
 #[derive(Debug)]
@@ -285,12 +284,6 @@ impl VolatileDB {
         self.overlay.epoch()
     }
 
-    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
-    /// value if available.
-    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
-        self.overlay.most_recent_snapshot(snapshots)
-    }
-
     /// The protocol parameters carried by an in-flight epoch transition, if any.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
@@ -430,12 +423,11 @@ impl VolatileDB {
     }
 
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
-    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory, global_parameters: &GlobalParameters) -> bool {
+    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory) -> bool {
         !self.overlay.is_empty()
             && self.draining.view_front().is_none_or(|_| {
                 let absolute_slot = self.current.view_back().map(|fragment| fragment.slot()).unwrap_or_default();
-                let relative_slot = era_history.slot_in_epoch(absolute_slot, absolute_slot).unwrap_or_default();
-                relative_slot >= global_parameters.stability_window()
+                era_history.is_stable(absolute_slot)
             })
     }
 

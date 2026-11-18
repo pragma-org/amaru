@@ -521,7 +521,7 @@ pub fn build_node(
     std::thread::Builder::new()
         .name("stake-dist-notifier".to_string())
         .spawn(move || forward_stake_dist_updates(&pending_stake_dist_updates, &track_peers_sender))?;
-    block_validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+    block_validator.start(Arc::new(move |summaries| {
         let max_epoch = summaries.max_epoch();
         resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
         // The receiver only stops when this callback is dropped.
