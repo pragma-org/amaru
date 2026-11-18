@@ -1,0 +1,26 @@
+{
+  "title": "registration of a new stake pool",
+  "description": "A pool registration certificate for an unregistered pool, paying the 500 ADA pool deposit.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258203f9a6c1e8b2d4f7a0c5e9b1d3a6f8c2e4b7d0a9c1f3e5b8d2a4c6e9f1b3d5a7c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a23c34600"
+      }
+    ],
+    "pools": []
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258203f9a6c1e8b2d4f7a0c5e9b1d3a6f8c2e4b7d0a9c1f3e5b8d2a4c6e9f1b3d5a7c000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a05f2d3c0021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd858205d0a2c9d3b6f18e4a7c1b2f09e83d4c6a5b7e2f1c0d9e8f7a6b5c4d3e2f1a0b9001a1443fd00d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840d8c6d64b9849e5c8645c6cf5c3f11cf419e3ce81f2ebeaac3abb27ec4fa8fee436cfec4e599c1bea95f553b29c7941bfd683dd89fbb2a97274cad06c4e27d50cf5f6",
+  "expected": "Pass"
+}

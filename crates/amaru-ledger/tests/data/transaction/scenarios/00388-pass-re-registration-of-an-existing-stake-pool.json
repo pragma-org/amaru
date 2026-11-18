@@ -1,0 +1,28 @@
+{
+  "title": "re-registration of an existing stake pool",
+  "description": "A pool registration certificate for an already registered pool, paying no deposit.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258208e1c4a7f2b5d9e3c6a0f8b1d4e7c2a5f9b3d6e0c8a1f4b7d2e5c9a3f6b0d8e1c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a23c34600"
+      }
+    ],
+    "pools": [
+      "93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258208e1c4a7f2b5d9e3c6a0f8b1d4e7c2a5f9b3d6e0c8a1f4b7d2e5c9a3f6b0d8e1c000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a23c038c0021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd858205d0a2c9d3b6f18e4a7c1b2f09e83d4c6a5b7e2f1c0d9e8f7a6b5c4d3e2f1a0b9001a1443fd00d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584057943502296d19580d246ff90e6c98f42a48ab4df5f9d2fd6570278b4dbfc70448d90c934f0e044f33187af232a99f9c809fcdc70cf06262f6119bf4fcb3c307f5f6",
+  "expected": "Pass"
+}
