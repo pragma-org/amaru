@@ -28,11 +28,11 @@ use std::{
 };
 
 use amaru_observability::{
-    CborConsoleEventFormat, CborJsonEventFormat, CborJsonFields, console_field_formatter,
+    console_layer, json_layer,
     tracing::Subscriber,
     tracing_subscriber::{
         EnvFilter, Layer,
-        fmt::{self, MakeWriter, format::FmtSpan},
+        fmt::{MakeWriter, format::FmtSpan},
         layer::{Layered, SubscriberExt},
         registry::LookupSpan,
     },
@@ -127,22 +127,9 @@ impl TraceOutputSpec {
             .with_context(|| format!("invalid filter for log output {}", self.path.display()))?;
         // CLOSE emits one event per span with time.busy and time.idle.
         if self.json {
-            Ok(fmt::layer()
-                .with_writer(writer)
-                .with_span_events(FmtSpan::CLOSE)
-                .event_format(CborJsonEventFormat::new())
-                .fmt_fields(CborJsonFields::new())
-                .with_filter(filter)
-                .boxed())
+            Ok(json_layer(writer, FmtSpan::CLOSE).with_filter(filter).boxed())
         } else {
-            Ok(fmt::layer()
-                .with_writer(writer)
-                .with_ansi(false)
-                .fmt_fields(console_field_formatter())
-                .with_span_events(FmtSpan::CLOSE)
-                .event_format(CborConsoleEventFormat::new().with_ansi(false))
-                .with_filter(filter)
-                .boxed())
+            Ok(console_layer(writer, false, FmtSpan::CLOSE).with_filter(filter).boxed())
         }
     }
 }

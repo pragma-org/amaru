@@ -1,0 +1,120 @@
+[
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "approved_by_constitutional_committee": false,
+      "message": "close",
+      "proposal_id": "abababababababababababababababababababababababababababababababab#0",
+      "proposal_kind": "nice-poll",
+      "time.busy": "<duration>",
+      "time.idle": "<duration>"
+    },
+    "id": 1,
+    "level": "DEBUG",
+    "parent_id": 2,
+    "parents": [
+      "epoch_transition.new_governance_updates",
+      "governance.ratify_proposals"
+    ],
+    "span": {
+      "name": "governance.ratifying",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  },
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "epoch": 200,
+      "message": "close",
+      "roots_constitution": "none",
+      "roots_constitutional_committee": "none",
+      "roots_hard_fork": "none",
+      "roots_protocol_parameters": "none",
+      "time.busy": "<duration>",
+      "time.idle": "<duration>"
+    },
+    "id": 2,
+    "level": "INFO",
+    "parent_id": 3,
+    "parents": [
+      "epoch_transition.new_governance_updates"
+    ],
+    "span": {
+      "name": "governance.ratify_proposals",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  },
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "expired": true,
+      "id": "abababababababababababababababababababababababababababababababab#0",
+      "message": "proposal.drop",
+      "proposals_count": 1,
+      "ratified_or_evicted": true
+    },
+    "level": "INFO",
+    "parents": [],
+    "span": {
+      "name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  },
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "message": "proposal_roots.summarize",
+      "proposals_count": 1
+    },
+    "level": "DEBUG",
+    "parents": [],
+    "span": {
+      "name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  },
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "is_dormant_epoch": true,
+      "message": "ratification.summarize",
+      "proposals_count": 1,
+      "pruned_proposals": "abababababababababababababababababababababababababababababababab#0",
+      "refunds": "key(cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd)=100000000000"
+    },
+    "level": "INFO",
+    "parents": [],
+    "span": {
+      "name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  },
+  {
+    "fields": {
+      "amaru.tag.cpu": true,
+      "message": "close",
+      "proposals_count": 1,
+      "time.busy": "<duration>",
+      "time.idle": "<duration>"
+    },
+    "id": 3,
+    "level": "INFO",
+    "parents": [],
+    "span": {
+      "name": "epoch_transition.new_governance_updates",
+      "target": "amaru::ledger"
+    },
+    "target": "amaru::ledger",
+    "timestamp": "<timestamp>"
+  }
+]

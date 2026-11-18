@@ -23,6 +23,10 @@ name = "amaru"
 path = "src/bin/amaru/main.rs"
 doc = false
 
+[[test]]
+name = "telemetry_otlp"
+harness = false
+
 [features]
 default = ["mithril"]
 mithril = ["dep:amaru-mithril"]
@@ -36,8 +40,6 @@ clap_complete.workspace = true
 clap_mangen.workspace = true
 hex.workspace = true
 indoc.workspace = true
-opentelemetry.workspace = true
-opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot.workspace = true
 reqwest.workspace = true
@@ -90,6 +92,9 @@ rlimit = "0.10.2"
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
 assert_cmd.workspace = true
+opentelemetry-proto.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
 rocksdb.workspace = true
 test-case.workspace = true
 zstd.workspace = true

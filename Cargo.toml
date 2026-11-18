@@ -70,6 +70,7 @@ num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 once_cell = "1.21.4"
 opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", features = [ "grpc-tonic", "http-proto", "logs", "reqwest-blocking-client", ] }
+opentelemetry-proto = { version = "0.32.0", default-features = false, features = ["gen-tonic", "trace", "logs", "metrics", "with-serde"] }
 opentelemetry-semantic-conventions = { version = "0.32.1", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "0.32.1", features = ["logs"] }
 ouroboros = "0.18.5"
@@ -107,7 +108,9 @@ thiserror = "2.0.19"
 tikv-jemallocator = { version = "0.6.1" }
 time = { version = "0.3.55", default-features = false }
 tokio = { version = "1.53.0", features = ["sync"] }
+tokio-stream = { version = "0.1.18", features = ["net"] }
 tokio-util = "0.7.18"
+tonic = { version = "0.14.6", features = ["gzip"] }
 toml = "1.1.3"
 tracing = { version = "0.1.40", features = ["valuable"] }
 tracing-opentelemetry = "0.33.0"
