@@ -50,7 +50,7 @@ Other guiding principles:
 
 ### Fixed
 
-- **amaru-kernel**: repeated verification-key witnesses count once on Conway and are rejected when decoding at protocol version 12. ([#1351](https://github.com/pragma-org/amaru/issues/1351))
+- **amaru-kernel**: repeated verification-key witnesses count once on Conway. The node rejects them in Dijkstra blocks, including when replaying stored blocks. ([#1351](https://github.com/pragma-org/amaru/issues/1351))
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 

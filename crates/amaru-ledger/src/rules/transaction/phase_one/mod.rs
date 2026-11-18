@@ -250,7 +250,7 @@ where
         context,
         transaction_id,
         witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
+        witness_set.verification_key_witness.as_ref(),
     )?;
     span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 
@@ -378,7 +378,7 @@ where
         context,
         transaction_id,
         witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
+        witness_set.verification_key_witness.as_ref(),
     )?;
     span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 

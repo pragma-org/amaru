@@ -187,6 +187,7 @@ pub fn build_stage_graph(
     let fetch_blocks = stage_graph.wire_up(
         fetch_blocks,
         FetchBlocks::new(
+            era_history.clone(),
             validate_block_input,
             select_chain.sender(),
             manager.sender(),

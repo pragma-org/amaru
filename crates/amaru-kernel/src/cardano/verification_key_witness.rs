@@ -61,6 +61,20 @@ impl VerificationKeyWitnesses {
         self.wire.first()
     }
 
+    /// Submitted order, including repeated pairs in a legacy transaction.
+    pub fn iter_wire(&self) -> impl Iterator<Item = &VerificationKeyWitness> {
+        self.wire.iter()
+    }
+
+    /// Yield each distinct pair with its first position in the submitted list.
+    pub fn iter_with_positions(&self) -> impl Iterator<Item = (usize, &VerificationKeyWitness)> {
+        // The distinct list is in first-occurrence order, so both cursors only advance.
+        let mut distinct = self.distinct.as_ref().map(|entries| entries.iter().peekable());
+        self.iter_wire()
+            .enumerate()
+            .filter(move |(_, witness)| distinct.as_mut().is_none_or(|entries| entries.next_if_eq(witness).is_some()))
+    }
+
     fn distinct(&self) -> &NonEmptyVec<VerificationKeyWitness> {
         self.distinct.as_deref().unwrap_or(&self.wire)
     }
