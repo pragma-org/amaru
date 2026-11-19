@@ -1,0 +1,31 @@
+{
+  "title": "input carrying a reference script also listed as a reference input in pv11",
+  "description": "A protocol version 11 transaction spending a dev-key input that carries a native reference script, listing the same input as a reference input.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "version": {
+        "major": 11,
+        "minor": 0
+      }
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258204c744b6d2a48646f9293f9d466d850fc4280557d38aea5cc889fee886e1407fe00",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b4003d818458200820180"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258204c744b6d2a48646f9293f9d466d850fc4280557d38aea5cc889fee886e1407fe000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d09012d90102818258204c744b6d2a48646f9293f9d466d850fc4280557d38aea5cc889fee886e1407fe00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258403530550440923fe6ca1c1887e8efe3f64cbff9bf40b5a6a2e6985655e38cdecc287be913f0087c94ec3950d9be9619b2784be224b08249b421cba9b4e5bc3f0ef5f6",
+  "expected": "Pass"
+}
