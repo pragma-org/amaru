@@ -23,7 +23,6 @@ use amaru_observability::{
     },
     debug, debug_span, error, info, warn,
 };
-use amaru_ouroboros::vrf;
 use amaru_protocols::store_effects::Store;
 use amaru_pure_stage::{Effects, OrTerminateWith, StageRef};
 
@@ -530,6 +529,7 @@ pub async fn load_parent_point<T: Send + Sync + 'static, S>(
 /// <https://github.com/IntersectMBO/ouroboros-consensus/blob/57c3e32cafc13b9a5184e23fee057f5152eec03b/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos/Common.hs#L105-L120>
 /// <https://github.com/IntersectMBO/ouroboros-consensus/blob/57c3e32cafc13b9a5184e23fee057f5152eec03b/ouroboros-consensus-protocol/src/ouroboros-consensus-protocol/Ouroboros/Consensus/Protocol/Praos/Common.hs#L188-L267>
 /// <https://github.com/IntersectMBO/ouroboros-consensus/blob/main/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Ledger/Config.hs#L88-L94>
+/// <https://github.com/IntersectMBO/ouroboros-consensus/blob/main/ouroboros-consensus-cardano/src/shelley/Ouroboros/Consensus/Shelley/Protocol/Praos.hs> (`pTieBreakVRFValue`)
 ///
 /// The rule to be implemented in Amaru is thus:
 ///
@@ -548,12 +548,14 @@ pub fn cmp_tip(a: Option<&Header>, b: Option<&Header>) -> Ordering {
         (Some(a), Some(b)) => (a, b),
     };
     a.block_height().cmp(&b.block_height()).then_with(|| {
-        let a_leader = vrf::Derivation::Leader.derive_tagged_vrf_output(a.vrf_output());
-        let b_leader = vrf::Derivation::Leader.derive_tagged_vrf_output(b.vrf_output());
-        if a_leader == b_leader {
+        // The VRF value is the output as it stands in the header (`pTieBreakVRFValue` in
+        // ouroboros-consensus), not the leader value derived from it.
+        let a_vrf = a.vrf_output();
+        let b_vrf = b.vrf_output();
+        if a_vrf == b_vrf {
             a.op_cert_seq().cmp(&b.op_cert_seq())
         } else if (a.slot() - b.slot()).abs() <= 5 {
-            b_leader.cmp(&a_leader)
+            b_vrf.cmp(a_vrf)
         } else {
             Ordering::Equal
         }
