@@ -326,6 +326,19 @@ pub mod tests {
         }
     }
 
+    /// Keep a second, inert dispatcher registered while a test captures logs with a
+    /// thread-local subscriber.
+    ///
+    /// With a single registered dispatcher, tracing-core decides a callsite's interest from the
+    /// default of the thread that reaches it first. A parallel test without a subscriber can then
+    /// mark a shared callsite (such as `REQUEST_TIMEOUT`) as never enabled, and this capture
+    /// stays empty. Registering this dispatcher also rebuilds the interest of every callsite.
+    fn keep_second_dispatcher() {
+        use amaru_observability::tracing::{Dispatch, subscriber::NoSubscriber};
+        static SECOND: OnceLock<Dispatch> = OnceLock::new();
+        SECOND.get_or_init(|| Dispatch::new(NoSubscriber::default()));
+    }
+
     fn test_runtime() -> &'static tokio::runtime::Handle {
         static RUNTIME: OnceLock<Runtime> = OnceLock::new();
         RUNTIME.get_or_init(|| Builder::new_current_thread().enable_all().build().expect("runtime")).handle()
@@ -426,6 +439,7 @@ pub mod tests {
                 move || logs.clone()
             })
             .set_default();
+        keep_second_dispatcher();
 
         let _guards = register_deserializers();
         let _mux_state = amaru_pure_stage::register_data_deserializer::<MuxLog>();
