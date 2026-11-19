@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![feature(generic_const_exprs)]
+#![feature(generic_const_items, generic_const_args, min_generic_const_args)]
 #![allow(incomplete_features)]
 
 #[path = "harness.rs"]
