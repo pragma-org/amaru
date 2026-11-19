@@ -26,6 +26,8 @@ use crate::{Meter, MetricRecorder, MetricsEvent};
 /// The metric names are those of cardano-node, so that existing stake pool dashboards and alerts apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KesMetrics {
+    /// Wall-clock KES period.
+    pub current_kes_period: u64,
     /// KES period the operational certificate was issued for.
     pub operational_certificate_start_kes_period: u64,
     /// First KES period in which the operational certificate is no longer valid.
@@ -40,6 +42,7 @@ impl KesMetrics {
     pub fn new(current_kes_period: u64, start_kes_period: u64, max_kes_evolution: u64) -> Self {
         let expiry = start_kes_period.saturating_add(max_kes_evolution);
         Self {
+            current_kes_period,
             operational_certificate_start_kes_period: start_kes_period,
             operational_certificate_expiry_kes_period: expiry,
             remaining_kes_periods: expiry.saturating_sub(current_kes_period),
@@ -55,6 +58,7 @@ impl MetricRecorder for KesMetrics {
 #[cfg(not(target_arch = "wasm32"))]
 impl MetricRecorder for KesMetrics {
     fn record_to_meter(&self, meter: &Meter) {
+        static CURRENT_KES_PERIOD: OnceLock<Gauge<u64>> = OnceLock::new();
         static OPCERT_START_KES_PERIOD: OnceLock<Gauge<u64>> = OnceLock::new();
         static OPCERT_EXPIRY_KES_PERIOD: OnceLock<Gauge<u64>> = OnceLock::new();
         static REMAINING_KES_PERIODS: OnceLock<Gauge<u64>> = OnceLock::new();
@@ -63,6 +67,13 @@ impl MetricRecorder for KesMetrics {
             return;
         };
 
+        let current = CURRENT_KES_PERIOD.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_currentKESPeriod_int")
+                .with_description("current KES (Key Evolving Signature) period")
+                .with_unit("int")
+                .build()
+        });
         let start = OPCERT_START_KES_PERIOD.get_or_init(|| {
             meter
                 .u64_gauge("cardano_node_metrics_operationalCertificateStartKESPeriod_int")
@@ -85,6 +96,7 @@ impl MetricRecorder for KesMetrics {
                 .build()
         });
 
+        current.record(self.current_kes_period, &[]);
         start.record(self.operational_certificate_start_kes_period, &[]);
         expiry.record(self.operational_certificate_expiry_kes_period, &[]);
         remaining.record(self.remaining_kes_periods, &[]);
@@ -125,6 +137,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                "cardano_node_metrics_currentKESPeriod_int",
                 "cardano_node_metrics_operationalCertificateExpiryKESPeriod_int",
                 "cardano_node_metrics_operationalCertificateStartKESPeriod_int",
                 "cardano_node_metrics_remainingKESPeriods_int",
@@ -138,6 +151,7 @@ mod tests {
         assert_eq!(
             KesMetrics::new(976, 976, 62),
             KesMetrics {
+                current_kes_period: 976,
                 operational_certificate_start_kes_period: 976,
                 operational_certificate_expiry_kes_period: 1038,
                 remaining_kes_periods: 62,

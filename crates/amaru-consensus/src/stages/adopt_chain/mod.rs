@@ -15,12 +15,17 @@
 use std::{cmp::Ordering, time::Duration};
 
 use amaru_kernel::{BlockHeight, Header, IsHeader, NonEmptyVec, Point};
+use amaru_metrics::ConsensusMetrics;
 use amaru_observability::{
     CarriedHeader, Instrument, TraceContext, amaru::consensus::block::ADOPT, debug, debug_span, error, info, warn,
 };
 use amaru_ouroboros::MempoolMsg;
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, StoreError};
-use amaru_protocols::{manager::ManagerMessage, store_effects::Store};
+use amaru_protocols::{
+    manager::ManagerMessage,
+    metrics_effects::{Metrics, MetricsOps},
+    store_effects::Store,
+};
 use amaru_pure_stage::{Effects, Instant, OrTerminateWith, StageRef};
 
 use crate::{
@@ -215,7 +220,10 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                 .await;
             match adopt_result {
                 AdoptTipResult::BestChainRolledForward => AdoptKind::RollForward,
-                AdoptTipResult::BestChainSwitched { forward_points } => {
+                AdoptTipResult::BestChainSwitched { fork_point, forward_points } => {
+                    if fork_point != current_best.point() {
+                        Metrics::new(&eff).record(ConsensusMetrics::SwitchedToFork.into()).await;
+                    }
                     adopted_points = Vec::from(forward_points);
                     AdoptKind::ForkSwitch
                 }
@@ -299,7 +307,7 @@ async fn adopt_tip<S>(
         FindAncestorOnBestChainResult::NotFound => Ok(AdoptTipResult::AncestorOnBestChainNotFound),
         FindAncestorOnBestChainResult::Found { fork_point, forward_points } => {
             store.switch_to_fork(&fork_point, &forward_points).await?;
-            Ok(AdoptTipResult::BestChainSwitched { forward_points })
+            Ok(AdoptTipResult::BestChainSwitched { fork_point, forward_points })
         }
     }
 }
@@ -326,7 +334,7 @@ enum AdoptTipResult {
     HeaderNotFound,
     AncestorOnBestChainNotFound,
     BestChainRolledForward,
-    BestChainSwitched { forward_points: NonEmptyVec<Point> },
+    BestChainSwitched { fork_point: Point, forward_points: NonEmptyVec<Point> },
 }
 
 /// Drag the store anchor forward so it is at most `consensus_security_param`

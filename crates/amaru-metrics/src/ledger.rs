@@ -27,9 +27,10 @@ pub struct LedgerMetrics {
     pub slot_in_epoch: u64,
     pub epoch: u64,
     pub density: f64,
+    /// Shown in the tip trace only, like `remaining_kes_periods`.
     pub current_kes_period: u64,
-    /// Shown in the tip trace only. The `remainingKESPeriods` gauge depends on the forging
-    /// key and is recorded by the forge stage, see [`crate::KesMetrics`].
+    /// Shown in the tip trace only. The KES gauges depend on the forging key and are recorded
+    /// by the forge stage, see [`crate::KesMetrics`].
     pub remaining_kes_periods: u64,
     pub block_header_hash: String,
     pub parent_block_header_hash: String,
@@ -81,7 +82,6 @@ impl MetricRecorder for LedgerMetrics {
         static SLOT_IN_EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
         static EPOCH: OnceLock<Gauge<u64>> = OnceLock::new();
         static DENSITY: OnceLock<Gauge<f64>> = OnceLock::new();
-        static CURRENT_KES_PERIOD: OnceLock<Gauge<u64>> = OnceLock::new();
 
         let block_height = BLOCK_HEIGHT.get_or_init(|| {
             meter
@@ -118,20 +118,12 @@ impl MetricRecorder for LedgerMetrics {
                 .with_unit("real")
                 .build()
         });
-        let current_kes_period = CURRENT_KES_PERIOD.get_or_init(|| {
-            meter
-                .u64_gauge("cardano_node_metrics_currentKESPeriod_int")
-                .with_description("current KES (Key Evolving Signature) period")
-                .with_unit("int")
-                .build()
-        });
 
         block_height.record(self.block_height, &[]);
         slot_num.record(self.slot, &[]);
         epoch.record(self.epoch, &[]);
         slot_in_epoch.record(self.slot_in_epoch, &[]);
         density.record(self.density, &[]);
-        current_kes_period.record(self.current_kes_period, &[]);
     }
 }
 

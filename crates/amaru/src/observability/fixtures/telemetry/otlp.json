@@ -732,24 +732,6 @@
                   }
                 },
                 {
-                  "name": "cardano_node_metrics_currentKESPeriod_int",
-                  "description": "current KES (Key Evolving Signature) period",
-                  "unit": "int",
-                  "metadata": [],
-                  "gauge": {
-                    "dataPoints": [
-                      {
-                        "attributes": [],
-                        "startTimeUnixNano": "<timestamp>",
-                        "timeUnixNano": "<timestamp>",
-                        "exemplars": [],
-                        "flags": 0,
-                        "asInt": 7
-                      }
-                    ]
-                  }
-                },
-                {
                   "name": "cardano_node_metrics_density_real",
                   "description": "chain density over the last k blocks or since genesis, whichever is shorter",
                   "unit": "real",

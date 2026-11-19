@@ -50,9 +50,8 @@ const DURATION_BOUNDARIES_MICROS: [f64; 16] = [
     30_000_000.0,
 ];
 
-/// Performance measurements emitted by the select_chain stage, computed from `perf.*` events
-/// but aggregatable as OpenTelemetry metrics (a duration histogram plus an outcome-labelled
-/// counter per measurement kind).
+/// Consensus measurements. The performance ones are computed from `perf.*` events and aggregate
+/// as a duration histogram plus an outcome-labelled counter per measurement kind.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsensusMetrics {
     /// A header reached a terminal state. The optional durations are the intervals between the
@@ -72,6 +71,8 @@ pub enum ConsensusMetrics {
     },
     /// Duration of `perf.fork.switch`.
     ForkSwitch { outcome: String, duration_micros: u64 },
+    /// The adopted chain switched to a fork, rolling back at least one block.
+    SwitchedToFork,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -89,6 +90,7 @@ impl MetricRecorder for ConsensusMetrics {
         static BLOCK_FETCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static FORK_SWITCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static FORK_SWITCH_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
+        static FORKS: OnceLock<Counter<u64>> = OnceLock::new();
 
         let Some(meter) = meter.get() else {
             return;
@@ -158,6 +160,14 @@ impl MetricRecorder for ConsensusMetrics {
                 outcome,
                 *duration_micros,
             ),
+            ConsensusMetrics::SwitchedToFork => FORKS
+                .get_or_init(|| {
+                    meter
+                        .u64_counter("cardano_node_metrics_forks_counter")
+                        .with_description("number of times the adopted chain switched to a fork")
+                        .build()
+                })
+                .add(1, &[]),
         }
     }
 }

@@ -27,8 +27,9 @@ use test_setup::{
 use super::*;
 use crate::stages::{
     adopt_chain::test_setup::{
-        te_clock, te_find_anchor_at_height, te_prune_below, te_record_block_valid, te_record_sync_adoption,
-        te_roll_forward_chain, te_send, te_set_anchor_point, te_switch_to_fork, te_update_consensus_mode,
+        te_clock, te_find_anchor_at_height, te_prune_below, te_record_block_valid, te_record_fork,
+        te_record_sync_adoption, te_roll_forward_chain, te_send, te_set_anchor_point, te_switch_to_fork,
+        te_update_consensus_mode,
     },
     forge_block::{AdoptedTip, ForgeBlockMsg},
     test_utils::{te_input, te_state},
@@ -199,6 +200,7 @@ fn test_fork_switch_adopts_and_sends() {
                 prep.headers.h1.point(),
                 NonEmptyVec::try_from(vec![prep.headers.h2a.point(), prep.headers.h3a.point()]).unwrap(),
             ),
+            te_record_fork("ac-1"),
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
@@ -249,6 +251,30 @@ fn test_fork_switch_adopts_and_sends() {
         .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
+#[test]
+fn multi_block_extension_is_not_counted_as_a_fork() {
+    let mut prep = test_prep(2);
+    prep.store_headers(&prep.headers.main_chain());
+    prep.store_block(&prep.headers.h3);
+    prep.store_block(&prep.headers.h4);
+    prep.set_anchor(prep.headers.h0.hash());
+    prep.set_best_chain(prep.headers.h2.clone());
+
+    let tip = prep.headers.h4.point();
+    let (running, _guards, _logs) = setup(&prep, AdoptChainMsg::new(tip, BlockHeight::new(0)));
+
+    let switch = te_switch_to_fork(
+        "ac-1",
+        prep.headers.h2.point(),
+        NonEmptyVec::try_from(vec![prep.headers.h3.point(), prep.headers.h4.point()]).unwrap(),
+    );
+    let trace = running.trace_buffer().lock();
+    let entries: Vec<_> = trace.iter_entries().map(|(_, entry)| entry).collect();
+    assert!(entries.contains(&switch));
+    assert!(!entries.contains(&te_record_fork("ac-1")));
+    assert_eq!(prep.store.get_best_chain_hash(), tip.hash());
+}
+
 /// A fork switch must tell forge the adopted header's parent, not the displaced best tip.
 #[test]
 fn fork_switch_tells_forge_the_adopted_headers_parent() {
@@ -292,6 +318,7 @@ fn test_fork_switch_opcert_hacked() {
             te_load_header("ac-1", prep.headers.h2a.hash()),
             te_find_ancestor_on_best_chain("ac-1", tip.hash()),
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
+            te_record_fork("ac-1"),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
             te_record_block_valid("ac-1", tip.hash(), tip.block_height(), tip.slot(), sim_clock(), false),
