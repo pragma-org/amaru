@@ -17,10 +17,9 @@ use std::{env, str::FromStr};
 use amaru::{
     lifecycle::Runnable,
     observability::{Color, ObservabilityHints},
-    trace_output::TraceOutputSpec,
 };
 use amaru_kernel::GlobalParameters;
-use amaru_node::telemetry::{OtelSignal, OtelSignals};
+use amaru_node::telemetry::{OtelSignal, OtelSignals, TraceOutputSpec};
 use amaru_tui as tui;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 

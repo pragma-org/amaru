@@ -41,10 +41,7 @@ use amaru_pure_stage::{Effects, Instant, OrTerminateWith, ScheduleId, StageRef};
 
 use super::peer_selection::PeerSelectionMsg;
 use crate::{
-    consensus_mode::{
-        CHAIN_LAG_LOG_INTERVAL, ChainLagSample, ChainLagWatch, ConsensusMode, LIVE_TIP_LAG, classify, judge_chain_lag,
-        tip_lateness,
-    },
+    consensus_mode::{ChainLag, ChainLagMonitor, ConsensusMode, LIVE_TIP_LAG, classify, tip_lateness},
     effects::{Ledger, LedgerOps, VolatileTipEffect},
     errors::{ConsensusError, HeaderSlotTooFarInFuture, InvalidHeaderParentData, InvalidHeaderPoint},
     performance::{HeaderLifecycleOutcome, Performance},
@@ -160,10 +157,8 @@ pub struct TrackPeers {
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
-    /// Last time a near-now header was compared with the adopted tip.
-    last_chain_lag_check: Option<Instant>,
-    /// Lateness of the adopted tip at that check, while the tip was still behind.
-    chain_lag: Option<ChainLagSample>,
+    /// Compares near-now headers with the adopted tip.
+    chain_lag: ChainLagMonitor,
 }
 
 /// Per-connection tip tracking for a chainsync session.
@@ -383,8 +378,7 @@ impl TrackPeers {
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             max_epoch,
             recheck_timer: None,
-            last_chain_lag_check: None,
-            chain_lag: None,
+            chain_lag: ChainLagMonitor::default(),
         }
     }
 
@@ -422,37 +416,34 @@ impl TrackPeers {
 
     /// A header near the wall clock is compared with the adopted tip at most once a minute.
     ///
-    /// The first time the tip is behind, the sample is stored and nothing is logged. Finishing
-    /// sync sees that header before the adoption that makes the tip live. A later sample logs
-    /// when the tip did not get closer and sync adoptions are no longer arriving faster than
-    /// 10 per second.
+    /// The effects and the log line live here; [`ChainLagMonitor`] keeps the state and decides.
+    /// The first check while the tip is behind logs nothing. Finishing sync sees that header
+    /// before the adoption that makes the tip live. A later check logs when the tip did not get
+    /// closer, has not reached the height of the validated header behind the previous check, and
+    /// sync adoptions are no longer arriving faster than 10 per second. A node at the tip sees
+    /// each header before adopting it, so two long gaps between blocks log nothing.
     async fn note_chain_lag(&mut self, eff: &Effects<TrackPeersMsg>, peer: Peer, header: &Header, now: Instant) {
-        if self.last_chain_lag_check.is_some_and(|at| now.saturating_since(at) < CHAIN_LAG_LOG_INTERVAL) {
+        if !self.chain_lag.is_due(now) {
             return;
         }
         if classify(header.slot(), now, &self.era_history) != ConsensusMode::Live {
             return;
         }
-        self.last_chain_lag_check = Some(now);
+        self.chain_lag.record_check(now);
         let tip = eff.external(GetBestChainTipEffect).await;
         let Some(lateness) = tip_lateness(tip.slot(), now, &self.era_history) else {
             return;
         };
         if lateness < LIVE_TIP_LAG {
-            self.chain_lag = None;
+            self.chain_lag.caught_up();
             return;
         }
         let catching_up_fast = eff.external(Performance::sync_adoption_is_fast(now)).await;
-        match judge_chain_lag(self.chain_lag, now, lateness, catching_up_fast) {
-            ChainLagWatch::CaughtUp => self.chain_lag = None,
-            ChainLagWatch::Quiet(sample) => self.chain_lag = Some(sample),
-            ChainLagWatch::Lagging(sample) => {
-                self.chain_lag = Some(sample);
-                let live_slot = header.slot();
-                let our_slot = tip.slot();
-                let lag = live_slot - our_slot;
-                error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
-            }
+        if self.chain_lag.judge(lateness, header.hash(), tip.block_height(), catching_up_fast) == ChainLag::Lagging {
+            let live_slot = header.slot();
+            let our_slot = tip.slot();
+            let lag = live_slot - our_slot;
+            error!(consensus::chainsync::CHAIN_LAGGING, peer, live_slot, our_slot, lag);
         }
     }
 
@@ -766,7 +757,10 @@ impl TrackPeers {
 
         let result = self.validate_header(peer, *conn_id, *variant, header, *tip, &ledger, &store, now).await;
         let validated = match result {
-            Ok(validated) => validated,
+            Ok(validated) => {
+                self.chain_lag.header_validated(header.hash(), header.block_height());
+                validated
+            }
             Err(error) => {
                 if let Some(dh) = self.try_defer_for_stake(&args, &error) {
                     return Err(dh);

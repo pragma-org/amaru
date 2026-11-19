@@ -33,8 +33,8 @@ use tracing::{
 use tracing_subscriber::{
     field::{MakeVisitor, VisitFmt, VisitOutput},
     fmt::{
-        FmtContext, FormatEvent, FormatFields, FormattedFields,
-        format::{DefaultFields, Writer},
+        FmtContext, FormatEvent, FormatFields, FormattedFields, Layer, MakeWriter,
+        format::{DefaultFields, FmtSpan, Writer},
         time::{FormatTime, SystemTime},
     },
     registry::LookupSpan,
@@ -281,6 +281,24 @@ impl<V: VisitFmt> VisitFmt for HideTagVisitor<V> {
 /// Compose with [`CborConsoleEventFormat`] (EDR-033).
 pub fn console_field_formatter() -> HideTagFields<CborAwareMakeVisitor<DefaultFields>> {
     HideTagFields(CborAwareMakeVisitor(DefaultFields::new()))
+}
+
+/// Build a CBOR-aware console layer with the requested span lifecycle events.
+pub fn console_layer<S, W>(
+    writer: W,
+    ansi: bool,
+    span_events: FmtSpan,
+) -> Layer<S, HideTagFields<CborAwareMakeVisitor<DefaultFields>>, CborConsoleEventFormat, W>
+where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
+{
+    tracing_subscriber::fmt::layer()
+        .with_writer(writer)
+        .with_span_events(span_events)
+        .with_ansi(ansi)
+        .fmt_fields(console_field_formatter())
+        .event_format(CborConsoleEventFormat::new().with_ansi(ansi))
 }
 
 // -----------------------------------------------------------------------------

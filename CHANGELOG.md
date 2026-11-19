@@ -39,6 +39,7 @@ Other guiding principles:
 
 ### Added
 
+- **amaru**: `amaru pool create` generates cold keys and an issue counter offline, with optional payment and owner/reward stake key pairs. Prints the pool ID and generated verification keys and addresses as JSON to stdout; payment keys without stake keys produce an enterprise address with no staking rights. Existing output files are never replaced.
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
 - **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
 
@@ -51,6 +52,7 @@ Other guiding principles:
 ### Fixed
 
 - **amaru-kernel**: repeated verification-key witnesses count once on Conway. At protocol version 12 the node rejects them in blocks and submitted transactions, and removes transactions with repeated witnesses when revalidating the mempool. ([#1351](https://github.com/pragma-org/amaru/issues/1351))
+- **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 

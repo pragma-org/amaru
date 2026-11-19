@@ -18,8 +18,9 @@ use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
-use amaru_protocols::chainsync::{
-    self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext,
+use amaru_protocols::{
+    chainsync::{self, ChainSyncInitiatorMsg, HeaderContent, InitiatorMessage, InitiatorMessage::RequestNext},
+    store_effects::GetBestChainTipEffect,
 };
 use amaru_pure_stage::{
     Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_no_clock,
@@ -27,12 +28,12 @@ use amaru_pure_stage::{
 };
 
 use crate::{
-    consensus_mode::{ChainLagSample, tip_lateness},
+    consensus_mode::{Behind, ChainLagMonitor, PromptingHeader, tip_lateness},
     effects::{ValidateHeaderEffect, VolatileTipEffect},
     errors::ConsensusError,
     stages::{
         peer_selection::PeerSelectionMsg,
-        test_utils::{start_in_era, te_clock_read, te_input, te_send, te_state, tm_state},
+        test_utils::{Logs, start_in_era, te_clock_read, te_input, te_send, te_state, tm_state},
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
@@ -940,11 +941,14 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
 
     let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
     let mut expected = prep.state.clone();
-    expected.last_chain_lag_check = Some(now);
-    expected.chain_lag = Some(ChainLagSample {
-        at: now,
-        lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
-    });
+    expected.chain_lag = ChainLagMonitor::for_tests(
+        now,
+        Some(Behind {
+            lateness: tip_lateness(Point::Origin.slot(), now, &EraHistory::default()).expect("origin slot"),
+            // Rejected, so its claimed height never becomes the baseline.
+            prompted_by: PromptingHeader::Unvalidated(header.hash()),
+        }),
+    );
     let mut state = prep.state.clone();
     state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
 
@@ -968,6 +972,172 @@ fn test_roll_forward_header_slot_too_far_future_adversarial() {
             te_header_rejected("invalid header"),
             te_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer)).into(),
             te_state("tp-1", &expected).into(),
+        ],
+    );
+}
+
+/// Three blocks 90 seconds apart, the last one at the current slot. Rolls forward the last
+/// header 90 seconds after the check that stored a sample for the middle one, with
+/// `headers[adopted]` as the adopted tip. With `previous_rejected` the header behind the stored
+/// sample failed validation, so the sample has no height.
+fn roll_forward_after_chain_lag_sample(adopted: usize, previous_rejected: bool) -> Logs {
+    let prep = test_prep();
+    let peer = Peer::for_test(3001);
+    let now = Instant::at_offset(Duration::from_secs(SIM_INITIAL_CLOCK_SECS), start_in_era().relative_time);
+    let curr_slot =
+        EraHistory::default().relative_time_to_slot(now.duration_since_global_epoch()).expect("current slot").as_u64();
+    let grandparent = make_block_header(1, curr_slot - 180, None);
+    let parent = make_block_header(2, curr_slot - 90, Some(grandparent.hash()));
+    let header = make_block_header(3, curr_slot, Some(parent.hash()));
+    let tip = [grandparent.point(), parent.point()][adopted];
+    let msg = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer,
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
+    });
+
+    // The simulation clock starts at 10 seconds, so the earlier check is placed through the epoch offset.
+    let previous_check = Instant::at_offset(
+        Duration::from_secs(SIM_INITIAL_CLOCK_SECS),
+        start_in_era().relative_time - Duration::from_secs(90),
+    );
+    let mut state = prep.state.clone();
+    state.insert_peer(peer, prep.conn_id, parent.point(), parent.point());
+    state.chain_lag = ChainLagMonitor::for_tests(
+        previous_check,
+        Some(Behind {
+            lateness: Duration::from_secs(90),
+            prompted_by: if previous_rejected {
+                PromptingHeader::Unvalidated(parent.hash())
+            } else {
+                PromptingHeader::Validated(parent.block_height())
+            },
+        }),
+    );
+
+    let mut expected = state.clone();
+    expected.insert_peer(peer, prep.conn_id, header.point(), header.point());
+    expected.chain_lag = ChainLagMonitor::for_tests(
+        now,
+        Some(Behind {
+            lateness: tip_lateness(tip.slot(), now, &EraHistory::default()).expect("tip slot"),
+            // Validated, so its height is the baseline for the next check.
+            prompted_by: PromptingHeader::Validated(header.block_height()),
+        }),
+    );
+
+    let (running, _guards, logs) =
+        setup_base(&prep.rt_handle(), state.clone(), [msg.clone()], build_store(&[]), |running| {
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, |_| {
+                OverrideResult::handled(Ok(Nonces::for_tests()))
+            });
+            running
+                .override_external_effect::<GetBestChainTipEffect>(usize::MAX, move |_| OverrideResult::handled(tip));
+        });
+    assert_trace_contains(
+        &running,
+        &[
+            te_state("tp-1", &state).into(),
+            te_input("tp-1", &msg).into(),
+            te_clock_suspend("tp-1").into(),
+            te_get_best_chain_tip("tp-1").into(),
+            te_sync_adoption_is_fast("tp-1", now).into(),
+            te_send("tp-1", "downstream", new_tip(header.point(), parent.point())).into(),
+            te_state("tp-1", &expected).into(),
+        ],
+    );
+    logs
+}
+
+/// At the tip a header is seen before it is adopted, so its check measures the gap to the
+/// previous block. Two gaps of 90 seconds in a row are not a node that fell behind.
+#[test]
+fn test_chain_lag_stays_quiet_when_the_tip_reached_the_previous_header() {
+    let mut logs = roll_forward_after_chain_lag_sample(1, false);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// The same headers with the adopted tip still below the previous one are reported.
+#[test]
+fn test_chain_lag_is_logged_when_the_tip_has_not_reached_the_previous_header() {
+    let mut logs = roll_forward_after_chain_lag_sample(0, false);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#, "lag=180"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// A header that claimed a low height and was then rejected leaves no baseline: with the tip
+/// stalled at the claimed height, the next check is judged on lateness and reported.
+#[test]
+fn test_chain_lag_is_logged_after_the_previous_header_was_rejected() {
+    let mut logs = roll_forward_after_chain_lag_sample(1, true);
+    logs.assert_and_remove(Level::DEBUG, &["roll_forward.process", r#"peer="127.0.0.1:3001""#])
+        .assert_and_remove(Level::DEBUG, &["chainsync.roll_forward_done", r#"outcome="stored""#])
+        .assert_and_remove(Level::ERROR, &["chainsync.chain_lagging", r#"peer="127.0.0.1:3001""#, "lag=90"])
+        .assert_no_remaining_at([Level::INFO, Level::WARN, Level::ERROR]);
+}
+
+/// A near-now header that arrives while its connection is deferred is sampled but not validated.
+/// Its claimed height is not a baseline, and the connection terminating before validation leaves
+/// the sample without one.
+#[test]
+fn test_chain_lag_sample_of_a_dropped_follow_up_has_no_height() {
+    let prep = test_prep();
+    let peer = Peer::for_test(3001);
+    let elapsed = prep.start_times.relative_time + Duration::from_secs(10);
+    let curr_slot = EraHistory::default().relative_time_to_slot(elapsed).expect("slot from start time").as_u64();
+    let parent = make_block_header(1, curr_slot - 1, None);
+    let header = make_block_header(2, curr_slot, Some(parent.hash()));
+    let mut state = prep.state.clone();
+    state.insert_peer(peer, prep.conn_id, parent.point(), header.point());
+    state.push_deferred_for_tests(peer, prep.conn_id, prep.handler.clone(), parent.clone(), header.point());
+
+    let roll_forward = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer,
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&header, EraName::Conway), header.point()),
+    });
+    let terminated = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+        peer,
+        conn_id: prep.conn_id,
+        handler: prep.handler.clone(),
+        msg: chainsync::InitiatorResult::Terminated,
+    });
+
+    let (running, _guards, _logs) = setup_base(
+        &prep.rt_handle(),
+        state.clone(),
+        [roll_forward.clone(), terminated.clone()],
+        build_store(&[]),
+        |_| {},
+    );
+    let hash = header.hash();
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &roll_forward).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                move |s| {
+                    s.deferred.len() == 2
+                        && s.chain_lag.behind().map(|b| b.prompted_by) == Some(PromptingHeader::Unvalidated(hash))
+                },
+                "follow-up sampled without a height",
+            ),
+            te_input("tp-1", &terminated).into(),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                move |s| {
+                    s.deferred.is_empty()
+                        && s.chain_lag.behind().map(|b| b.prompted_by) == Some(PromptingHeader::Unvalidated(hash))
+                },
+                "dropped follow-up leaves no height",
+            ),
         ],
     );
 }

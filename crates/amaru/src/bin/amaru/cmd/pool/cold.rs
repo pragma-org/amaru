@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
 use amaru_kernel::{VerificationKey, cbor};
 use amaru_ouroboros::{credentials::generate_cold_key_pair, envelope::HasEnvelope};
-use anyhow::Context;
+use anyhow::{Context, ensure};
 use tempfile::NamedTempFile;
 
 use super::{ensure_absent, prepare_file, publish_new};
@@ -59,6 +62,32 @@ pub(super) fn prepare_counter(counter: &IssueCounter, path: &Path) -> anyhow::Re
     let mut encoder = cbor::Encoder::new(Vec::new());
     encoder.array(2)?.u64(counter.next)?.bytes(counter.cold.as_slice())?;
     prepare_file(path, &encoder.into_writer())
+}
+
+pub(super) fn recovery_path(counter: &Path) -> PathBuf {
+    let mut path = counter.as_os_str().to_owned();
+    path.push(".cert-recovery");
+    PathBuf::from(path)
+}
+
+/// Return the lock path, checking that any existing entry is a regular file accessible for reading and writing.
+pub(super) fn check_counter_lock(counter: &Path) -> anyhow::Result<PathBuf> {
+    let mut path = counter.as_os_str().to_owned();
+    path.push(".lock");
+    let path = PathBuf::from(path);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            ensure!(metadata.is_file(), "counter lock must be a regular file: {}", path.display());
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .with_context(|| format!("could not open counter lock {} for reading and writing", path.display()))?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("could not check counter lock {}", path.display())),
+    }
+    Ok(path)
 }
 
 /// Generate raw cold keys and a binary CBOR issue counter starting at zero.

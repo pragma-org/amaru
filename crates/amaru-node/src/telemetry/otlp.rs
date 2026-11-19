@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! OTLP exporter construction, signal selection and provider shutdown.
+
 use std::{str::FromStr, time::Duration};
 
-use amaru_observability::{offer_span_elapsed, prepare_exported_attributes};
-use opentelemetry::{Context, Key};
+use amaru_metrics::{METRICS_METER_NAME, Meter};
+use amaru_observability::{CborOtelLogBridge, offer_span_elapsed, prepare_exported_attributes};
+use opentelemetry::{Context, Key, metrics::MeterProvider as _, trace::TracerProvider as _};
 use opentelemetry_otlp::ExporterBuildError;
 use opentelemetry_sdk::{
     Resource,
@@ -26,6 +29,9 @@ use opentelemetry_sdk::{
 };
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use thiserror::Error;
+use tracing::Subscriber;
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::registry::LookupSpan;
 
 /// Environment variable controlling the interval between two OTLP metrics exports, in milliseconds.
 pub const OTEL_METRIC_EXPORT_INTERVAL: &str = "OTEL_METRIC_EXPORT_INTERVAL";
@@ -78,6 +84,10 @@ where
 
     fn force_flush(&self) -> OTelSdkResult {
         self.inner.force_flush()
+    }
+
+    fn set_resource(&mut self, resource: &Resource) {
+        self.inner.set_resource(resource);
     }
 }
 
@@ -135,7 +145,23 @@ pub enum OtelSignal {
 }
 
 impl OtelSignal {
-    const ALL: [Self; 3] = [Self::Metrics, Self::Traces, Self::Logs];
+    pub(super) const ALL: [Self; 3] = [Self::Metrics, Self::Traces, Self::Logs];
+
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Metrics => "metrics",
+            Self::Traces => "traces",
+            Self::Logs => "logs",
+        }
+    }
+
+    pub(super) fn index(self) -> usize {
+        match self {
+            Self::Metrics => 0,
+            Self::Traces => 1,
+            Self::Logs => 2,
+        }
+    }
 }
 
 impl FromStr for OtelSignal {
@@ -253,6 +279,29 @@ impl OpenTelemetryProviders {
     /// Return the log provider when log export is enabled.
     pub fn logger_provider(&self) -> Option<&SdkLoggerProvider> {
         self.logs.as_ref()
+    }
+
+    /// Create the node meter, or a no-op meter when metric export is disabled.
+    pub fn meter(&self) -> Meter {
+        self.metrics.as_ref().map(|provider| Meter::from(provider.meter(METRICS_METER_NAME))).unwrap_or_default()
+    }
+
+    /// Create the OTLP trace layer, leaving filtering to the caller.
+    pub fn trace_layer<S>(&self) -> Option<OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>>
+    where
+        S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+    {
+        self.traces.as_ref().map(|provider| {
+            tracing_opentelemetry::layer()
+                .with_tracer(provider.tracer(self.service_name.clone()))
+                .with_level(true)
+                .with_target(true)
+        })
+    }
+
+    /// Create the CBOR-aware OTLP log layer, leaving filtering to the caller.
+    pub fn log_layer(&self) -> Option<CborOtelLogBridge<SdkLoggerProvider, opentelemetry_sdk::logs::SdkLogger>> {
+        self.logs.as_ref().map(CborOtelLogBridge::new)
     }
 
     /// Flush and shut down every constructed provider.

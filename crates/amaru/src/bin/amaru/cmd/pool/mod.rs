@@ -22,6 +22,7 @@ use super::files::{ensure_absent, prepare_file, prepare_key, publish_new, sync_p
 
 pub mod cert;
 pub mod cold;
+pub mod create;
 pub mod id;
 pub mod kes;
 pub mod schedule;
@@ -30,6 +31,8 @@ pub mod vrf;
 /// Stake pool operator tools.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum PoolCommand {
+    Create(create::CreateArgs),
+
     #[command(subcommand)]
     Cert(cert::CertCommand),
 
@@ -52,6 +55,7 @@ pub(crate) enum PoolCommand {
 impl PoolCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
+            Self::Create(args) => args.into_runnable(),
             Self::Cert(cmd) => cmd.into_runnable(),
             Self::Cold(cmd) => cmd.into_runnable(),
             Self::Kes(cmd) => cmd.into_runnable(),
