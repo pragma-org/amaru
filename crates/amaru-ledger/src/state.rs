@@ -343,6 +343,19 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         self.candidate_snapshot.candidate().map(|snapshot| (snapshot.epoch(), snapshot.last_block()))
     }
 
+    /// The epoch and the last block of the candidate snapshot whose directory is on disk, candidate
+    /// or settled.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn candidate_snapshot_on_disk(&self) -> Option<(Epoch, Point)> {
+        self.candidate_snapshot.on_disk().map(|snapshot| (snapshot.epoch(), snapshot.last_block()))
+    }
+
+    /// Whether the stake distribution and rewards computation is still running in the background.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn is_computing_stake_distribution(&self) -> bool {
+        self.stake_distribution_and_rewards_task.as_ref().is_some_and(|task| !task.handle.is_finished())
+    }
+
     /// Points of the blocks of the closing epoch that are still volatile, oldest first.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn volatile_epoch_tail(&self) -> Vec<Point> {

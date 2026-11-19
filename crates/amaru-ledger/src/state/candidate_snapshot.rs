@@ -115,7 +115,7 @@ impl CandidateSnapshotState {
     }
 
     /// The snapshot that still has a directory on disk, candidate or settled.
-    fn on_disk(&self) -> Option<&CandidateSnapshot> {
+    pub fn on_disk(&self) -> Option<&CandidateSnapshot> {
         match &self.0 {
             Lifecycle::Candidate(snapshot) | Lifecycle::Settled(snapshot) => Some(snapshot),
             Lifecycle::Absent => None,
