@@ -271,6 +271,9 @@ pub struct ManagerConfig {
     pub share_request_interval: Duration,
     /// Addresses requested on each share call.
     pub share_request_amount: u8,
+    /// Offer peer sharing in the handshake. When off, no bearer requests or answers share
+    /// calls, since the negotiated flag is the AND of both sides.
+    pub peer_sharing: bool,
 }
 
 /// Default inbound cap. The node sets this from its downstream peer target.
@@ -317,6 +320,11 @@ impl ManagerConfig {
         self.share_request_interval = interval;
         self
     }
+
+    pub fn with_peer_sharing(mut self, peer_sharing: bool) -> Self {
+        self.peer_sharing = peer_sharing;
+        self
+    }
 }
 
 impl Default for ManagerConfig {
@@ -334,6 +342,7 @@ impl Default for ManagerConfig {
             share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
             share_request_interval: SHARE_REQUEST_INTERVAL,
             share_request_amount: SHARE_REQUEST_AMOUNT,
+            peer_sharing: true,
         }
     }
 }

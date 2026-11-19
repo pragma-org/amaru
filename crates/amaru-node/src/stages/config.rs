@@ -94,6 +94,9 @@ pub struct Config {
     /// Interval between subsequent peer-sharing requests (production 900s).
     pub share_request_interval: Duration,
 
+    /// Offer peer sharing to peers. Off for a block producer that only uses static peers.
+    pub peer_sharing: bool,
+
     /// Optional embedder observers (adopted blocks, full stake summaries).
     pub observers: amaru_ledger::LedgerObservers,
 
@@ -182,6 +185,7 @@ impl Default for Config {
             blockfetch_pipeline_n: NonZeroU8::MIN,
             share_request_initial_delay: SHARE_REQUEST_INITIAL_DELAY,
             share_request_interval: SHARE_REQUEST_INTERVAL,
+            peer_sharing: true,
             observers: amaru_ledger::LedgerObservers::default(),
             meter: None,
             realign_chain_store: true,

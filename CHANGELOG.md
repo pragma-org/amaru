@@ -41,6 +41,7 @@ Other guiding principles:
 
 - **amaru**: `amaru pool create` generates cold keys and an issue counter offline, with optional payment and owner/reward stake key pairs. Prints the pool ID and generated verification keys and addresses as JSON to stdout; payment keys without stake keys produce an enterprise address with no staking rights. Existing output files are never replaced.
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
+- **amaru**: `--peers-sharing-off` (`AMARU_PEERS_SHARING_OFF`) turns peer sharing off, for example on a block producer that only connects to its own relays. The node then offers peer sharing as disabled in the handshake, so it neither asks peers for addresses nor answers their requests. ([#1632](https://github.com/pragma-org/amaru/issues/1632))
 - **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
 
 ### Changed
