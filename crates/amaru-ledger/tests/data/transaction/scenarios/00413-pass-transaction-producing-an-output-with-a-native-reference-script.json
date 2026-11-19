@@ -1,0 +1,25 @@
+{
+  "title": "transaction producing an output with a native reference script",
+  "description": "A transaction spending a dev-key input into one output that carries a native script as its reference script.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820fb501d4f54e8272d2ac96499b684361e8ec700942b83b4058040d854c21fb5f000",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a004c4b40"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a300d9010281825820fb501d4f54e8272d2ac96499b684361e8ec700942b83b4058040d854c21fb5f0000181a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e0003d818458200820180021a00030d40a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258408acf7df1da2da7895d89ba281ab91ff2b758dc80d12aa223d0b8fa694f9b5326b3c229ceaa735a7e091c7c9ab6fb101ddf3a37cb5930d363c100a30b4f6f890af5f6",
+  "expected": "Pass"
+}

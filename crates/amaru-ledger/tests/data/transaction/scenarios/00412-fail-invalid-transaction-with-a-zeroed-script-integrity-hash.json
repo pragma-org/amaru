@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction with a zeroed script integrity hash",
+  "description": "An is_valid=false transaction spending a failing Plutus V3 input, whose script_data_hash is 32 zero bytes.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258204268dcd99aafa74861b8986f0937f68c6dca2ccef0b8c08de1a2c410b65848a900",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820b8fae5dffd392c3880da7818d6f6a81d3fba150ce2e85a3fdee14e2b9a47109800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d90102818258204268dcd99aafa74861b8986f0937f68c6dca2ccef0b8c08de1a2c410b65848a9000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b582000000000000000000000000000000000000000000000000000000000000000000dd9010281825820b8fae5dffd392c3880da7818d6f6a81d3fba150ce2e85a3fdee14e2b9a471098000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584024aa0c281642367911092ec620bbd88542681176d19a80fb68081fe6b88370e7988f24eceece06b8fe7582f18c3e3ee7ed155c8f657edacbd6359a55e488070805a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "PPViewHashesDontMatch"
+  }
+}
