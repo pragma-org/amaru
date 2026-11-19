@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction whose outputs fall one lovelace short of its inputs",
+  "description": "An is_valid=false transaction spending a failing Plutus V3 input, whose output and fee sum to one lovelace less than the input.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820aa6c9626f3cff1cb849d0aa5eb1fc2ed52a3bf1c2d233a8b2764cef338099c8e00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "8258208dd5a4ecd922f7313a16fbe8a1698f705e6a4588c0cebf5dee6410b09d3afc2b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d9010281825820aa6c9626f3cff1cb849d0aa5eb1fc2ed52a3bf1c2d233a8b2764cef338099c8e000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487aaf021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258208dd5a4ecd922f7313a16fbe8a1698f705e6a4588c0cebf5dee6410b09d3afc2b000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840686326fa3cf5b5f0feaa739ea825e21f374d21414b529079a03c5d787799b2b18d4cde34483acc5c5a852b7380329b1b8ac7e16ddccd8fcd141d34c37c54150a05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "ValueNotConservedUTxO"
+  }
+}

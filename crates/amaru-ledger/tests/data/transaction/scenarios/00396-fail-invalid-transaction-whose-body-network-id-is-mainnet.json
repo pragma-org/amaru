@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction whose body network id is mainnet",
+  "description": "An is_valid=false transaction on preprod spending a failing Plutus V3 input, whose body declares network id 1.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582044965408055aa8239623a37f3178f56f914a280ca2b2597e20dc8312a1eee5f700",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820a8173686e6f24da4de015633bb0910a65ef7ca3379cfdfcbb62ac189871daa4b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d901028182582044965408055aa8239623a37f3178f56f914a280ca2b2597e20dc8312a1eee5f7000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820a8173686e6f24da4de015633bb0910a65ef7ca3379cfdfcbb62ac189871daa4b000f01a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840d561bcb9624aeb07a34a43b5f4490750f50a69ce1a861ca6ba62a6872d9161a8a7b7074047a5717d89aacb67d5a666fe84228b5c043e97089709077c36ed9d0605a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "WrongNetworkInTxBody"
+  }
+}
