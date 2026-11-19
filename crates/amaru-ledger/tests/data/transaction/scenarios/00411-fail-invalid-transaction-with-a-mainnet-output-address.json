@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction with a mainnet output address",
+  "description": "An is_valid=false transaction on preprod spending a failing Plutus V3 input, whose only output pays a mainnet enterprise address.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258208d7495101b1a7c87c493d424ea50535a4f883a98b6718a8770781e77aea315ef00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820876ac9d0a2ad20e494c4323a20c51e57f5689db65f67913eb7a89b1a8a01506300",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d90102818258208d7495101b1a7c87c493d424ea50535a4f883a98b6718a8770781e77aea315ef000181a200581d6193c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820876ac9d0a2ad20e494c4323a20c51e57f5689db65f67913eb7a89b1a8a015063000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258407beed9796972e6a7362bb8c238548536ca37f321b3b57216483449e354d19a62f2523f66c58c64ecf0d3d63530e7bf2d95de5395e160128106f61648c93dcc0405a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "WrongNetworkInTxOutput"
+  }
+}
