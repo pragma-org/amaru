@@ -1,0 +1,34 @@
+{
+  "title": "invalid transaction larger than max transaction size",
+  "description": "An is_valid=false transaction of 303 bytes spending a failing Plutus V3 input, under a maximum transaction size of 302 bytes.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json",
+    "$override": {
+      "max_transaction_size": 302
+    }
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258208b497b8311ebb82981a4f4bbbb2db8939115b5ab9e932a04747b6ffd151386b100",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820da740d3dc629751e583c7ea5980a80f7e2af0fb50fe6c32ece24ff84ecd38c3c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d90102818258208b497b8311ebb82981a4f4bbbb2db8939115b5ab9e932a04747b6ffd151386b1000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820da740d3dc629751e583c7ea5980a80f7e2af0fb50fe6c32ece24ff84ecd38c3c000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840c5415bfec996ffbf5ec543ddc7cc4bc560b234370dac954ee76b6df8b0135c9a7a794896eca36434c070c01e2717c360fa08a56bfbf21a6dd4e1a7725a128e0b05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "MaxTxSizeUTxO"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "title": "pool registration with a 33-byte metadata hash",
+  "description": "A pool registration certificate for a new pool whose metadata hash is 33 bytes long.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258206b2e9f4c1a7d3e8b5f0c2a9d6e1b4f7c3a8e5d0b9f2c6a1e7d4b8f3c5a0e9d2b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a23c34600"
+      }
+    ],
+    "pools": []
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d90102818258206b2e9f4c1a7d3e8b5f0c2a9d6e1b4f7c3a8e5d0b9f2c6a1e7d4b8f3c5a0e9d2b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a05f2d3c0021a00030d4004d90102818a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd858205d0a2c9d3b6f18e4a7c1b2f09e83d4c6a5b7e2f1c0d9e8f7a6b5c4d3e2f1a0b9001a1443fd00d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd88082781d68747470733a2f2f6578616d706c652e636f6d2f706f6f6c2e6a736f6e5821000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584086a0a05eb9ab2d73210b6f271a56763f24d260a5d79828c8bbe54d1a683c880591891aa23f3b1807979be864c281326f48449e4fda48513834c71cc62659d20af5f6",
+  "expected": {
+    "predicate": "PoolMetadataHashTooBig"
+  }
+}

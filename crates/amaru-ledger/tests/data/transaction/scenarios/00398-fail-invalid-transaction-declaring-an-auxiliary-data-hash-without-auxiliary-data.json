@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction declaring an auxiliary data hash without auxiliary data",
+  "description": "An is_valid=false transaction spending a failing Plutus V3 input, whose body declares an auxiliary data hash while the transaction carries no auxiliary data.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820dcecf85db75c5a4a95bffff9be756bc9c266fe45041c26b9b84624fde3f7a14a00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "82582023a5a0b120df0b9f6df9b374448c79acd9ae09702811dd611aee1d20bf89c33700",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d9010281825820dcecf85db75c5a4a95bffff9be756bc9c266fe45041c26b9b84624fde3f7a14a000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd901028182582023a5a0b120df0b9f6df9b374448c79acd9ae09702811dd611aee1d20bf89c337000f000758207fdaa05de5009797290239ec6747ac40b57f282c4d913344164a03462357e49fa300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12584055e3ad467dde76a31be10848da28d4366b2e89cbb59e1ffac8aebf5ffcb00c338964f2e0e8c587c6dc25e859b1ee9df03c828813e57d01f151730448d012c40605a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "MissingTxMetadata"
+  }
+}

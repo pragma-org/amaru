@@ -575,7 +575,7 @@ normalizePoolFailure = \case
     WrongNetworkPOOL{} ->
         "WrongNetworkPOOL"
     PoolMedataHashTooBig{} ->
-        "PoolMedataHashTooBig"
+        "PoolMetadataHashTooBig"
     otherFailure ->
         "unsupported:" <> showText otherFailure
 
@@ -599,6 +599,8 @@ normalizeGovFailure = \case
         "InvalidPrevGovActionId"
     ZeroTreasuryWithdrawals{} ->
         "TreasuryWithdrawalsAllZeros"
+    TreasuryWithdrawalsNetworkIdMismatch{} ->
+        "TreasuryWithdrawalsNetworkIdMismatch"
     VotersDoNotExist{} ->
         "VotersDoNotExist"
     GovActionsDoNotExist{} ->

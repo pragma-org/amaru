@@ -327,6 +327,7 @@ pub(super) enum Predicate {
     ProposalProcedureNetworkIdMismatch,
     ProposalProceduresFieldNotSupported,
     ProposalReturnAccountDoesNotExist,
+    ReferenceInputsNotDisjointFromInputs,
     ScriptsNotPaidUTxO,
     ScriptWitnessNotValidatingUTXOW,
     StakeCredentialInvalidPoolDelegation,
@@ -341,6 +342,7 @@ pub(super) enum Predicate {
     TreasuryDonationFieldNotSupported,
     TreasuryWithdrawalReturnAccountsDoNotExist,
     TreasuryWithdrawalsAllZeros,
+    TreasuryWithdrawalsNetworkIdMismatch,
     UnspendableUTxONoDatumHash,
     ValidationTagMismatch { description: TagMismatchDescription },
     ValueNotConservedUTxO,
@@ -442,6 +444,9 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::Proposals(InvalidProposals::ReturnAddressWrongNetwork { .. }) => {
                 Predicate::ProposalProcedureNetworkIdMismatch
             }
+            PhaseOneError::Proposals(InvalidProposals::TreasuryWithdrawalWrongNetwork { .. }) => {
+                Predicate::TreasuryWithdrawalsNetworkIdMismatch
+            }
             PhaseOneError::Proposals(InvalidProposals::InvalidPrevGovActionId { .. }) => {
                 Predicate::InvalidPrevGovActionId
             }
@@ -502,9 +507,11 @@ impl From<PhaseOneError> for Predicate {
             PhaseOneError::ScriptPreparation(
                 PreparationError::MissingInput(_)
                 | PreparationError::TransactionTranslation(_)
-                | PreparationError::ScriptDeserialization(_)
-                | PreparationError::NonDisjointRefInputs { .. },
+                | PreparationError::ScriptDeserialization(_),
             ) => unreachable!("no predicate mapping yet for {err}"),
+            PhaseOneError::ScriptPreparation(PreparationError::NonDisjointRefInputs { .. }) => {
+                Predicate::ReferenceInputsNotDisjointFromInputs
+            }
             PhaseOneError::ScriptPreparation(PreparationError::MissingCostModel(_)) => Predicate::MissingCostModel,
             PhaseOneError::Certificates(InvalidCertificates::StakeCredentialInvalidPoolDelegation(ref e)) => match e {
                 DelegateError::UnknownSource(_) => Predicate::StakeCredentialInvalidPoolDelegation,

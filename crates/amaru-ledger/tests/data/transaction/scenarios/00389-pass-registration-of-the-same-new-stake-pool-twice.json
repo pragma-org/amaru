@@ -1,0 +1,26 @@
+{
+  "title": "registration of the same new stake pool twice",
+  "description": "Two pool registration certificates with different costs for the same unregistered pool, paying the 500 ADA pool deposit once.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820c47e2a9b5d1f8c3e6a0b4d7f2c9e5a1b8d3f6c0e4a7b2d9f5c1e8a3b6d0f4c7e00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a23c34600"
+      }
+    ],
+    "pools": []
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820c47e2a9b5d1f8c3e6a0b4d7f2c9e5a1b8d3f6c0e4a7b2d9f5c1e8a3b6d0f4c7e000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a05f2d3c0021a00030d4004d90102828a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd858205d0a2c9d3b6f18e4a7c1b2f09e83d4c6a5b7e2f1c0d9e8f7a6b5c4d3e2f1a0b9001a1443fd00d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f68a03581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd858205d0a2c9d3b6f18e4a7c1b2f09e83d4c6a5b7e2f1c0d9e8f7a6b5c4d3e2f1a0b9001a1443fd01d81e820001581de093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8d9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd880f6a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840b491460b702957c7d80f7e8afa239af2f1c05f85cddc5a25ba30eef1849b6d7a961c3156e44319d7769891025a16b498c928db0f28a90ac95fc2c5d0601d280af5f6",
+  "expected": "Pass"
+}
