@@ -17,7 +17,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use amaru_kernel::{EraHistory, NetworkMagic, PREPROD_ERA_HISTORY, Peer};
 use amaru_network::connection::TokioConnections;
 use amaru_observability::tracing;
-use amaru_ouroboros::{CloseReason, ConnectionId, MiniProtocolUse};
+use amaru_ouroboros::{CloseReason, ConnectionId, ConnectionRecord, MiniProtocolUse};
 use amaru_ouroboros_traits::ConnectionProvider;
 use amaru_pure_stage::{
     StageGraph, StageRef,
@@ -71,6 +71,33 @@ async fn test_connect_v15_initiator_v14_responder() -> anyhow::Result<()> {
 
     wait_for_termination(responder_done, initiator_done).await?;
     check_state(initiator, responder)?;
+    Ok(())
+}
+
+/// Peer sharing is the AND of both offers: a node that turns it off negotiates it off with a peer
+/// that offers it, so neither side runs the peer-sharing mini-protocol on that bearer.
+#[tokio::test]
+async fn test_peer_sharing_off_is_negotiated_off() -> anyhow::Result<()> {
+    setup_logging();
+    let (_responder, addr, _responder_done) = start_responder().await?;
+    let (_initiator, _initiator_done, _, tracking) =
+        start_initiator_with_configuration(Configuration::initiator().with_addr(addr).without_peer_sharing()).await?;
+    assert!(!wait_for_established(&tracking).await?.advertisable, "peer sharing negotiated on");
+
+    let (_responder, addr, _responder_done) =
+        start_responder_with_configuration(Configuration::responder().without_peer_sharing()).await?;
+    let (_initiator, _initiator_done, _, tracking) = start_initiator_at(addr).await?;
+    assert!(!wait_for_established(&tracking).await?.advertisable, "responder off, peer sharing negotiated on");
+    Ok(())
+}
+
+/// Both sides offer peer sharing by default.
+#[tokio::test]
+async fn test_peer_sharing_is_negotiated_on_by_default() -> anyhow::Result<()> {
+    setup_logging();
+    let (_responder, addr, _responder_done) = start_responder().await?;
+    let (_initiator, _initiator_done, _, tracking) = start_initiator_at(addr).await?;
+    assert!(wait_for_established(&tracking).await?.advertisable, "peer sharing negotiated off");
     Ok(())
 }
 
@@ -241,6 +268,19 @@ async fn wait_for_local_use(
     }
 }
 
+async fn wait_for_established(tracking: &InMemoryPeerTracking) -> anyhow::Result<ConnectionRecord> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        if let Some((record, _)) = tracking.established().into_iter().next() {
+            return Ok(record);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for an established bearer");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 async fn wait_for_close(tracking: &InMemoryPeerTracking, conn_id: ConnectionId) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
@@ -289,7 +329,9 @@ async fn start_responder_with_configuration(
         responder_network.stage("responder", manager::stage)
     };
     let responder_manager = create_manager(
-        ManagerConfig::default().with_max_n2n_version(configuration.max_n2n_version),
+        ManagerConfig::default()
+            .with_max_n2n_version(configuration.max_n2n_version)
+            .with_peer_sharing(configuration.peer_sharing),
         StageRef::blackhole(),
     );
     let responder_stage = responder_network.wire_up(responder_stage, responder_manager);
@@ -352,7 +394,8 @@ async fn start_initiator_with_configuration(
 
     let manager_config = ManagerConfig::default()
         .with_reconnect_delay(configuration.reconnect_delay)
-        .with_max_n2n_version(configuration.max_n2n_version);
+        .with_max_n2n_version(configuration.max_n2n_version)
+        .with_peer_sharing(configuration.peer_sharing);
     let initiator_manager = create_manager(manager_config, chainsync_stage.without_state());
     let initiator_stage = initiator_network.wire_up(initiator_stage, initiator_manager);
     let initiator_sender = initiator_network.input(initiator_stage);

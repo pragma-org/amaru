@@ -42,6 +42,7 @@ pub(super) struct Configuration {
     pub(super) chain_length: usize,
     pub(super) slow_manager: bool,
     pub(super) max_n2n_version: VersionNumber,
+    pub(super) peer_sharing: bool,
 }
 
 impl Configuration {
@@ -55,6 +56,7 @@ impl Configuration {
             processing_wait: None,
             slow_manager: false,
             max_n2n_version: VersionNumber::CURRENT,
+            peer_sharing: true,
         };
         initiator.with_best_chain_of_length(INITIATOR_BLOCKS_NB).with_txs(INITIATOR_TXS_NB)
     }
@@ -69,6 +71,7 @@ impl Configuration {
             processing_wait: None,
             slow_manager: false,
             max_n2n_version: VersionNumber::CURRENT,
+            peer_sharing: true,
         };
         responder.with_best_chain_of_length(RESPONDER_BLOCKS_NB).with_txs(RESPONDER_TXS_NB)
     }
@@ -106,6 +109,11 @@ impl Configuration {
 
     pub(super) fn with_max_n2n_version(mut self, version: VersionNumber) -> Self {
         self.max_n2n_version = version;
+        self
+    }
+
+    pub(super) fn without_peer_sharing(mut self) -> Self {
+        self.peer_sharing = false;
         self
     }
 
