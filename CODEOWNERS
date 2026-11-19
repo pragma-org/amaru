@@ -23,5 +23,5 @@ antithesis: @rkuhn @etorreborre
 /scripts/generate-winget-manifests @pragma-org/amaru-maintainers-committee
 /scripts/park-crates @pragma-org/amaru-maintainers-committee
 /scripts/render-nightly-downloads-page @pragma-org/amaru-maintainers-committee
-/scripts/update-changelog-after-release @pragma-org/amaru-maintainers-committee
+/scripts/batch-release-changelog @pragma-org/amaru-maintainers-committee
 /scripts/update-readme-installation-sections @pragma-org/amaru-maintainers-committee
