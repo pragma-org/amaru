@@ -195,6 +195,7 @@ fn validate_reference_script(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::{Hash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, utils::tests::run_strategy};
     use proptest::prelude::any;

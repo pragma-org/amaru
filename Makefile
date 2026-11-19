@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset conformance-uplc conformance-uplc-turbo conformance-ledger-rules
+.PHONY: help download-haskell-config coverage-html coverage-lconv coverage-ledger-rules check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset conformance-uplc conformance-uplc-turbo conformance-ledger-rules
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -180,6 +180,18 @@ coverage-lconv: ## &test Run test coverage for CI to upload to Codecov
 		--features amaru-uplc/dashu \
 		--lcov \
 		--output-path lcov.info
+
+coverage-ledger-rules: check-llvm-cov ## &test Run test coverage of the ledger transaction-rule corpus
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --no-report -p amaru-ledger --lib -- rules::transaction::tests::conformance
+	cargo llvm-cov report -p amaru-ledger \
+		--ignore-filename-regex 'amaru-ledger/src/([^r]|r[^u]|ru[^l]|rul[^e]|rule[^s])' \
+		--html \
+		--output-dir $(COVERAGE_DIR)
+	cargo llvm-cov report -p amaru-ledger \
+		--ignore-filename-regex 'amaru-ledger/src/([^r]|r[^u]|ru[^l]|rul[^e]|rule[^s])' \
+		--lcov \
+		--output-path $(COVERAGE_DIR)/lcov.info
 
 clean-dist:
 	@for path in "$(DIST_DIR)/bin" "$(DIST_DIR)/share"; do \

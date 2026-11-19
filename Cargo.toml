@@ -159,6 +159,7 @@ rust_2021_compatibility = "warn"
 #rust_2024_compatibility = "warn"
 nonstandard_style = { level = "deny" }
 future_incompatible = { level = "deny" }
+unexpected_cfgs = { level = "warn", priority = 1, check-cfg = ['cfg(coverage_nightly)'] }
 
 [workspace.lints.clippy]
 # Enable clippy lints for all members

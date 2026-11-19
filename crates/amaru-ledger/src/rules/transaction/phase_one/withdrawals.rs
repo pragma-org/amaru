@@ -134,6 +134,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
     use amaru_kernel::{Credential, Hash, Network, RewardAccount};
     use dashu_int::IBig;
