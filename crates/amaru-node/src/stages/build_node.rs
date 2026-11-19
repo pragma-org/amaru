@@ -60,7 +60,8 @@ use thiserror::Error;
 use tokio::runtime::Handle;
 
 use crate::{
-    ClearValidity,
+    BlockReader, ClearValidity,
+    block_reader::BlockReaderOwner,
     chain_realign::ensure_store_consistency,
     realign_chain_store_to,
     stages::{
@@ -256,9 +257,11 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
+    let chain_store = stage_builder.resources().get::<ResourceHeaderStore>()?.clone();
     let mempool_sender = stage_builder.input(node_stages.mempool_stage());
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+    let block_reader = BlockReaderOwner::new(chain_store, config.network());
+    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address, block_reader })
 }
 
 async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
@@ -328,9 +331,44 @@ pub struct NodeRunning {
     mempool_sender: Sender<MempoolMsg>,
     lifecycle: NodeLifecycle,
     listen_address: SocketAddr,
+    block_reader: BlockReaderOwner,
 }
 
 impl NodeRunning {
+    /// Obtain a cloneable handle for bounded immutable reads on an independent blocking worker.
+    /// Keeping this handle or a resolved scan does not keep the node or its stores alive.
+    /// Shutdown cancels reads and waits for their snapshots to be released.
+    ///
+    /// ```no_run
+    /// use amaru_node::{
+    ///     BlockBoundary, BlockRange, BlockReadCancellation, BlockReadLimits, BlockReadError, NodeRunning,
+    /// };
+    ///
+    /// fn start_indexer(
+    ///     node: &NodeRunning,
+    ///     range: BlockRange,
+    ///     cancellation: BlockReadCancellation,
+    /// ) -> tokio::task::JoinHandle<Result<BlockBoundary, BlockReadError>> {
+    ///     let reader = node.block_reader();
+    ///     tokio::task::spawn_blocking(move || {
+    ///         let limits = BlockReadLimits::default();
+    ///         let scan = reader.open(range, limits, cancellation)?;
+    ///         let mut after = scan.range().after;
+    ///         loop {
+    ///             let batch = scan.read_batch(after, limits)?;
+    ///             // Atomically commit index changes and batch.last_point in your database.
+    ///             // If batch.complete, also persist scan.boundary() as the completion boundary.
+    ///             after = batch.last_point;
+    ///             if batch.complete { return Ok(scan.boundary()); }
+    ///         }
+    ///     })
+    /// }
+    /// // The returned worker does not borrow NodeRunning. The host can still consume it for shutdown.
+    /// ```
+    pub fn block_reader(&self) -> BlockReader {
+        self.block_reader.reader()
+    }
+
     /// Bound node-to-node address, including the assigned port when configured with port zero.
     pub fn listen_address(&self) -> SocketAddr {
         self.listen_address
@@ -352,12 +390,18 @@ impl NodeRunning {
     ///
     /// This does not wait for cleanup; call [`Self::shutdown`] to finalize the node.
     pub fn request_abort(&self) {
+        self.block_reader.cancellation().cancel();
         self.tokio_running.request_abort();
     }
 
     /// Return a non-blocking abort callback that does not own the node's shutdown result.
     pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
-        self.tokio_running.abort_callback()
+        let abort = self.tokio_running.abort_callback();
+        let cancellation = self.block_reader.cancellation();
+        move || {
+            cancellation.cancel();
+            abort();
+        }
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
@@ -373,9 +417,10 @@ impl NodeRunning {
 
     /// Like [`Self::shutdown`], with an explicit ledger-worker wait budget.
     pub async fn shutdown_with_timeout(self, timeout: Duration) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
+        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _, block_reader } = self;
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
+        block_reader.cancellation().cancel();
         tokio_running.request_abort();
         drop(mempool_sender);
         let mut unexpected_exits = match tokio_running.join().await {
@@ -389,6 +434,7 @@ impl NodeRunning {
         );
         drop(connections);
         let (ledger, performance) = tokio::task::spawn_blocking(move || {
+            block_reader.close();
             let ledger = ledger_thread.join_timeout(timeout);
             (ledger, performance())
         })

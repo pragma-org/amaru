@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::{Header, HeaderHash, NetworkPoint, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, NetworkPoint, Point, PoolId, RawBlock, Slot};
 use parking_lot::Mutex;
 
 use crate::{
@@ -91,6 +91,14 @@ impl OverridingChainStoreBuilder {
 }
 
 impl BaseReadChainStore for OverridingChainStore {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.inner.block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }
@@ -151,6 +159,14 @@ impl ReadChainStore for OverridingChainStore {
 }
 
 impl BaseReadChainStore for OverridingChainStoreSnapshot<'_> {
+    fn read_anchor_point(&self) -> Result<Point, StoreError> {
+        self.inner.read_anchor_point()
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.inner.block_at_or_after(slot)
+    }
+
     fn load_header(&self, hash: &HeaderHash) -> Option<Header> {
         self.inner.load_header(hash)
     }
