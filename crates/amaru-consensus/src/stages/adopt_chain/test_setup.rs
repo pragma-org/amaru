@@ -18,14 +18,18 @@ use amaru_kernel::{
     BlockHeight, EraHistory, Header, HeaderHash, IsHeader, NonEmptyVec, Point, Slot,
     cardano::network_block::EncodedTestBlock, make_header, make_header_with_op_cert_seq,
 };
+use amaru_metrics::{ConsensusMetrics, MetricsEvent};
 use amaru_ouroboros::{MempoolMsg, StoreError};
 use amaru_ouroboros_traits::{
     BaseReadChainStore, DiagnosticChainStore, WriteChainStore, in_memory_chain_store::InMemoryChainStore,
 };
-use amaru_protocols::store_effects::{
-    FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
-    IsOnBestChainEffect, LoadHeaderEffect, LoadPointEffect, NextBestChainEffect, ResourceHeaderStore,
-    RollForwardChainEffect, SetAnchorPointEffect, SwitchToForkEffect,
+use amaru_protocols::{
+    metrics_effects::RecordMetricsEffect,
+    store_effects::{
+        FindAncestorOnBestChainEffect, FindAnchorAtHeightEffect, GetAnchorHashEffect, GetBestChainHashEffect,
+        IsOnBestChainEffect, LoadHeaderEffect, LoadPointEffect, NextBestChainEffect, ResourceHeaderStore,
+        RollForwardChainEffect, SetAnchorPointEffect, SwitchToForkEffect,
+    },
 };
 use amaru_pure_stage::{
     DeserializerGuards, Effect, Name, StageGraph, StageRef, TerminationReason,
@@ -137,6 +141,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<NextBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAncestorOnBestChainEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<FindAnchorAtHeightEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::PruneBelowEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::RecordBlockValidEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::UpdateConsensusModeEffect>().boxed(),
@@ -225,6 +230,13 @@ pub fn te_set_anchor_point(at_stage: &str, point: Point) -> TraceEntry {
 
 pub fn te_switch_to_fork(at_stage: &str, fork_point: Point, forward_points: NonEmptyVec<Point>) -> TraceEntry {
     TraceEntry::suspend(Effect::external(at_stage, Box::new(SwitchToForkEffect::new(fork_point, forward_points))))
+}
+
+pub fn te_record_fork(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(RecordMetricsEffect::new(MetricsEvent::ConsensusMetrics(ConsensusMetrics::SwitchedToFork))),
+    ))
 }
 
 pub fn te_roll_forward_chain(at_stage: &str, point: Point) -> TraceEntry {

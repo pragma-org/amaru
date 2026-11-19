@@ -533,11 +533,12 @@ fn duplicate_loser_death_after_the_outbound_slot_moves_is_not_a_failed_dial() {
     assert_eq!(sim.recorder.closed().len(), 1);
 }
 
-fn counts(inbound: u64, outbound: u64, unidirectional: u64) -> ConnectionManagerMetrics {
+fn counts(inbound: u64, outbound: u64, unidirectional: u64, duplex: u64) -> ConnectionManagerMetrics {
     ConnectionManagerMetrics {
         inbound_connections: inbound,
         outbound_connections: outbound,
         unidirectional_connections: unidirectional,
+        duplex_connections: duplex,
     }
 }
 
@@ -575,7 +576,7 @@ fn connection_counts_follow_live_connections() {
 
     assert_eq!(
         *sim.connection_counts.lock().expect("connection counts"),
-        vec![counts(1, 0, 1), counts(1, 1, 1), counts(0, 1, 0), counts(0, 0, 0)]
+        vec![counts(1, 0, 1, 0), counts(1, 1, 1, 1), counts(0, 1, 0, 1), counts(0, 0, 0, 0)]
     );
 }
 
@@ -601,7 +602,7 @@ fn refused_and_duplicate_handshakes_are_not_counted() {
     );
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
-    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(1, 0, 1)]);
+    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(1, 0, 1, 0)]);
 }
 
 #[test]
@@ -613,5 +614,5 @@ fn connection_counts_start_at_zero_when_listening() {
     sim.running.enqueue_msg(&sim.manager, [ManagerMessage::Listen(listen_addr)]);
     sim.running.run(Run::skip_and_resolve()).assert_idle();
 
-    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(0, 0, 0)]);
+    assert_eq!(*sim.connection_counts.lock().expect("connection counts"), vec![counts(0, 0, 0, 0)]);
 }

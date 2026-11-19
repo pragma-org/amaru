@@ -735,14 +735,20 @@ impl Manager {
     /// Called once the listener is up, and right after `connections`, which holds exactly the connections past their
     /// handshake, gains or loses a connection (before peer tracking records that change).
     async fn record_connection_counts(&self, eff: &Effects<ManagerMessage>) {
-        let mut counts =
-            ConnectionManagerMetrics { inbound_connections: 0, outbound_connections: 0, unidirectional_connections: 0 };
+        let mut counts = ConnectionManagerMetrics {
+            inbound_connections: 0,
+            outbound_connections: 0,
+            unidirectional_connections: 0,
+            duplex_connections: 0,
+        };
         for connection in self.connections.values() {
             match connection.direction {
                 ConnectionDirection::Inbound => counts.inbound_connections += 1,
                 ConnectionDirection::Outbound => counts.outbound_connections += 1,
             }
-            if !connection.full_duplex {
+            if connection.full_duplex {
+                counts.duplex_connections += 1;
+            } else {
                 counts.unidirectional_connections += 1;
             }
         }
