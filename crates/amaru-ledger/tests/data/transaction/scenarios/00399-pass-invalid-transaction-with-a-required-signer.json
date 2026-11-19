@@ -1,0 +1,29 @@
+{
+  "title": "invalid transaction with a required signer",
+  "description": "An is_valid=false transaction spending a failing Plutus V3 input, listing the dev key as a required signer and carrying its witness.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258206a683b61ca8c40faa58eba49b3016cd72636fcaedbe9aff2d5f95de59f56758500",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820e6d5353f6c9d2e7d7056a961a0b5e3e22b5b2a84cae9fe31efcf9cd800a4c14800",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d90102818258206a683b61ca8c40faa58eba49b3016cd72636fcaedbe9aff2d5f95de59f567585000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820e6d5353f6c9d2e7d7056a961a0b5e3e22b5b2a84cae9fe31efcf9cd800a4c148000f000ed9010281581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258405c4912e72ceb25042c88e4b5c25b5f722d8f4f2d6d1ee750206a5aceedd32870de3ccf07fdd4826fb6763bd9330efa5a9d3409a052ba8b7339c327afe210330a05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}
