@@ -42,6 +42,7 @@ pub mod ledger_reset;
 pub mod mithril;
 pub mod peer_snapshot;
 pub mod stages;
+mod store_metrics;
 pub mod submit_api;
 pub mod system_metrics;
 pub mod telemetry;

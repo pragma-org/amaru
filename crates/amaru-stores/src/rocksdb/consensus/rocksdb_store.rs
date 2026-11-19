@@ -15,14 +15,16 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use amaru_kernel::{HeaderHash, IsHeader as _};
+use amaru_metrics::RocksDbStore;
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
 use rocksdb::{DB, Options, WriteBatch};
 
 use crate::rocksdb::{
-    RocksDbConfig,
+    MetricsProbe, RocksDbConfig,
     consensus::{
         DbOps,
         base_read_chain_store::opcert_key,
@@ -31,6 +33,7 @@ use crate::rocksdb::{
             BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
         },
     },
+    metrics::read_metrics,
 };
 
 fn is_absent_or_empty_dir(path: &Path) -> bool {
@@ -109,6 +112,15 @@ impl RocksDBStore<DB> {
         let db = DB::open_for_read_only(&opts, &basedir, false)
             .map_err(|e| StoreError::OpenError { error: e.to_string() })?;
         Ok(Self { db, basedir })
+    }
+
+    /// A probe for the properties RocksDB reports about this store.
+    pub fn metrics_probe(self: &Arc<Self>) -> MetricsProbe {
+        let store = Arc::downgrade(self);
+        MetricsProbe::new(move || {
+            let store = store.upgrade()?;
+            Some(read_metrics(RocksDbStore::Chain, |name| store.db.property_int_value(name).ok().flatten()))
+        })
     }
 
     /// Runs the provided closure with a fresh `WriteBatch`, then commits it atomically.

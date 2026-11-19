@@ -22,6 +22,7 @@ pub use crate::{
     mempool::MempoolMetrics,
     metrics::{Counter, Gauge, Histogram, Meter},
     protocol::ProtocolMetrics,
+    rocksdb::{RocksDbMetrics, RocksDbStore},
     system::SystemMetrics,
 };
 
@@ -31,6 +32,7 @@ pub mod ledger;
 pub mod mempool;
 pub mod metrics;
 pub mod protocol;
+pub mod rocksdb;
 pub mod system;
 
 pub const METRICS_METER_NAME: &str = "cardano_node_metrics";
@@ -42,6 +44,7 @@ pub enum MetricsEvent {
     ProtocolMetrics(ProtocolMetrics),
     ConsensusMetrics(ConsensusMetrics),
     KesMetrics(KesMetrics),
+    RocksDbMetrics(RocksDbMetrics),
     SystemMetrics(SystemMetrics),
 }
 
@@ -58,6 +61,7 @@ impl MetricRecorder for MetricsEvent {
             MetricsEvent::ProtocolMetrics(protocol_metrics) => protocol_metrics.record_to_meter(meter),
             MetricsEvent::ConsensusMetrics(consensus_metrics) => consensus_metrics.record_to_meter(meter),
             MetricsEvent::KesMetrics(kes_metrics) => kes_metrics.record_to_meter(meter),
+            MetricsEvent::RocksDbMetrics(rocksdb_metrics) => rocksdb_metrics.record_to_meter(meter),
             MetricsEvent::SystemMetrics(system_metrics) => system_metrics.record_to_meter(meter),
         }
     }
