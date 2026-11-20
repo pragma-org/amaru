@@ -18,7 +18,8 @@ Track further block-producing support on the [Amaru roadmap](https://github.com/
 This guide has two paths, depending on what you're trying to do:
 
 - **[Fast-Forward on Preprod](01-amaru-fast-forward.md)** — the quickest way to get a synced Amaru node up for testing and development. Installs the binary, bootstraps from a snapshot, enjoy **[the Amaru TUI](02-amaru-tui.md)**.
-- **[Advanced Installation on Mainnet](03-amaru-advanced.md)** — a production-grade setup for operating Amaru on mainnet, in two parts:
+- **[Advanced Installation on Mainnet](03-amaru-advanced.md)** — a production-grade setup for operating Amaru on mainnet, in three parts:
   - **[System Hardening](04-amaru-advanced-hardening.md)**
   - **[Advanced Installation](05-amaru-advanced-installation.md)**
+  - **[Block Producer](06-amaru-block-producer.md)**
 
