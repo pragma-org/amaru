@@ -52,7 +52,7 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Name, StageGraph, StageGraphRunning,
+    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
     drop_guard::DropGuard,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
