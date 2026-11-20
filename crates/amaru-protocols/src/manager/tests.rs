@@ -38,6 +38,7 @@ use crate::{
     network_effects::{CloseEffect, ConnectEffect, ConnectError, ListenEffect},
     peer_tracking::{InMemoryPeerTracking, observed_at},
     protocol::Role,
+    protocol_messages::{version_data::PeerSharing, version_number::VersionNumber},
 };
 
 struct Harness {
@@ -122,6 +123,9 @@ fn handshake(
         role,
         full_duplex: false,
         advertisable,
+        n2n_version: VersionNumber::CURRENT,
+        initiator_only_diffusion_mode: true,
+        peer_sharing: if advertisable { PeerSharing::Enabled } else { PeerSharing::Disabled },
         caller: StageRef::blackhole(),
     }
 }
@@ -564,6 +568,9 @@ fn connection_counts_follow_live_connections() {
                 role: Role::Initiator,
                 full_duplex: true,
                 advertisable: true,
+                n2n_version: VersionNumber::CURRENT,
+                initiator_only_diffusion_mode: false,
+                peer_sharing: PeerSharing::Enabled,
                 caller: StageRef::blackhole(),
             },
             // The remote side closes the inbound connection, then we drop the outbound peer.

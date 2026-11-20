@@ -15,7 +15,7 @@
 use std::{sync::Arc, time::Duration};
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, Peer, Point, RawBlock,
+    BlockHeight, EraHistory, Header, HeaderHash, Peer, Point, RawBlock, Slot,
     cardano::network_block::{EncodedTestBlock, make_network_block},
 };
 use amaru_ouroboros_traits::{
@@ -289,6 +289,7 @@ pub fn te_record_block_delivery(
     peer: Peer,
     hash: HeaderHash,
     height: BlockHeight,
+    slot: Slot,
     parent: Option<HeaderHash>,
     at: Instant,
     response: Duration,
@@ -297,7 +298,7 @@ pub fn te_record_block_delivery(
     TraceEntry::suspend(Effect::external(
         at_stage,
         Box::new(crate::performance::Performance::record_block_delivery(
-            peer, hash, height, parent, at, response, bytes,
+            peer, hash, height, slot, parent, at, response, bytes,
         )),
     ))
 }

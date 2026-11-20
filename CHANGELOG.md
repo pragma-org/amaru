@@ -46,6 +46,10 @@ Other guiding principles:
 
 ### Changed
 
+- **amaru**: block propagation lines include the block slot and height. `block.received` also includes the raw block size in bytes. `tip.adopt` includes `adopt_kind`: `roll_forward` or `fork_switch`.
+- **amaru**: `header.announced`, `block.requested`, `block.received`, and `block.adopted` are always debug, including while the node is live. `block.adopted` is recorded for every block placed on the best chain, including the blocks between a fork and the new tip. `tip.adopt` logs only the new tip: while syncing, at most one info line per second; once live, one info line per block.
+- **amaru**: `node run` logs `node.run` at info once the peer listener is bound. The line names this binary's version, the node-to-node versions offered, the network, and the listen addresses. The versions and listen addresses are lists. The configuration dump stays on the `amaru::cli` span of the same name.
+- **amaru**: a completed handshake logs the negotiated node-to-node version, whether diffusion is initiator-only, and whether peer sharing is enabled. `connection_died_handled` includes `conn_id`. Orderly shutdown of `node run` logs `lifecycle.shutdown` with `reason=node_restart` before connections are closed.
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 - **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.

@@ -9,15 +9,17 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `adopted` | `event` | debug, info | public | The block was adopted locally. \`peer\` is the first peer that delivered the body, when a delivery was recorded. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | header_hash | peer, slot_latency_ms |
-| `received` | `event` | debug, info | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. \`fetch_latency_ms\` is milliseconds since the request was sent to this peer. | peer, header_hash, rank | slot_latency_ms, fetch_latency_ms |
-| `requested` | `event` | debug, info | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | header_hash, peers | slot_latency_ms |
+| `adopted` | `event` | debug | public | A block placed on the best chain. A fork switch includes each block from the fork up to the new tip. Chain selection may already have reported the tip; a second report emits nothing. \`peer\` is the first peer that delivered the body, when a delivery was recorded. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. Whether the move extended the chain or switched forks is \`adopt_kind\` on \`consensus::tip::ADOPT\`, which logs only the new tip. | header_hash, slot, block_height | peer, slot_latency_ms |
+| `received` | `event` | debug | public | A distinct peer delivered this block body. \`rank\` is 1 for the first delivery, then 2, 3, … in arrival order. \`size\` is the raw block length in bytes. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. \`fetch_latency_ms\` is milliseconds since the request was sent to this peer. | peer, header_hash, rank, slot, block_height, size | slot_latency_ms, fetch_latency_ms |
+| `requested` | `event` | debug | public | Peers asked to fetch this block body. \`peers\` is a comma-separated list of socket addresses, sorted. \`slot\` and \`block_height\` are omitted when this ask is recorded before any header for the hash has supplied them (may happen after node restart). \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | header_hash, peers | slot, block_height, slot_latency_ms |
 
 <details><summary>event: `adopted`</summary>
 
 | field | type | required |
 | --- | --- | --- |
 | `header_hash` | `string` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
 | `peer` | `string` |  |
 | `slot_latency_ms` | `integer` |  |
 
@@ -30,6 +32,9 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `peer` | `string` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `rank` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
+| `size` | `integer` | ✓ |
 | `slot_latency_ms` | `integer` |  |
 | `fetch_latency_ms` | `integer` |  |
 
@@ -41,6 +46,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- |
 | `header_hash` | `string` | ✓ |
 | `peers` | `string` | ✓ |
+| `slot` | `integer` |  |
+| `block_height` | `integer` |  |
 | `slot_latency_ms` | `integer` |  |
 
 </details>
@@ -49,7 +56,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `announced` | `event` | debug, info | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | peer, header_hash, rank | slot_latency_ms |
+| `announced` | `event` | debug | public | One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. \`rank\` is 1, 2, or 3 in arrival order. Later peers are not logged. \`slot\` is the header's slot. \`block_height\` is its block number. \`slot_latency_ms\` is milliseconds since the onset of this block's slot. | peer, header_hash, rank, slot, block_height | slot_latency_ms |
 
 <details><summary>event: `announced`</summary>
 
@@ -58,6 +65,8 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `peer` | `string` | ✓ |
 | `header_hash` | `string` | ✓ |
 | `rank` | `integer` | ✓ |
+| `slot` | `integer` | ✓ |
+| `block_height` | `integer` | ✓ |
 | `slot_latency_ms` | `integer` |  |
 
 </details>
@@ -1703,7 +1712,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `adopt` | `event` | debug, info | public | Adopt a tip as the next tip in the best chain | slot, header_hash, block_height, max_block_height, suppressed |  |
+| `adopt` | `event` | debug, info | public | The new best-chain tip, for the console. A fork switch logs only this tip. \`adopt_kind\` ∈ {roll_forward, fork_switch}. While syncing, at most one line per second is info; the rest are debug and counted in \`suppressed\`. While live, every new tip is info. | slot, header_hash, block_height, max_block_height, suppressed, adopt_kind |  |
 | `mode` | `event` | info | public | The node switched between catching up and live. \`mode\` and \`previous\` ∈ {sync, live}. | mode, previous, slot |  |
 
 <details><summary>event: `adopt`</summary>
@@ -1715,6 +1724,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `block_height` | `integer` | ✓ |
 | `max_block_height` | `integer` | ✓ |
 | `suppressed` | `integer` | ✓ |
+| `adopt_kind` | `string` | ✓ |
 
 </details>
 
@@ -2801,6 +2811,23 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::node`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `run` | `event` | info | public | The node process is up. Stable identity for this run, separate from the \`amaru::cli\` configuration dump. \`version\` is this binary. \`n2n_versions\` is the node-to-node versions offered, lowest first. \`listen_addrs\` is the bound peer listener, then the submit API address when one is enabled. | version, n2n_versions, network, listen_addrs |  |
+
+<details><summary>event: `run`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `version` | `string` | ✓ |
+| `n2n_versions` | `array` | ✓ |
+| `network` | `string` | ✓ |
+| `listen_addrs` | `array` | ✓ |
+
+</details>
+
 ## target: `amaru::node::build`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -3062,11 +3089,11 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `connect_failed` | `event` | info | public | An outbound connection attempt failed | peer, error |  |
 | `connected` | `event` | info | public | An outbound connection to a peer was established | peer, conn_id |  |
 | `connection_died` | `span` |  | public | A peer connection has died | peer, conn_id, role |  |
-| `connection_died_handled` | `event` | info | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}. | peer, outcome |  |
+| `connection_died_handled` | `event` | info | public | A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, kept_for_inbound}. | peer, conn_id, outcome |  |
 | `disconnect_ignored` | `event` | debug, info | public | A disconnect request could not be carried out. Reason ∈ {not_connected, connection_not_found, peer_already_removed, before_handshake, rejected_duplicate}. | peer, reason | conn_id |
 | `disconnecting` | `event` | debug, info | public | A connection is being closed on request. Direction ∈ {inbound, outbound}. | peer, conn_id, direction |  |
 | `duplicate_terminated` | `event` | info | public | A duplicate connection is terminated after its handshake completed | peer, conn_id |  |
-| `handshake_completed` | `event` | info | public | The handshake completed on a connection | peer, conn_id, role, full_duplex, advertisable |  |
+| `handshake_completed` | `event` | info | public | The handshake completed on a connection. \`peer_sharing\` ∈ {Enabled, Disabled}. \`full_duplex\` is the inverse of \`initiator_only_diffusion_mode\`. | peer, conn_id, role, full_duplex, advertisable, n2n_version, initiator_only_diffusion_mode, peer_sharing |  |
 | `inbound_refused` | `event` | info | public | An inbound handshake was refused because the inbound cap is full | peer, conn_id |  |
 | `local_use_applied` | `event` | info | public | The connection finished converging to this local use | peer, conn_id, local_use |  |
 | `remove` | `span` |  | public | A peer was removed from the manager | peer |  |
@@ -3148,6 +3175,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | field | type | required |
 | --- | --- | --- |
 | `peer` | `string` | ✓ |
+| `conn_id` | `integer` | ✓ |
 | `outcome` | `string` | ✓ |
 
 </details>
@@ -3190,6 +3218,9 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `role` | `string` | ✓ |
 | `full_duplex` | `boolean` | ✓ |
 | `advertisable` | `boolean` | ✓ |
+| `n2n_version` | `integer` | ✓ |
+| `initiator_only_diffusion_mode` | `boolean` | ✓ |
+| `peer_sharing` | `string` | ✓ |
 
 </details>
 
@@ -3641,6 +3672,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- | --- | --- | --- | --- |
 | `consensus_died` | `event` | error | public | The consensus pipeline stopped while the node was still running |  |  |
 | `ledger_still_closing` | `event` | warn | public | Ledger cleanup is still running after the soft shutdown timeout | status, phase |  |
+| `shutdown` | `event` | info | public | The node process is stopping. Sessions still open at this line close as a restart of this process. \`reason\` ∈ {node_restart}. | reason |  |
 | `termination_signal` | `event` | warn | public | A termination signal was received; the node is shutting down |  |  |
 
 <details><summary>event: `ledger_still_closing`</summary>
@@ -3649,6 +3681,14 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | --- | --- | --- |
 | `status` | `string` | ✓ |
 | `phase` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `shutdown`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `reason` | `string` | ✓ |
 
 </details>
 

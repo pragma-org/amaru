@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{
-    BlockHeight, EraHistory, Header, HeaderHash, IsHeader, Point, cardano::network_block::EncodedTestBlock,
+    BlockHeight, EraHistory, Header, HeaderHash, IsHeader, Point, Slot, cardano::network_block::EncodedTestBlock,
     make_header, make_header_with_op_cert_seq,
 };
 use amaru_ouroboros_traits::{BaseReadChainStore, ChainStore, in_memory_chain_store::InMemoryChainStore};
@@ -230,12 +230,13 @@ pub fn te_record_block_valid(
     at_stage: &str,
     hash: HeaderHash,
     height: BlockHeight,
+    slot: Slot,
     now: amaru_pure_stage::Instant,
     syncing: bool,
 ) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(crate::performance::Performance::record_block_valid(hash, height, now, syncing)),
+        Box::new(crate::performance::Performance::record_block_valid(hash, height, slot, now, syncing)),
     ))
 }
 

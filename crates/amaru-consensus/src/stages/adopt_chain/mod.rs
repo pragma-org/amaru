@@ -53,9 +53,9 @@ use crate::{
 ///   `consensus_security_param` ("k") blocks behind the new tip; the height
 ///   walk uses a consistent snapshot effect; only the write is separate;
 ///   never moves backward; may be a no-op if no suitable anchor found).
-/// - Then log each adopted header. While syncing, at most one info line per second is emitted
-///   and the rest are debug, counted in `suppressed`. While live, every adoption is info.
-///   A fork switch logs each forward point, not only the new tip. Notifications follow for the new tip, in this order:
+/// - Then log the new tip. While syncing, at most one info line per second is emitted
+///   and the rest are debug, counted in `suppressed`. While live, every new tip is info.
+///   A fork switch logs only that tip. Notifications follow for the new tip, in this order:
 ///   1. `MempoolMsg::NewTip(tip)` — to the mempool (to flush invalidated txs
 ///      and adjust to the new tip), when configured.
 ///   2. `ManagerMessage::NewTip(tip)` — to the downstream manager/peer layer.
@@ -207,15 +207,18 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
         // A roll-forward adopts one header. A fork switch adopts every point from the
         // fork up to the new tip; only the tip is this message.
         let mut adopted_points = vec![msg];
-        if let Some(current_best) = current_best.as_ref() {
+        let adopt_kind = if let Some(current_best) = current_best.as_ref() {
             let adopt_result = adopt_tip(&store, &incoming_header, current_best)
                 .or_terminate_with(&eff, async |error| {
                     error!(consensus::block::ADOPT_FAILED, tip = msg, step = "adopt_tip", error = error.to_string());
                 })
                 .await;
             match adopt_result {
-                AdoptTipResult::BestChainRolledForward => {}
-                AdoptTipResult::BestChainSwitched { forward_points } => adopted_points = Vec::from(forward_points),
+                AdoptTipResult::BestChainRolledForward => AdoptKind::RollForward,
+                AdoptTipResult::BestChainSwitched { forward_points } => {
+                    adopted_points = Vec::from(forward_points);
+                    AdoptKind::ForkSwitch
+                }
                 AdoptTipResult::HeaderNotFound => {
                     error!(consensus::block::INVARIANT_VIOLATED, tip = msg, invariant = "header_missing");
                     eff.terminate().await;
@@ -237,7 +240,8 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
                     );
                 })
                 .await;
-        }
+            AdoptKind::RollForward
+        };
 
         // The ledger has already applied every one of these blocks. Chain selection also
         // reports the new tip; a second report does not emit again.
@@ -256,10 +260,9 @@ pub async fn stage(mut state: AdoptChain, msg: AdoptChainMsg, eff: Effects<Adopt
 
         let mode = eff.external(UpdateConsensusModeEffect { slot: msg.slot(), now }).await;
         eff.external(Performance::record_sync_adoption(now, mode.is_live())).await;
-        // While syncing, print at most one adoption per second. While live, print every one.
-        for point in &adopted_points {
-            log_adopted_tip(&mut state, point, now, mode);
-        }
+        // Console progress is the new tip only. Older blocks on a switched fork are
+        // `block.adopted`, not another `tip.adopt`.
+        log_adopted_tip(&mut state, &msg, now, mode, adopt_kind);
         if let Some(mempool) = &state.mempool {
             eff.send(mempool, MempoolMsg::NewTip(msg)).await;
         }
@@ -301,6 +304,24 @@ async fn adopt_tip<S>(
     }
 }
 
+/// How this adoption changed the best chain. Logged on `tip.adopt` as `adopt_kind`.
+#[derive(Clone, Copy)]
+enum AdoptKind {
+    /// The new tip extends the previous best, or it is the first tip.
+    RollForward,
+    /// The new tip replaced the previous best. Only that tip is logged.
+    ForkSwitch,
+}
+
+impl AdoptKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RollForward => "roll_forward",
+            Self::ForkSwitch => "fork_switch",
+        }
+    }
+}
+
 enum AdoptTipResult {
     HeaderNotFound,
     AncestorOnBestChainNotFound,
@@ -336,15 +357,17 @@ async fn drag_anchor_forward<S>(
     // While catching up, slot-start-to-header is not a meaningful network-health signal.
     let syncing = max_block_height > tip.block_height();
     for point in adopted_points {
-        eff.external(Performance::record_block_valid(point.hash(), point.block_height(), now, syncing)).await;
+        eff.external(Performance::record_block_valid(point.hash(), point.block_height(), point.slot(), now, syncing))
+            .await;
     }
     eff.external(Performance::prune_below(target_height, now)).await;
     Ok(now)
 }
 
-/// Log one adopted header. While syncing, at most one line per second is info; the rest are
-/// debug and counted in `suppressed`. While live, every adoption is info.
-fn log_adopted_tip(state: &mut AdoptChain, point: &Point, now: Instant, mode: ConsensusMode) {
+/// Log the new tip. While syncing, at most one line per second is info; the rest are debug and
+/// counted in `suppressed`. While live, every new tip is info. A fork switch logs only this tip.
+fn log_adopted_tip(state: &mut AdoptChain, point: &Point, now: Instant, mode: ConsensusMode, adopt_kind: AdoptKind) {
+    let adopt_kind = adopt_kind.as_str();
     if mode == ConsensusMode::Live || now.saturating_since(state.last_printed) >= Duration::from_secs(1) {
         info!(
             consensus::tip::ADOPT,
@@ -352,7 +375,8 @@ fn log_adopted_tip(state: &mut AdoptChain, point: &Point, now: Instant, mode: Co
             header_hash = point.hash(),
             block_height = point.block_height().as_u64(),
             max_block_height = state.max_block_height.as_u64(),
-            suppressed = state.suppressed
+            suppressed = state.suppressed,
+            adopt_kind = adopt_kind
         );
         state.last_printed = now;
         state.suppressed = 0;
@@ -363,7 +387,8 @@ fn log_adopted_tip(state: &mut AdoptChain, point: &Point, now: Instant, mode: Co
             header_hash = point.hash(),
             block_height = point.block_height().as_u64(),
             max_block_height = state.max_block_height.as_u64(),
-            suppressed = state.suppressed
+            suppressed = state.suppressed,
+            adopt_kind = adopt_kind
         );
         state.suppressed += 1;
     }

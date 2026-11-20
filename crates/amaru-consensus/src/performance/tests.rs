@@ -725,13 +725,13 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let alice = peer("alice");
     headers.apply_header_received(alice, tip(1, 1), t(1), 500, Duration::ZERO, false);
     headers.apply_blocks_requested(&[hash(1)], t(2));
-    let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), t(3));
+    let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(3));
     assert!(matches!(
         &received[..],
         [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == alice
     ));
     assert_eq!(headers.lifecycle_count(), 1);
-    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(4), false);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(4), false);
     assert_eq!(headers.lifecycle_count(), 0);
     assert_eq!(telemetry.len(), 2);
     assert!(matches!(
@@ -760,7 +760,7 @@ fn fork_started_and_closed_on_valid_block() {
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 0, Duration::ZERO, false);
     assert!(headers.apply_fork_started(tip(1, 1), t(1)).is_empty());
     assert!(headers.has_fork_switch(&hash(1)));
-    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(2), false);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(2), false);
     assert!(!headers.has_fork_switch(&hash(1)));
     assert_eq!(telemetry.len(), 3); // lifecycle + adopted + fork switch
 }
@@ -769,7 +769,7 @@ fn fork_started_and_closed_on_valid_block() {
 fn slot_start_metric_omitted_while_syncing() {
     let mut headers = HeaderPerformance::new();
     headers.apply_header_received(peer("alice"), tip(1, 1), t(1), 42_000, Duration::ZERO, false);
-    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(2), true);
+    let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(2), true);
     assert_eq!(headers.lifecycle_count(), 0);
     assert!(matches!(
         &telemetry[0],
@@ -794,13 +794,15 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
     assert!(matches!(&announced[2], super::HeaderTelemetry::Announced { rank: 3, peer, .. } if *peer == peers[2]));
     assert!(headers.apply_header_received(peers[0], tip(1, 1), t(2), 0, Duration::ZERO, false).is_empty());
 
-    let first = headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(3));
-    assert!(headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), t(4)).is_empty());
-    let second = headers.apply_block_downloaded(peers[0], &hash(1), BlockHeight::from(1), t(5));
+    let first = headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(3));
+    assert!(
+        headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(4)).is_empty()
+    );
+    let second = headers.apply_block_downloaded(peers[0], &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
     assert!(matches!(&first[..], [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == peers[2]));
     assert!(matches!(&second[..], [super::HeaderTelemetry::Received { rank: 2, peer, .. }] if *peer == peers[0]));
 
-    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(6), false);
+    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(6), false);
     assert!(
         matches!(adopted.last(), Some(super::HeaderTelemetry::Adopted { peer: Some(peer), .. }) if *peer == peers[2])
     );
@@ -821,7 +823,7 @@ fn already_stored_header_does_not_open_a_rank_one_announcement() {
     assert_eq!(headers.first_announcer(&hash(1)), Some(alice));
     assert_eq!(headers.slot_start_to_header_micros(&hash(1)), Some(1_000));
 
-    headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(3), false);
+    headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(3), false);
     assert!(
         headers.apply_header_received(peer("carol"), tip(1, 1), t(4), 1, Duration::ZERO, true).is_empty(),
         "an adopted header is not announced again"
@@ -837,6 +839,19 @@ fn already_stored_header_does_not_open_a_rank_one_announcement() {
 }
 
 #[test]
+fn block_requested_omits_identity_until_a_header_is_known() {
+    let mut headers = HeaderPerformance::new();
+    let asked = headers.apply_peers_asked(&[hash(1)], &[peer("alice")], t(1));
+    assert!(matches!(&asked[..], [super::HeaderTelemetry::Requested { slot: None, block_height: None, .. }]));
+
+    headers.apply_header_received(peer("alice"), tip(1, 1), t(2), 0, Duration::ZERO, false);
+    let later = headers.apply_peers_asked(&[hash(2)], &[peer("alice")], t(3));
+    assert!(matches!(&later[..], [super::HeaderTelemetry::Requested { slot: None, block_height: None, .. }]));
+    let known = headers.apply_peers_asked(&[hash(1)], &[peer("alice")], t(3));
+    assert!(matches!(&known[..], [super::HeaderTelemetry::Requested { slot: Some(1), block_height: Some(1), .. }]));
+}
+
+#[test]
 fn blockperf_latencies_follow_slot_onset_and_the_peer_who_was_asked() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
@@ -849,19 +864,22 @@ fn blockperf_latencies_follow_slot_onset_and_the_peer_who_was_asked() {
     assert!(matches!(&later[..], [super::HeaderTelemetry::Announced { slot_latency_ms: Some(1_500), rank: 2, .. }]));
 
     let asked = headers.apply_peers_asked(&[hash(1)], &[alice], t(3));
-    assert!(matches!(&asked[..], [super::HeaderTelemetry::Requested { slot_latency_ms: Some(2_500), .. }]));
+    assert!(matches!(
+        &asked[..],
+        [super::HeaderTelemetry::Requested { slot: Some(1), block_height: Some(1), slot_latency_ms: Some(2_500), .. }]
+    ));
     // A repeat ask does not move Alice's request time. Bob is a later, staggered ask.
     headers.apply_peers_asked(&[hash(1)], &[alice, bob], t(4));
 
-    let from_alice = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), t(5));
+    let from_alice = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
     assert!(matches!(
         &from_alice[..],
         [super::HeaderTelemetry::Received { slot_latency_ms: Some(4_500), fetch_latency_ms: Some(2_000), rank: 1, .. }]
     ));
-    let from_bob = headers.apply_block_downloaded(bob, &hash(1), BlockHeight::from(1), t(5));
+    let from_bob = headers.apply_block_downloaded(bob, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
     assert!(matches!(&from_bob[..], [super::HeaderTelemetry::Received { fetch_latency_ms: Some(1_000), rank: 2, .. }]));
 
-    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), t(6), false);
+    let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(6), false);
     assert!(matches!(adopted.last(), Some(super::HeaderTelemetry::Adopted { slot_latency_ms: Some(5_500), .. })));
 }
 
@@ -988,6 +1006,7 @@ fn capture_blockperf(filter: &str, live: bool) -> String {
                 peer,
                 body,
                 BlockHeight::from(4),
+                point.slot(),
                 None,
                 t(2),
                 Duration::from_millis(5),
@@ -995,7 +1014,7 @@ fn capture_blockperf(filter: &str, live: bool) -> String {
             );
             rt.block_on(Box::new(effect).run(resources.clone()));
         }
-        let effect = Performance::record_block_valid(body, point.block_height(), t(3), false);
+        let effect = Performance::record_block_valid(body, point.block_height(), point.slot(), t(3), false);
         rt.block_on(Box::new(effect).run(resources.clone()));
         info!(consensus::blocks::PAUSED, req_id = 1u64);
         debug!(consensus::blocks::TIMEOUT, req_id = 1u64);
@@ -1014,6 +1033,13 @@ fn env_filter_selects_exactly_the_four_blockperf_events() {
     }
     assert!(only.contains("slot_latency_ms"), "{only}");
     assert!(lines.iter().any(|line| line.contains("block.received") && line.contains("fetch_latency_ms")), "{only}");
+    for name in ["header.announced", "block.requested", "block.received", "block.adopted"] {
+        assert!(
+            lines.iter().any(|line| line.contains(name) && line.contains("slot=4") && line.contains("block_height=4")),
+            "missing slot and block_height on {name}:\n{only}"
+        );
+    }
+    assert!(lines.iter().any(|line| line.contains("block.received") && line.contains("size=100")), "{only}");
     assert_eq!(lines.iter().filter(|line| line.contains("header.announced")).count(), 3, "{only}");
     assert!(only.contains(r#"peers="127.0.0.1:3001,127.0.0.1:3002""#), "{only}");
     assert!(only.contains(r#"peer="127.0.0.1:3001""#), "{only}");
@@ -1053,10 +1079,13 @@ fn env_filter_selects_exactly_the_four_blockperf_events() {
     let with_info = capture_blockperf("info,amaru::blockperf=debug", false);
     assert!(with_info.lines().any(|line| line.contains(" DEBUG ") && line.contains("header.announced")), "{with_info}");
 
-    let live = capture_blockperf("info,amaru::blockperf=info", true);
-    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("header.announced")), "{live}");
-    assert!(live.lines().any(|line| line.contains(" INFO ") && line.contains("block.adopted")), "{live}");
-    assert!(!live.lines().any(|line| line.contains(" DEBUG ") && line.contains("amaru::blockperf")), "{live}");
+    let live = capture_blockperf("info,amaru::blockperf=debug", true);
+    assert!(live.lines().any(|line| line.contains(" DEBUG ") && line.contains("header.announced")), "{live}");
+    assert!(live.lines().any(|line| line.contains(" DEBUG ") && line.contains("block.adopted")), "{live}");
+    assert!(!live.lines().any(|line| line.contains(" INFO ") && line.contains("amaru::blockperf")), "{live}");
+    let live_at_info = capture_blockperf("info,amaru::blockperf=info", true);
+    assert!(!live_at_info.contains("header.announced"), "{live_at_info}");
+    assert!(!live_at_info.contains("block.adopted"), "{live_at_info}");
     assert!(with_info.contains("blocks.paused"), "{with_info}");
     assert!(!with_info.contains("blocks.timeout"), "{with_info}");
     assert!(with_info.contains("header.announced") && with_info.contains("block.adopted"), "{with_info}");

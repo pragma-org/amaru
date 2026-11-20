@@ -18,7 +18,7 @@
 
 use std::time::Duration;
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Instant, Resources, SendData};
 
 use super::{enqueue, enqueue_and_emit_telemetry, require_perf};
@@ -64,16 +64,18 @@ impl Performance {
         }
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub fn record_block_delivery(
         peer: Peer,
         hash: HeaderHash,
         height: BlockHeight,
+        slot: Slot,
         parent: Option<HeaderHash>,
         at: Instant,
         response: Duration,
         bytes: u64,
     ) -> RecordBlockDeliveryEffect {
-        RecordBlockDeliveryEffect { peer, hash, height, parent, at, response, bytes }
+        RecordBlockDeliveryEffect { peer, hash, height, slot, parent, at, response, bytes }
     }
 
     pub fn record_rollback(peer: Peer, point: Point, parent: Option<HeaderHash>, at: Instant) -> RecordRollbackEffect {
@@ -139,6 +141,7 @@ pub struct RecordBlockDeliveryEffect {
     pub(crate) peer: Peer,
     pub(crate) hash: HeaderHash,
     pub(crate) height: BlockHeight,
+    pub(crate) slot: Slot,
     pub(crate) parent: Option<HeaderHash>,
     pub(crate) at: Instant,
     pub(crate) response: Duration,

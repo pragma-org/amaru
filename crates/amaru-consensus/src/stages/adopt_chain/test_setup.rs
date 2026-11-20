@@ -162,12 +162,13 @@ pub fn te_record_block_valid(
     at_stage: &str,
     hash: HeaderHash,
     height: BlockHeight,
+    slot: Slot,
     now: amaru_pure_stage::Instant,
     syncing: bool,
 ) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(crate::performance::Performance::record_block_valid(hash, height, now, syncing)),
+        Box::new(crate::performance::Performance::record_block_valid(hash, height, slot, now, syncing)),
     ))
 }
 
