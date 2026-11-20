@@ -45,7 +45,13 @@ pub struct UninterestingMark {
 /// Latest close of one peer. A closed connection is not a connect failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DialOutcome {
-    Closed { at: ObservedAt, reason: CloseReason },
+    Closed {
+        at: ObservedAt,
+        reason: CloseReason,
+        conn_id: ConnectionId,
+        /// The bearer had reported no chain intersection before this close.
+        uninteresting: bool,
+    },
 }
 
 /// Population snapshot. `None` from a query means the generation has not moved.
@@ -87,7 +93,17 @@ impl PeerPerformance {
         let closes = self
             .last_close
             .iter()
-            .map(|(peer, close)| (*peer, DialOutcome::Closed { at: close.at, reason: close.reason }))
+            .map(|(peer, close)| {
+                (
+                    *peer,
+                    DialOutcome::Closed {
+                        at: close.at,
+                        reason: close.reason,
+                        conn_id: close.conn_id,
+                        uninteresting: close.uninteresting,
+                    },
+                )
+            })
             .collect();
         let mut uninteresting = Vec::new();
         for (peer, mark) in &self.uninteresting {

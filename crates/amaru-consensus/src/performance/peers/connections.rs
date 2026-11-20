@@ -37,6 +37,8 @@ pub(super) struct CloseRecord {
     pub(super) conn_id: ConnectionId,
     pub(super) reason: CloseReason,
     pub(super) at: ObservedAt,
+    /// The bearer had an intersection-not-found mark for this connection when it closed.
+    pub(super) uninteresting: bool,
 }
 
 /// Width of one share-request rate window. Two windows are kept: the current one and the previous.
@@ -110,8 +112,11 @@ impl PeerPerformance {
         if live.record.peer != peer {
             return;
         }
+        // Captured before the mark is dropped with the bearer. The next view would otherwise
+        // look like an ordinary close, and selection would dial the peer again immediately.
+        let uninteresting = self.uninteresting.get(&peer).is_some_and(|mark| mark.conn_id == conn_id);
         self.connections.remove(&conn_id);
-        self.last_close.insert(peer, CloseRecord { conn_id, reason, at });
+        self.last_close.insert(peer, CloseRecord { conn_id, reason, at, uninteresting });
         self.note_activity(peer, instant_of(at));
         let still_live = self.connections.values().any(|live| live.record.peer == peer);
         if !still_live {
@@ -209,6 +214,7 @@ impl PeerPerformance {
         self.bump_generation();
         self.uninteresting.insert(peer, UninterestingRecord { conn_id, after_rollback, generation: self.generation });
         self.note_activity(peer, instant_of(at));
+        self.charge_uninteresting(peer, instant_of(at));
     }
 
     fn drop_uninteresting_if_bearer_gone(&mut self, peer: Peer) {

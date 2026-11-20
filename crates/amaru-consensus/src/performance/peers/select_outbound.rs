@@ -36,6 +36,12 @@ pub const OUTBOUND_MALUS_LAMBDA: f64 = 1.0;
 /// Softmax temperature for weighted outbound sampling.
 pub const OUTBOUND_PICK_TEMPERATURE: f64 = 1.0;
 
+/// Width of one outbound score bucket, measured down from the best score still remaining.
+///
+/// Candidates in the bucket are one weighted draw. The next bucket starts at the best score
+/// left after that draw, not at a fixed multiple of this width.
+pub const OUTBOUND_SCORE_BUCKET: f64 = 1.0;
+
 /// Bonus for peers with no Performance observation yet (never connected / unknown).
 pub const NEVER_CONNECTED_BONUS: f64 = 0.5;
 
@@ -112,8 +118,10 @@ struct OutboundWeight {
     weight: f64,
 }
 
-/// Fill `n` slots from best score to worse. Ties are a weighted draw; a worse score is used
-/// only after every better score in the bucket has been taken.
+/// Fill `n` slots from the best score downward.
+///
+/// Each draw is every candidate within [`OUTBOUND_SCORE_BUCKET`] of the best score still left,
+/// inclusive of that floor. A worse score is used only after that bucket is exhausted.
 fn fill_by_worsening_score(rng: &mut StdRng, mut weights: Vec<OutboundWeight>, n: usize) -> Vec<PeerCandidate> {
     if n == 0 || weights.is_empty() {
         return Vec::new();
@@ -123,9 +131,9 @@ fn fill_by_worsening_score(rng: &mut StdRng, mut weights: Vec<OutboundWeight>, n
     let mut out = Vec::with_capacity(n.min(weights.len()));
     let mut index = 0;
     while out.len() < n && index < weights.len() {
-        let score = weights[index].score;
+        let floor = weights[index].score - OUTBOUND_SCORE_BUCKET;
         let mut end = index + 1;
-        while end < weights.len() && weights[end].score.total_cmp(&score).is_eq() {
+        while end < weights.len() && weights[end].score.total_cmp(&floor).is_ge() {
             end += 1;
         }
         let group = weights[index..end].iter().map(|weight| (weight.candidate.clone(), weight.weight)).collect();
@@ -272,8 +280,9 @@ pub fn select_outbound_from(inputs: &OutboundInputs, params: &SelectOutboundPara
                 OutboundWeight { candidate: input.candidate.clone(), score, weight }
             })
             .collect();
-        // Best score first, then worse scores, until the bucket is full. Malus makes a
-        // peer less preferred; it does not drop the peer while a slot is still open.
+        // One bucket at a time, starting at the best score. Malus moves a peer into a worse
+        // bucket or lowers its weight inside the bucket. It does not drop the peer while a
+        // slot is still open.
         for candidate in fill_by_worsening_score(&mut rng, weights, n) {
             already.insert(candidate.clone());
             picked.push(OutboundPick { candidate, origin: entry.source });

@@ -36,6 +36,14 @@ pub const CONNECT_FAIL_IMPULSE: f64 = 8.0;
 /// Added when a peer is marked adversarial (cool-down is separate, in peer selection).
 pub const ADVERSARIAL_IMPULSE: f64 = 12.0;
 
+/// Added when a peer reports no chain intersection.
+///
+/// Large enough to sort the peer behind every never-connected candidate, and small enough
+/// to leave it in the same sampling bucket as a peer that connected cleanly. It does not
+/// remove the peer from the dial pool: when no healthier candidate can fill a slot, this
+/// peer is still offered.
+pub const UNINTERESTING_IMPULSE: f64 = 1.0;
+
 /// Sharing requires evolved malus strictly below this (using the peer’s source half-life).
 pub const SHARE_MALUS_THRESHOLD: f64 = 0.05;
 
@@ -141,6 +149,13 @@ impl PeerPerformance {
         }
         self.note_activity(peer, at);
         self.bump_generation();
+    }
+
+    /// Add [`UNINTERESTING_IMPULSE`] for a peer that reported no chain intersection.
+    pub(super) fn charge_uninteresting(&mut self, peer: Peer, at: Instant) {
+        let half_life = self.half_life_for(&peer);
+        let state = self.peers.entry(peer).or_default();
+        add_malus_impulse(state, UNINTERESTING_IMPULSE, at, half_life);
     }
 
     pub fn share_flags(&self, peer: &Peer) -> Option<PeerShareFlags> {
