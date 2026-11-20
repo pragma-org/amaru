@@ -61,7 +61,7 @@ amaru pool kes create --signing-key kes.skey --verification-key kes.vkey
 
 The keys are written with mode `0600`, and an existing file is never overwritten (`kes.skey already exists`). `amaru pool vrf inspect --verification-key vrf.vkey` prints the VRF key hash.
 
-All keys are raw bytes. `cardano-cli` reads text envelopes, so for the registration certificate wrap the two verification keys it needs:
+All keys are raw bytes. The registration certificate is made and signed on the offline machine, so copy `vrf.vkey` there. `cardano-cli` reads text envelopes, so wrap the two verification keys it needs (**offline**):
 
 ```bash
 jq -n --arg h "5820$(xxd -p -c 64 cold.vkey)" \
