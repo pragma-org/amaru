@@ -29,7 +29,10 @@ use amaru_kernel::{
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     rules::block::BlockValidation,
-    state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
+    state::{
+        ForkSwitchOutcome, State, tasks::compute_stake_distribution::initialize_stake_distributions,
+        volatile::VolatileFragment,
+    },
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
         columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
@@ -121,7 +124,6 @@ pub fn make_state_in_epoch_with_store(
     make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch], mock_store)
 }
 
-#[expect(clippy::expect_used)]
 pub fn make_state_in_epoch_with_snapshots_and_store(
     epoch: Epoch,
     snapshot_epochs: &[Epoch],
@@ -133,6 +135,55 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
     let protocol_parameters: ProtocolParameters = PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone();
     let stable = mock_store.stable.clone();
 
+    let snapshots = seed_store_and_snapshots(&mock_store, snapshot_epochs);
+
+    let state = State::new_with(
+        mock_store,
+        snapshots,
+        epoch,
+        network,
+        era_history,
+        global_parameters,
+        protocol_parameters,
+        GovernanceActivity::default(),
+        None,
+        VecDeque::new(),
+    );
+    (state, stable)
+}
+
+/// Create a ledger state with the stake distributions that the node reads from the snapshots
+/// when it starts.
+#[expect(clippy::expect_used)]
+pub fn make_state_on_start(
+    epoch: Epoch,
+    snapshot_epochs: &[Epoch],
+    mock_store: MockStore,
+) -> (State<MockStore, RocksDBHistoricalStores>, Arc<Mutex<Vec<Point>>>) {
+    let stable = mock_store.stable.clone();
+    let snapshots = seed_store_and_snapshots(&mock_store, snapshot_epochs);
+    let stake_distributions =
+        initialize_stake_distributions(NetworkName::Preprod, &snapshots, &PREPROD_ERA_HISTORY, false)
+            .expect("the stake distributions of the snapshots are computed");
+    let state = State::new_with(
+        mock_store,
+        snapshots,
+        epoch,
+        NetworkName::Preprod,
+        PREPROD_ERA_HISTORY.clone(),
+        PREPROD_GLOBAL_PARAMETERS.clone(),
+        PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone(),
+        GovernanceActivity::default(),
+        None,
+        stake_distributions,
+    );
+    (state, stable)
+}
+
+/// Seed the store with the rows that the snapshot readers need, then take the snapshots of
+/// `snapshot_epochs`.
+#[expect(clippy::expect_used)]
+fn seed_store_and_snapshots(mock_store: &MockStore, snapshot_epochs: &[Epoch]) -> RocksDBHistoricalStores {
     // Seed the rows that snapshot readers bail on when absent: the stake summary reads the
     // protocol parameters and the ratification context reads the constitutional committee.
     mock_store
@@ -157,19 +208,7 @@ pub fn make_state_in_epoch_with_snapshots_and_store(
         "the seeded snapshots must be visible to the historical store"
     );
 
-    let state = State::new_with(
-        mock_store,
-        snapshots,
-        epoch,
-        network,
-        era_history,
-        global_parameters,
-        protocol_parameters,
-        GovernanceActivity::default(),
-        None,
-        VecDeque::new(),
-    );
-    (state, stable)
+    snapshots
 }
 
 /// Create a ledger state whose tip has just crossed an epoch boundary
@@ -306,6 +345,12 @@ impl MockStore {
         let mut mock_store = MockStore::new();
         mock_store.fail_transition_progress = true;
         mock_store
+    }
+
+    /// A store whose epoch transition stopped at `progress`, as after a restart in the middle of
+    /// that transition.
+    pub fn with_transition_progress(progress: EpochTransitionProgress) -> Self {
+        MockStore { progress: Arc::new(Mutex::new(Some(progress))), ..MockStore::new() }
     }
 }
 

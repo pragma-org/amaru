@@ -18,7 +18,12 @@
 //! A node can start after that point, so the ledger must start the computation before it applies
 //! the first block: this block can cross the epoch boundary, which needs the computed rewards.
 
-use crate::{MockStore, empty_block_at, epoch_of, make_state_in_epoch_with_snapshots_and_store, point, roll_forward};
+use amaru_ledger::store::EpochTransitionProgress;
+
+use crate::{
+    MockStore, empty_block_at, epoch_of, make_state_in_epoch_with_snapshots_and_store, make_state_on_start, point,
+    roll_forward,
+};
 
 #[test]
 fn the_first_block_after_a_start_past_the_stability_window_can_cross_the_epoch_boundary() {
@@ -49,4 +54,34 @@ fn the_first_block_after_a_start_past_the_stability_window_can_cross_the_epoch_b
     let block = empty_block_at(boundary_slot);
     roll_forward(&mut state, &block);
     assert_eq!(*state.tip(), block.point());
+}
+
+#[test]
+fn the_first_block_after_a_start_can_resume_an_epoch_transition_that_took_its_snapshot() {
+    let first_slot = 69_200_000; // inside epoch 163
+    let epoch = epoch_of(first_slot);
+    let mut boundary_slot = first_slot + 1;
+    while epoch_of(boundary_slot) == epoch {
+        boundary_slot += 1;
+    }
+
+    // The node stopped in the transition out of epoch e, after the stable store took the snapshot
+    // of e. A ledger bootstrapped from a snapshot starts in the same state. The next block is the
+    // first block of epoch e+1, so it resumes that transition:
+    //
+    //             epoch e                       ╎   epoch e+1
+    //     ------------------------------------- ╎ -------------
+    //     stable tip, snapshot of e             ╎ block
+    //     slots                      b−1        ╎ b
+    let stable_tip = point(boundary_slot - 1);
+    let mock_store = MockStore::with_transition_progress(EpochTransitionProgress::SnapshotTaken);
+    mock_store.stable.lock().unwrap().push(stable_tip);
+    let (mut state, _) = make_state_on_start(epoch, &[epoch - 2, epoch - 1, epoch], mock_store);
+    assert_eq!(state.most_recent_snapshot(), epoch);
+    state.start().unwrap();
+
+    let block = empty_block_at(boundary_slot);
+    roll_forward(&mut state, &block);
+    assert_eq!(*state.tip(), block.point());
+    assert_eq!(state.most_recent_snapshot(), epoch);
 }
