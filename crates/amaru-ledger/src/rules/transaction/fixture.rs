@@ -47,14 +47,20 @@ use crate::{
 pub(super) struct Fixture {
     #[serde(default)]
     pub(super) category: Option<String>,
-    pub(super) network: NetworkName,
-    pub(super) era_history: RefOrInline<EraHistory>,
     pub(super) protocol_parameters: RefOrInline<ProtocolParameters>,
-    pub(super) initial_state: InitialState,
-    pub(super) point: TransactionPointer,
+    #[serde(flatten)]
+    pub(super) ledger: LedgerFixture,
     #[serde(deserialize_with = "hex_to_bytes")]
     pub(super) transaction: Vec<u8>,
     pub(super) expected: Expected,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LedgerFixture {
+    pub(super) network: NetworkName,
+    pub(super) era_history: RefOrInline<EraHistory>,
+    pub(super) initial_state: InitialState,
+    pub(super) point: TransactionPointer,
 }
 
 #[derive(Deserialize)]
@@ -371,6 +377,9 @@ impl From<TransactionInvalid> for Predicate {
 impl From<PhaseOneError> for Predicate {
     fn from(err: PhaseOneError) -> Self {
         match err {
+            PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::Duplicate) => {
+                unreachable!("the fixture decoder must reject duplicate key witnesses before ledger validation")
+            }
             PhaseOneError::VerificationKeyWitness(InvalidVerificationKeyWitness::InvalidSignatures { .. }) => {
                 Predicate::InvalidWitnessesUTXOW
             }

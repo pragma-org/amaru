@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn finalize_uses_the_protocol_version_from_the_constraints() {
         let witnesses = WitnessSet {
-            verification_key_witness: Some(crate::NonEmptyVec::singleton(crate::VerificationKeyWitness {
+            verification_key_witness: Some(crate::VerificationKeyWitnesses::singleton(crate::VerificationKeyWitness {
                 verification_key: crate::VerificationKey::zeroes(),
                 signature: crate::Ed25519Signature::zeroes(),
             })),

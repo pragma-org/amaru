@@ -14,7 +14,9 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use amaru_kernel::{BlockHeight, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock};
+use amaru_kernel::{
+    BlockHeight, EraHistory, HeaderHash, IsHeader, ORIGIN_HASH, Peer, Point, cardano::network_block::NetworkBlock,
+};
 use amaru_observability::{
     CarriedHeader, ChainChoice, FetchResume, Instrument, TraceContext, amaru::consensus::node::INITIALIZE, debug,
     debug_span, error, info, warn,
@@ -136,6 +138,7 @@ const FETCH_WIDEN_DELAYS: [Duration; 3] =
 /// The `stage()` fn ensures the child then dispatches the 4 msg variants to the impl methods and returns updated state. All error paths that cannot continue call `eff.terminate()`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FetchBlocks {
+    era_history: EraHistory,
     downstream: StageRef<DownloadedBlock>,
     req_id: u64,
     missing: Option<MissingBlocks>,
@@ -172,6 +175,7 @@ pub struct FetchBlocks {
 
 impl FetchBlocks {
     pub fn new(
+        era_history: EraHistory,
         downstream: StageRef<DownloadedBlock>,
         upstream: StageRef<SelectChainMsg>,
         manager: StageRef<ManagerMessage>,
@@ -179,6 +183,7 @@ impl FetchBlocks {
         peer_selection: StageRef<PeerSelectionMsg>,
     ) -> Self {
         Self {
+            era_history,
             downstream,
             req_id: 0,
             missing: None,
@@ -213,7 +218,8 @@ impl FetchBlocks {
         peer_selection: StageRef<PeerSelectionMsg>,
         cleanup_replies: StageRef<Blocks>,
     ) -> Self {
-        let fetch_blocks = FetchBlocks::new(downstream, upstream, manager, block_source, peer_selection);
+        let fetch_blocks =
+            FetchBlocks::new(EraHistory::default(), downstream, upstream, manager, block_source, peer_selection);
         Self { cleanup_replies, ..fetch_blocks }
     }
 
@@ -556,7 +562,7 @@ impl FetchBlocks {
 
     pub async fn block(&mut self, peer: Peer, network_block: NetworkBlock, eff: Effects<FetchBlocksMsg>) {
         let store = Store::new(eff.clone());
-        let block = match network_block.decode_block() {
+        let block = match network_block.decode_block_in(&self.era_history) {
             Ok(block) => block,
             Err(error) => {
                 error!(consensus::blocks::DECODE_FAILED, peer, error = error.to_string());

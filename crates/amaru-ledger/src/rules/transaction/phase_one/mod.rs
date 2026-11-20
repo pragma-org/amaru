@@ -249,8 +249,9 @@ where
     verification_key_witness::execute(
         context,
         transaction_id,
+        protocol_parameters.protocol_version,
         witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
+        witness_set.verification_key_witness.as_ref(),
     )?;
     span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 
@@ -377,8 +378,9 @@ where
     verification_key_witness::execute(
         context,
         transaction_id,
+        protocol_parameters.protocol_version,
         witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
+        witness_set.verification_key_witness.as_ref(),
     )?;
     span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 

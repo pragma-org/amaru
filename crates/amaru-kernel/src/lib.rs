@@ -219,7 +219,9 @@ pub use cardano::{
     validity_interval::ValidityInterval,
     value::{self, CurrencySymbol, Mint, PlutusMint, Value},
     verification_key::VerificationKey,
-    verification_key_witness::{InvalidEd25519Signature, VerificationKeyWitness, verify_ed25519_signature},
+    verification_key_witness::{
+        InvalidEd25519Signature, VerificationKeyWitness, VerificationKeyWitnesses, verify_ed25519_signature,
+    },
     vote::Vote,
     voter::Voter,
     voter_kind::VoterKind,

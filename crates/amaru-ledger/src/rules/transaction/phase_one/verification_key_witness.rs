@@ -15,8 +15,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VerificationKeyWitness,
-    size::KEY, utils::string::display_collection, verify_ed25519_signature,
+    BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, ProtocolVersion, TransactionId,
+    VerificationKeyWitnesses, protocol_version::PROTOCOL_VERSION_12, size::KEY, utils::string::display_collection,
+    verify_ed25519_signature,
 };
 use thiserror::Error;
 
@@ -24,6 +25,9 @@ use crate::{context::WitnessSlice, rules::WithPosition};
 
 #[derive(Debug, Error)]
 pub enum InvalidVerificationKeyWitness {
+    #[error("duplicate verification-key witness")]
+    Duplicate,
+
     #[error("missing required signatures for keys or roots: [{}]", display_collection(missing_keys_or_roots))]
     MissingRequiredKeysOrRoots { missing_keys_or_roots: Vec<Hash<KEY>> },
 
@@ -34,17 +38,21 @@ pub enum InvalidVerificationKeyWitness {
 pub fn execute(
     context: &mut impl WitnessSlice,
     transaction_id: TransactionId,
+    protocol_version: ProtocolVersion,
     bootstrap_witnesses: Option<&[BootstrapWitness]>,
-    verification_key_witnesses: Option<&[VerificationKeyWitness]>,
+    verification_key_witnesses: Option<&VerificationKeyWitnesses>,
 ) -> Result<(), InvalidVerificationKeyWitness> {
-    let empty_vec = vec![];
-    let verification_key_witnesses = verification_key_witnesses.unwrap_or(&empty_vec);
-
+    // Mempool entries may have been decoded before the active protocol version changed.
+    if protocol_version >= PROTOCOL_VERSION_12
+        && verification_key_witnesses.is_some_and(VerificationKeyWitnesses::has_duplicates)
+    {
+        return Err(InvalidVerificationKeyWitness::Duplicate);
+    }
     let empty_vec = vec![];
     let bootstrap_witnesses = bootstrap_witnesses.unwrap_or(&empty_vec);
 
     let mut provided_keys_or_roots = BTreeSet::new();
-    verification_key_witnesses.iter().for_each(|witness| {
+    verification_key_witnesses.into_iter().flat_map(|entries| entries.iter()).for_each(|witness| {
         provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.verification_key));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
@@ -62,10 +70,12 @@ pub fn execute(
     }
 
     let mut invalid_witnesses = vec![];
-    verification_key_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.verification_key, &witness.signature, transaction_id.as_slice())
-            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
-    });
+    verification_key_witnesses.into_iter().flat_map(VerificationKeyWitnesses::iter_with_positions).for_each(
+        |(position, witness)| {
+            verify_ed25519_signature(&witness.verification_key, &witness.signature, transaction_id.as_slice())
+                .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+        },
+    );
 
     if !invalid_witnesses.is_empty() {
         return Err(InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses });
@@ -82,4 +92,40 @@ pub fn execute(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{
+        VerificationKeyWitness,
+        ed25519::{Signer, SigningKey},
+    };
+
+    use super::*;
+    use crate::context::DefaultValidationContext;
+
+    #[test]
+    fn invalid_signature_reports_first_submitted_position() {
+        let tx_id = TransactionId::new(Hash::new([3; 32]));
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let valid = VerificationKeyWitness {
+            verification_key: key.verifying_key().to_bytes().into(),
+            signature: key.sign(tx_id.as_slice()).to_bytes().into(),
+        };
+        let invalid = VerificationKeyWitness { signature: [0; 64].into(), ..valid.clone() };
+        let witnesses = vec![valid.clone(), valid, invalid.clone(), invalid].try_into().unwrap();
+        let error = execute(
+            &mut DefaultValidationContext::default(),
+            tx_id,
+            amaru_kernel::protocol_version::PROTOCOL_VERSION_11,
+            None,
+            Some(&witnesses),
+        )
+        .unwrap_err();
+        let InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses } = error else {
+            panic!("expected a signature error");
+        };
+        assert_eq!(invalid_witnesses.len(), 1);
+        assert_eq!(invalid_witnesses[0].position, 2);
+    }
 }

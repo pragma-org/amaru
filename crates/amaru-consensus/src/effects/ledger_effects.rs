@@ -14,7 +14,9 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use amaru_kernel::{ConsensusParameters, EraHistory, Header, PeerCandidate, Point, Transaction};
+use amaru_kernel::{
+    ConsensusParameters, EraHistory, Header, PeerCandidate, Point, Transaction, cardano::network_block::NetworkBlock,
+};
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
@@ -203,11 +205,17 @@ impl ExternalEffectAPI for ValidateBlockEffect {
                     .get::<ResourceHeaderStore>()
                     .expect("ValidateBlockEffect requires a ResourceHeaderStore resource")
                     .clone();
-                let block = store
+                let raw = store
                     .load_block(&point.hash())
                     .map_err(|e| BlockValidationError::new(e.into()))?
-                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?
-                    .decode()
+                    .ok_or(BlockValidationError::new(anyhow::anyhow!("block not found")))?;
+                let block = NetworkBlock::try_from(raw)
+                    .and_then(|block| {
+                        let era_history = resources
+                            .get::<ResourceEraHistory>()
+                            .expect("ValidateBlockEffect requires a ResourceEraHistory resource");
+                        block.decode_block_in(&era_history)
+                    })
                     .map_err(|e| BlockValidationError::new(e.into()))?;
                 let validator = resources
                     .get::<ResourceBlockValidation>()

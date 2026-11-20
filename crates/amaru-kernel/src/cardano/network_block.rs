@@ -21,7 +21,11 @@ use amaru_minicbor_extra::to_cbor;
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
-use crate::{Block, EraHistory, EraHistoryError, EraName, Header, RawBlock, Slot, cbor, traits::is_header::IsHeader};
+use crate::{
+    Block, EraHistory, EraHistoryError, EraName, Header, ProtocolVersion, RawBlock, Slot, cbor,
+    protocol_version::{PROTOCOL_VERSION_11, PROTOCOL_VERSION_12},
+    traits::is_header::IsHeader,
+};
 
 /// A network block contains:
 ///  - An era tag identifying the Cardano era of the block, which determines its exact encoding.
@@ -44,7 +48,7 @@ impl NetworkBlock {
     pub fn new(era_history: &EraHistory, block: &Block) -> Result<Self, EraHistoryError> {
         let era_tag = era_history.slot_to_era_tag(block.header.slot())?;
 
-        Ok(NetworkBlock { era_tag, encoded_block: to_cbor(block) })
+        Ok(NetworkBlock { era_tag, encoded_block: cbor::to_cbor_with(block, &mut block_codec_version(era_tag)) })
     }
 
     /// A network block whose block term is already encoded.
@@ -82,7 +86,21 @@ impl NetworkBlock {
 
     /// Decode the inner block from its raw CBOR representation.
     pub fn decode_block(&self) -> Result<Block, minicbor::decode::Error> {
-        minicbor::decode(&self.encoded_block)
+        minicbor::decode_with(&self.encoded_block, &mut block_codec_version(self.era_tag))
+    }
+
+    /// Decode a received or stored block and check its envelope against the local era at its slot.
+    pub fn decode_block_in(&self, history: &EraHistory) -> Result<Block, minicbor::decode::Error> {
+        let block = self.decode_block()?;
+        let slot = block.header.slot();
+        let expected = history.slot_to_era_tag(slot).map_err(minicbor::decode::Error::message)?;
+        if self.era_tag != expected {
+            return Err(minicbor::decode::Error::message(format!(
+                "block at slot {slot} has era {}, expected {expected}",
+                self.era_tag
+            )));
+        }
+        Ok(block)
     }
 
     /// Decode only the header from the raw CBOR representation of the block.
@@ -90,7 +108,22 @@ impl NetworkBlock {
         let mut decoder = minicbor::Decoder::new(&self.encoded_block);
         // format: [header, tx_bodies, witnesses, auxiliary_data, invalid_transactions]
         decoder.array()?;
-        decoder.decode()
+        decoder.decode_with(&mut block_codec_version(self.era_tag))
+    }
+}
+
+// Dijkstra starts at v12. Keep the existing legacy block codec for earlier eras.
+// The version advertised by a block producer is not the version of the era's codec.
+fn block_codec_version(era: EraName) -> ProtocolVersion {
+    match era {
+        EraName::Dijkstra => PROTOCOL_VERSION_12,
+        EraName::Byron
+        | EraName::Shelley
+        | EraName::Allegra
+        | EraName::Mary
+        | EraName::Alonzo
+        | EraName::Babbage
+        | EraName::Conway => PROTOCOL_VERSION_11,
     }
 }
 
@@ -181,6 +214,80 @@ mod network_block_tests {
     use crate::prop_cbor_roundtrip;
 
     prop_cbor_roundtrip!(NetworkBlock);
+
+    #[test]
+    fn fetch_and_replay_follow_the_configured_fork_slot() {
+        let mut conway = EraHistory::default().current_era_summary().clone();
+        let epoch_slots = conway.params.epoch_size_slots;
+        let fork = crate::EraBound {
+            slot: Slot::from(epoch_slots),
+            epoch: crate::Epoch::from(1),
+            time: std::time::Duration::from_secs(epoch_slots),
+        };
+        let mut dijkstra = conway.clone();
+        conway.end = Some(fork.clone());
+        dijkstra.start = fork;
+        dijkstra.params.era_name = EraName::Dijkstra;
+        let history = EraHistory::new(&[conway, dijkstra], Slot::from(25920));
+
+        for (slot, expected) in [(epoch_slots - 1, EraName::Conway), (epoch_slots, EraName::Dijkstra)] {
+            let header = crate::make_header(1, slot, None);
+            let block = make_network_block(&header, &history);
+            assert_eq!(block.era_tag(), expected);
+            let fetched = block.decode_block_in(&history).unwrap();
+            let stored = NetworkBlock::try_from(block.raw_block()).unwrap();
+            assert_eq!(stored.decode_block_in(&history).unwrap(), fetched);
+
+            // The published legacy fixture has six wire entries and five distinct pairs.
+            // Preserve its repeats in the input to both era decoders.
+            let bytes = include_bytes!("../../tests/data/witness_encoding/key-0-repeated-element.input.cbor");
+            let mut legacy = fetched;
+            legacy.transaction_witnesses[0] = cbor::WithSize::new(cbor::decode(bytes).unwrap(), bytes.len());
+            let repeated = NetworkBlock::from_encoded_block(&history, header.slot(), to_cbor(&legacy)).unwrap();
+            let stored = NetworkBlock::try_from(repeated.raw_block()).unwrap();
+            for decoded in [repeated.decode_block_in(&history), stored.decode_block_in(&history)] {
+                if expected == EraName::Conway {
+                    let decoded = decoded.unwrap();
+                    let keys = decoded.transaction_witnesses[0].verification_key_witness.as_ref().unwrap();
+                    assert_eq!(keys.iter_wire().count(), 6);
+                    assert_eq!(keys.len(), 5);
+                } else {
+                    let err = decoded.unwrap_err();
+                    assert!(err.to_string().contains("duplicate"), "{err}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn block_fetch_and_replay_use_the_codec_for_the_blocks_era() {
+        let conway = EraHistory::default();
+        let mut summary = conway.current_era_summary().clone();
+        summary.params.era_name = EraName::Dijkstra;
+        let dijkstra = EraHistory::new(&[summary], Slot::from(25920));
+        let block = NETWORK_BLOCK.decode_block_in(&conway).unwrap();
+        let network = NetworkBlock::new(&dijkstra, &block).unwrap();
+        let mut v12 = PROTOCOL_VERSION_12;
+        assert_eq!(network.encoded_block(), cbor::to_cbor_with(&block, &mut v12));
+        assert!(NETWORK_BLOCK.decode_block_in(&dijkstra).unwrap_err().to_string().contains("expected Dijkstra"));
+
+        // A chunked signature is a valid v12 encoding of the same witness.
+        let witness = block.transaction_witnesses[0].verification_key_witness.as_ref().unwrap().first();
+        let definite = to_cbor(&witness.signature);
+        let mut chunked = cbor::Encoder::new(Vec::new());
+        chunked.begin_bytes().unwrap().bytes(witness.signature.as_slice()).unwrap().end().unwrap();
+        let mut bytes = network.encoded_block;
+        let start = bytes.windows(definite.len()).position(|window| window == definite).unwrap();
+        bytes.splice(start..start + definite.len(), chunked.into_writer());
+        let received = NetworkBlock::from_encoded_block(&dijkstra, block.header.slot(), bytes).unwrap();
+        let decoded = received.decode_block_in(&dijkstra).unwrap();
+        assert_eq!(
+            decoded.transaction_witnesses[0].verification_key_witness,
+            block.transaction_witnesses[0].verification_key_witness
+        );
+        assert_eq!(received.raw_block().decode().unwrap(), decoded);
+        assert!(NetworkBlock { era_tag: EraName::Conway, ..received }.decode_block_in(&conway).is_err());
+    }
 
     #[test]
     fn decode_network_block() {

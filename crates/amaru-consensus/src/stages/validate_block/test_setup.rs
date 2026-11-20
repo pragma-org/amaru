@@ -197,6 +197,7 @@ pub fn setup_many(prep: &TestPrep, msgs: Vec<ValidateBlockMsg>) -> (SimulationRu
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
             resources.put::<ResourceBlockValidation>(prep.block_validator.clone());
+            resources.put::<EraHistory>(EraHistory::default());
             resources.put::<ResourceHasStakePools>(Arc::new(MockHasStakePools));
         },
         |_running| {

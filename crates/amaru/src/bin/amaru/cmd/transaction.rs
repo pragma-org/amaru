@@ -94,7 +94,7 @@ fn sign_transaction(
         .witnesses
         .verification_key_witness
         .iter()
-        .flat_map(|witnesses| witnesses.iter().cloned())
+        .flat_map(|witnesses| witnesses.iter_wire().cloned())
         .chain(keys.iter().map(|key| key.witness(transaction.tx_id())))
         .map(|witness| (witness.verification_key, witness))
         .collect::<BTreeMap<_, _>>()
@@ -153,6 +153,40 @@ fn encode_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signing_preserves_last_submitted_witness_for_an_existing_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = |name, seed: u8| {
+            let path = dir.path().join(name);
+            fs::write(&path, [seed; 32]).unwrap();
+            TransactionSigningKey::from_file(path).unwrap()
+        };
+        let mut ctx = amaru_kernel::protocol_version::PROTOCOL_VERSION_11;
+        let bytes = hex::decode("84a3008001800200a0f5f6").unwrap();
+        let mut tx: Transaction = cbor::from_cbor_no_leftovers_with(&bytes, &mut ctx).unwrap();
+        let existing = key("existing.skey", 13).witness(tx.tx_id());
+        let other_signature = VerificationKeyWitness { signature: [0; 64].into(), ..existing.clone() };
+        let entries = vec![existing.clone(), other_signature, existing.clone()];
+        tx.witnesses = cbor::WithSize::new(
+            amaru_kernel::WitnessSet {
+                verification_key_witness: Some(entries.try_into().unwrap()),
+                ..Default::default()
+            },
+            0,
+        );
+        let bytes = cbor::to_cbor_with(&tx, &mut ctx);
+        let input = cbor::from_cbor_no_leftovers_with(&bytes, &mut ctx).unwrap();
+        let additional = key("additional.skey", 27);
+        let expected = additional.witness(tx.tx_id());
+        let signed = sign_transaction(input, &[additional], &mut ctx).unwrap();
+        let decoded: Transaction = cbor::from_cbor_no_leftovers_with(&signed, &mut ctx).unwrap();
+        let witnesses = decoded.witnesses.verification_key_witness.as_ref().unwrap();
+        assert_eq!(decoded.tx_id(), tx.tx_id());
+        assert_eq!(witnesses.len(), 2);
+        assert!(witnesses.contains(&existing));
+        assert!(witnesses.contains(&expected));
+    }
 
     #[test]
     fn sign_writes_transaction_and_refuses_to_replace_output() {
