@@ -54,7 +54,7 @@ else
 TRACE_SUMMARY_OUTPUT_ENABLED := 0
 endif
 
-.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset conformance-uplc conformance-uplc-turbo conformance-ledger-rules
+.PHONY: help download-haskell-config coverage-html coverage-lconv check-llvm-cov check-rust-toolchain-version check-changelog all-ci-checks generate-traces-doc compare-trace-contract update-trace-contract serve-traces-doc validate-trace-schemas clean-dist cli-assets generate-debian-env dist tarball zip zipball homebrew nix-flake winget deb rpm msi check-zip check-cargo-deb check-cargo-generate-rpm check-cargo-wix refresh fetch-cbor-dataset conformance-uplc conformance-uplc-turbo conformance-ledger-rules
 
 help:
 	@echo "\033[1;4mGetting Started:\033[00m"
@@ -122,8 +122,12 @@ validate-trace-schemas: ## &test Validate generated trace schemas against docs/t
 check-rust-toolchain-version: ## &test Verify rust-toolchain.toml and Cargo.toml rust-version stay aligned
 	@./scripts/check-rust-toolchain-version
 
+check-changelog: ## &test Validate changelog formatting and unreleased entries
+	@python3 scripts/check-changelog
+
 all-ci-checks: ## &test Run all CI checks
 	@$(MAKE) check-rust-toolchain-version
+	@$(MAKE) check-changelog
 	@cargo fmt-amaru
 	@cargo clippy-amaru
 	@cargo test --workspace --all-targets
