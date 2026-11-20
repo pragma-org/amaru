@@ -124,7 +124,7 @@ mod tests {
         Block, Transaction, cardano::network_block::NetworkBlock, cbor::WithOriginalBytes, from_cbor, include_cbor,
         to_cbor,
     };
-    use amaru_mempool::{InMemoryMempool, MempoolConfig};
+    use amaru_mempool::MempoolConfig;
     use amaru_ouroboros::ResourceMempool;
     use amaru_ouroboros_traits::{Mempool, MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
     use amaru_protocols::store_effects::ResourceParameters;
@@ -142,7 +142,7 @@ mod tests {
     use tokio_util::sync::{CancellationToken, DropGuard};
 
     use super::start;
-    use crate::{MempoolServices, stages::config::Config, tests::test_data::create_transaction};
+    use crate::{MempoolServices, mempool::Pool, stages::config::Config, tests::test_data::create_transaction};
 
     #[tokio::test]
     async fn test_successful_submission() -> anyhow::Result<()> {
@@ -182,8 +182,7 @@ mod tests {
     /// byte-identical to what was submitted rather than to our own re-encoding of it.
     #[tokio::test]
     async fn test_submission_preserves_original_transaction_bytes() -> anyhow::Result<()> {
-        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
-            Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
+        let mempool = Arc::new(Pool::default());
         let (addr, _guard) = start_test_server_with_mempool(mempool.clone()).await?;
 
         let tx = create_transaction(0);
@@ -236,10 +235,7 @@ mod tests {
         let second = create_transaction(1);
 
         let max_bytes = to_cbor(&first).len() as u64;
-        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
-            Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::new(
-                MempoolConfig::default().with_max_bytes(max_bytes),
-            ));
+        let mempool = Arc::new(Pool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
         let (addr, _guard) = start_test_server_with_mempool(mempool).await?;
 
         let resp = submit_tx(addr, amaru_kernel::to_cbor(&first)).await?;
@@ -253,8 +249,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_failure() -> anyhow::Result<()> {
-        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
-            Arc::new(InMemoryMempool::new(Default::default()));
+        let mempool = Arc::new(Pool::new(Default::default()));
         let (addr, _guard) =
             start_test_server_with_mempool_and_validator(mempool, Arc::new(reject_transactions)).await?;
 
@@ -268,8 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_unavailable() -> anyhow::Result<()> {
-        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
-            Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
+        let mempool = Arc::new(Pool::default());
         let (services, running, _guard) = make_mempool_services(mempool, Arc::new(MockCanValidateTxs));
         running.request_abort();
         assert!(running.join().await?.unexpected_exits.is_empty());
@@ -318,19 +312,16 @@ mod tests {
     }
 
     async fn start_test_server() -> anyhow::Result<(SocketAddr, DropGuard)> {
-        let mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>> =
-            Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
+        let mempool = Arc::new(Pool::default());
         start_test_server_with_mempool(mempool).await
     }
 
-    async fn start_test_server_with_mempool(
-        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
-    ) -> anyhow::Result<(SocketAddr, DropGuard)> {
+    async fn start_test_server_with_mempool(mempool: Arc<Pool>) -> anyhow::Result<(SocketAddr, DropGuard)> {
         start_test_server_with_mempool_and_validator(mempool, Arc::new(MockCanValidateTxs)).await
     }
 
     async fn start_test_server_with_mempool_and_validator(
-        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<Pool>,
         validator: ResourceTxValidation,
     ) -> anyhow::Result<(SocketAddr, DropGuard)> {
         let (services, _running, guard) = make_mempool_services(mempool, validator);
@@ -341,7 +332,7 @@ mod tests {
     }
 
     fn make_mempool_services(
-        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
+        mempool: Arc<Pool>,
         validator: ResourceTxValidation,
     ) -> (MempoolServices, TokioRunning, DropGuard) {
         use amaru_consensus::stages::mempool;

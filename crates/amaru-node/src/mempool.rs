@@ -28,30 +28,12 @@ use futures_util::{FutureExt, future::Shared};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::sync::CancellationToken;
 
-type Pool = InMemoryMempool<WithOriginalBytes<Transaction>>;
+pub(crate) type Pool = InMemoryMempool<WithOriginalBytes<Transaction>>;
 
 /// Membership of the node's transaction pool, in insertion order.
 pub type MempoolSnapshot = amaru_mempool::MempoolSnapshot<WithOriginalBytes<Transaction>>;
-/// A stored transaction, including its original encoding and admission metadata.
-pub type MempoolSnapshotEntry = amaru_mempool::MempoolEntry<WithOriginalBytes<Transaction>>;
 /// A committed insertion or batch of removals.
 pub type MempoolEvent = amaru_mempool::MempoolEvent<WithOriginalBytes<Transaction>>;
-
-/// API failure. A timeout or shutdown after dispatch does not establish whether insertion happened.
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum MempoolError {
-    #[error("node is closing or stopped")]
-    Closed,
-    #[error("missed {0} mempool changes; subscribe again for a fresh snapshot")]
-    Lagged(u64),
-    #[error("transaction input is too large: {size_bytes} bytes exceeds the {max_bytes}-byte limit")]
-    InputTooLarge { size_bytes: usize, max_bytes: usize },
-    #[error("Invalid CBOR transaction: {0}")]
-    InvalidCbor(String),
-    #[error(transparent)]
-    Call(#[from] CallError),
-}
 
 /// Inspection, subscription, and submission for one node run.
 /// Retaining this handle does not retain the runtime or stores.
@@ -148,6 +130,22 @@ impl MempoolServices {
         })
         .await
     }
+}
+
+/// API failure. A timeout or shutdown after dispatch does not establish whether insertion happened.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum MempoolError {
+    #[error("node is closing or stopped")]
+    Closed,
+    #[error("missed {0} mempool changes; subscribe again for a fresh snapshot")]
+    Lagged(u64),
+    #[error("transaction input is too large: {size_bytes} bytes exceeds the {max_bytes}-byte limit")]
+    InputTooLarge { size_bytes: usize, max_bytes: usize },
+    #[error("Invalid CBOR transaction: {0}")]
+    InvalidCbor(String),
+    #[error(transparent)]
+    Call(#[from] CallError),
 }
 
 /// Membership receiver owning queued data and lifecycle notification, without retaining stores.

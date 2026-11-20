@@ -64,9 +64,7 @@ pub use amaru_pure_stage::CallError;
 pub use builder::{NodeBuilder, default_store_paths, path_is_populated};
 pub use chain_realign::{ClearValidity, realign_chain_store_to};
 pub use ledger_reset::reset_ledger_to_epoch;
-pub use mempool::{
-    MempoolError, MempoolEvent, MempoolReceiver, MempoolServices, MempoolSnapshot, MempoolSnapshotEntry,
-};
+pub use mempool::{MempoolError, MempoolEvent, MempoolReceiver, MempoolServices, MempoolSnapshot};
 pub use mithril::{
     DefaultMithrilObserver, MithrilCancellation, MithrilObserver, MithrilProgress, MithrilStage, MithrilSyncError,
     MithrilSyncReport, MithrilSynchronizer, RebootstrapRequired, StoreRecoveryOutcome, reconcile_mithril_stores,
