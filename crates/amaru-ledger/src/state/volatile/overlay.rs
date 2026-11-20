@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cell::RefCell, collections::BTreeMap, mem, sync::Arc};
+use std::{collections::BTreeMap, mem, sync::Arc};
 
 use amaru_kernel::{
     Constitution, ConstitutionalCommitteeUpdate, Credential, Epoch, Hash, Lovelace, PoolId, ProposalId, ProposalsRoots,
@@ -30,9 +30,9 @@ use crate::{
         volatile::{Bind, CommitteeMemberBind, Existence, Resettable},
     },
     store::{
-        EpochTransitionProgress, HistoricalStores, Store, TransactionalContext, apply_governance_updates,
-        pay_or_refund_accounts, pay_rewards, reset_blocks_count, reset_fees_and_donations,
-        reset_recently_pruned_proposals, update_or_retire_pools,
+        EpochTransitionProgress, Store, TransactionalContext, apply_governance_updates, pay_or_refund_accounts,
+        pay_rewards, reset_blocks_count, reset_fees_and_donations, reset_recently_pruned_proposals,
+        update_or_retire_pools,
     },
 };
 
@@ -48,9 +48,6 @@ use crate::{
 pub struct StateOverlay {
     /// The last known epoch; or said differently, the epoch for which this overlay is valid.
     epoch: Epoch,
-
-    /// The most recent snapshot taken, kept in memory to avoid repeated I/O.
-    most_recent_snapshot: RefCell<Option<Epoch>>,
 
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
@@ -90,7 +87,6 @@ impl StateOverlay {
     pub fn new(epoch: Epoch) -> Self {
         Self {
             epoch,
-            most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::NotReady,
             pools_updates: None,
             governance_updates: None,
@@ -111,23 +107,10 @@ impl StateOverlay {
     pub(crate) fn snapshot(&self) -> StateOverlay {
         StateOverlay {
             epoch: self.epoch,
-            most_recent_snapshot: RefCell::new(*self.most_recent_snapshot.borrow()),
             rewards: self.rewards.clone(),
             pools_updates: self.pools_updates.clone(),
             governance_updates: self.governance_updates.clone(),
             treasury_delta: self.treasury_delta,
-        }
-    }
-
-    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
-    /// value if available.
-    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
-        if let Some(epoch) = *self.most_recent_snapshot.borrow() {
-            epoch
-        } else {
-            let epoch = snapshots.most_recent_snapshot();
-            self.most_recent_snapshot.replace(Some(epoch));
-            epoch
         }
     }
 
@@ -190,6 +173,19 @@ impl StateOverlay {
         self.pools_updates = Some(Arc::new(pools_updates));
 
         self.governance_updates = Some(Arc::new(governance_updates));
+    }
+
+    /// Write the end of the epoch: pay the rewards, and reset the recently pruned proposals.
+    ///
+    /// The overlay is unchanged, so the same writes can go to more than one store: to a candidate
+    /// snapshot first, then to the stable store when the last blocks of the epoch are stable.
+    pub fn end_epoch<'store>(&self, batch: &impl TransactionalContext<'store>) -> Result<(), StateError> {
+        let RewardsState::Effective(effective_rewards) = &self.rewards else {
+            return Err(StateError::NoEffectiveRewards);
+        };
+        pay_rewards(batch, effective_rewards)?;
+        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
+        Ok(())
     }
 
     /// Flush an overlay to disk.
@@ -256,18 +252,9 @@ impl StateOverlay {
 
                 Span::current().record("should_end_epoch", should_end_epoch);
 
-                if should_end_epoch {
-                    if let RewardsState::Effective(effective_rewards) = mem::take(&mut self.rewards) {
-                        pay_rewards(batch, &effective_rewards)?;
-                        reset_recently_pruned_proposals(batch, self.pruned_proposals())?;
-                    } else {
-                        return Err(StateError::NoEffectiveRewards);
-                    }
-                } else {
-                    mem::take(&mut self.rewards);
-                }
-
-                Ok(())
+                let ended = if should_end_epoch { self.end_epoch(batch) } else { Ok(()) };
+                mem::take(&mut self.rewards);
+                ended
             })?;
 
             // ------------------------------------------------------------------------------ Snapshot
@@ -278,7 +265,6 @@ impl StateOverlay {
 
                 if should_snapshot {
                     db.next_snapshot(self.epoch - 1)?;
-                    self.most_recent_snapshot.replace(Some(self.epoch - 1));
                 }
 
                 Ok(())
@@ -456,7 +442,6 @@ mod test {
         let epoch = Epoch::from(300);
         let mut overlay = StateOverlay {
             epoch,
-            most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::Effective(Arc::new(effective_rewards())),
             pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
             governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),

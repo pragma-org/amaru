@@ -1791,6 +1791,33 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 </details>
 
+## target: `amaru::ledger::candidate_snapshot`
+
+| name | kind | levels | public | description | required fields | optional fields |
+| --- | --- | --- | --- | --- | --- | --- |
+| `remove_failed` | `event` | warn | public | The directory of a candidate snapshot that no longer serves could not be deleted. Nothing reads it, and the node deletes it again when it starts. | epoch, last_block, reason |  |
+| `update` | `event` | info | public | A snapshot of an epoch whose last blocks are still volatile changed state. Outcome ∈ {created, final, discarded, restored, removed}: \`created\` at the first block after 3·k/f; \`final\` when its last block became stable; \`discarded\` when a rollback removed its last block; \`restored\` after a failed fork switch; \`removed\` when its directory is deleted. | epoch, last_block, outcome |  |
+
+<details><summary>event: `remove_failed`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+| `last_block` | `array` | ✓ |
+| `reason` | `string` | ✓ |
+
+</details>
+
+<details><summary>event: `update`</summary>
+
+| field | type | required |
+| --- | --- | --- |
+| `epoch` | `integer` | ✓ |
+| `last_block` | `array` | ✓ |
+| `outcome` | `string` | ✓ |
+
+</details>
+
 ## target: `amaru::ledger::chain_growth`
 
 | name | kind | levels | public | description | required fields | optional fields |
@@ -4088,14 +4115,14 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `unexpected_file` | `event` | warn | public | Skipped an unexpected file found in the snapshots directory | filename |  |
+| `unexpected_directory` | `event` | warn | public | Skipped an unexpected directory found in the snapshots directory | dirname |  |
 | `validate` | `span` |  | public | Validate sufficient snapshots exist |  | snapshot_count, continuous_ranges |
 
-<details><summary>event: `unexpected_file`</summary>
+<details><summary>event: `unexpected_directory`</summary>
 
 | field | type | required |
 | --- | --- | --- |
-| `filename` | `string` | ✓ |
+| `dirname` | `string` | ✓ |
 
 </details>
 

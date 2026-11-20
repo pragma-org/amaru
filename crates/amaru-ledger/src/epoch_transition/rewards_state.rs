@@ -103,11 +103,15 @@ impl KnownRewardState for Effective {
 }
 
 impl RewardsState {
-    /// Consume computed rewards from the state, if available.
+    /// Consume computed rewards from the state, if available. Other states stay: effective rewards
+    /// are not paid yet while their epoch transition is not flushed.
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
         match std::mem::replace(self, Self::NotReady) {
-            Self::NotReady | Self::Effective(_) => None,
             Self::Computed(computed) => Some(Arc::unwrap_or_clone(computed)),
+            other @ (Self::NotReady | Self::Effective(_)) => {
+                *self = other;
+                None
+            }
         }
     }
 

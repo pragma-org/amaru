@@ -141,7 +141,7 @@ fn pool_summaries(
         Some("missingPool") => {
             let mut by_epoch = BTreeMap::new();
             by_epoch.insert(target, BTreeMap::new());
-            PoolSummaries { by_epoch }
+            PoolSummaries { by_epoch, ..Default::default() }
         }
         Some("failing") => PoolSummaries::default(),
         _ => mock_ledger_state(context).to_pool_summaries(pool, target),

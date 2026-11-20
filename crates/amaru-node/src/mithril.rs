@@ -743,7 +743,7 @@ impl MithrilSynchronizer {
             // The validator lives in these resources; a strong capture would keep the stores open.
             let resources = stage_graph.resources().downgrade();
             let stake_updates = source.clone();
-            validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
+            validator.start(Arc::new(move |summaries| {
                 let max_epoch = summaries.max_epoch();
                 resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
                 let send = async {

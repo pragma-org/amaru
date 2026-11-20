@@ -23,8 +23,8 @@ use ::rocksdb::{self, OptimisticTransactionDB, Options, SliceTransform, checkpoi
 use amaru_iter_borrow::{self, IterBorrow, borrowable_proxy::BorrowableProxy};
 use amaru_kernel::{
     BlockHeight, CertificatePointer, Constitution, ConstitutionalCommitteeStatus, Credential, Epoch, EraHistory,
-    Lovelace, MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots, ProtocolParameters,
-    RatificationStatus, StakeEntry, TransactionInput, cbor,
+    HeaderHash, Lovelace, MemoizedTransactionOutput, NetworkPoint, Point, PoolId, ProposalId, ProposalsRoots,
+    ProtocolParameters, RatificationStatus, StakeEntry, TransactionInput, cbor,
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
@@ -81,6 +81,9 @@ const KEY_GOVERNANCE_ACTIVITY: &str = "@governance-activity";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
+/// This marker is used to identify candidate snapshot, when creating their directory name: `<epoch>.candidate-<last block hash>`.
+const CANDIDATE_MARKER: &str = ".candidate-";
+
 // RocksDB
 // ----------------------------------------------------------------------------
 
@@ -116,8 +119,9 @@ const DIR_LIVE_DB: &str = "live";
 //
 // CBOR is used to serialize objects (as keys or values) into their binary equivalent.
 pub struct RocksDB {
-    /// The working directory where we store the various key/value stores.
-    dir: PathBuf,
+    /// The working directory where we store the various key/value stores, and the RocksDB `Env`
+    /// that every database opened from this store uses.
+    config: RocksDbConfig,
 
     /// Whether to allow saving data incrementally (i.e. calling multiple times 'save' with the
     /// same point). This is only sound when importing static data, but not when running live.
@@ -194,15 +198,19 @@ impl RocksDB {
         let live_dir = dir.join(DIR_LIVE_DB);
         let mut opts = set_default_opts(config.into());
         opts.create_if_missing(true);
-        OptimisticTransactionDB::open(&opts, &live_dir)
-            .map(|db| Self {
-                dir,
-                incremental_save: false,
-                db,
-                ongoing_transaction: OngoingTransaction::new(),
-                chain_store: Mutex::new(None),
-            })
-            .map_err(|err| map_rocksdb_open_error(&live_dir, err))
+        let db =
+            OptimisticTransactionDB::open(&opts, &live_dir).map_err(|err| map_rocksdb_open_error(&live_dir, err))?;
+        // Remove candidate snapshots on a restart since the volatile DB starts empty. This comes after
+        // the open: the lock on the live database keeps a second process from removing the candidate
+        // snapshots of a running node.
+        remove_all_candidate_snapshots(&dir)?;
+        Ok(Self {
+            config: config.clone(),
+            incremental_save: false,
+            db,
+            ongoing_transaction: OngoingTransaction::new(),
+            chain_store: Mutex::new(None),
+        })
     }
 
     pub fn empty(config: &RocksDbConfig) -> Result<RocksDB, StoreError> {
@@ -212,7 +220,7 @@ impl RocksDB {
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, &live_dir)
             .map(|db| Self {
-                dir,
+                config: config.clone(),
                 incremental_save: true,
                 db,
                 ongoing_transaction: OngoingTransaction::new(),
@@ -310,14 +318,9 @@ impl Store for RocksDB {
 
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         info_span!(stores::ledger::epoch::CREATE_SNAPSHOT, epoch).in_scope(|| {
-            let path = self.dir.join(epoch.to_string());
+            let path = self.config.dir.join(epoch.to_string());
 
-            if path.exists() {
-                // RocksDB error can't be created externally, so panic instead
-                // It might be better to come up with a global error type
-                fs::remove_dir_all(&path)
-                    .map_err(|_| StoreError::Internal("Unable to remove existing snapshot directory".into()))?;
-            }
+            remove_dir_if_exists(&path)?;
 
             checkpoint::Checkpoint::new(&self.db)
                 .and_then(|handle| handle.create_checkpoint(path))
@@ -325,6 +328,34 @@ impl Store for RocksDB {
 
             Ok(())
         })
+    }
+
+    fn create_candidate_snapshot(
+        &self,
+        epoch: Epoch,
+        last_block: &HeaderHash,
+    ) -> Result<impl Store + use<>, StoreError> {
+        let path = self.config.dir.join(candidate_dirname(epoch, last_block));
+        remove_dir_if_exists(&path)?;
+
+        checkpoint::Checkpoint::new(&self.db)
+            .and_then(|handle| handle.create_checkpoint(&path))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        let opts = set_default_opts((&self.config).into());
+        OptimisticTransactionDB::open(&opts, &path)
+            .map(|db| Self {
+                config: self.config.clone(),
+                incremental_save: false,
+                db,
+                ongoing_transaction: OngoingTransaction::new(),
+                chain_store: Mutex::new(self.chain_store.lock().clone()),
+            })
+            .map_err(|err| map_rocksdb_open_error(&path, err))
+    }
+
+    fn remove_candidate_snapshot(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<(), StoreError> {
+        remove_dir_if_exists(&self.config.dir.join(candidate_dirname(epoch, last_block)))
     }
 
     #[expect(clippy::panic)] // Expected
@@ -364,8 +395,11 @@ pub struct RocksDBHistoricalStores {
 
 impl RocksDBHistoricalStores {
     pub fn for_epoch_with(config: &RocksDbConfig, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
-        let base_dir = config.dir.clone();
-        let snapshot_dir = base_dir.join(PathBuf::from(format!("{epoch}")));
+        Self::open_snapshot(config, epoch, &epoch.to_string())
+    }
+
+    fn open_snapshot(config: &RocksDbConfig, epoch: Epoch, dirname: &str) -> Result<RocksDBSnapshot, StoreError> {
+        let snapshot_dir = config.dir.join(dirname);
         let metadata = fs::metadata(&snapshot_dir)
             .map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(&snapshot_dir, err)))?;
         if !metadata.is_dir() {
@@ -386,6 +420,8 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
+    type Snapshot = RocksDBSnapshot;
+
     fn prune(&self, functional_minimum: Epoch) -> Result<(), StoreError> {
         let desired_minimum = functional_minimum.saturating_sub(self.max_extra_ledger_snapshots);
 
@@ -405,25 +441,72 @@ impl HistoricalStores for RocksDBHistoricalStores {
         RocksDB::snapshots(&self.config.dir)
     }
 
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot + Send + 'static, StoreError> {
+    fn for_epoch(&self, epoch: Epoch) -> Result<Self::Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.config, epoch)
+    }
+
+    /// Return a snapshot that was created as a candidate (with non-stable blocks).
+    fn for_candidate_epoch(&self, epoch: Epoch, last_block: &HeaderHash) -> Result<Self::Snapshot, StoreError> {
+        RocksDBHistoricalStores::open_snapshot(&self.config, epoch, &candidate_dirname(epoch, last_block))
     }
 }
 
+/// Create a directory name for a candidate snapshot: `<epoch>.candidate-<last block hash>`
+fn candidate_dirname(epoch: Epoch, last_block: &HeaderHash) -> String {
+    format!("{epoch}{CANDIDATE_MARKER}{last_block}")
+}
+
+/// Return true if the directory name is of the form: `<epoch>.candidate-<last block hash>`
+fn is_candidate_dirname(dirname: &str) -> bool {
+    dirname
+        .split_once(CANDIDATE_MARKER)
+        .is_some_and(|(epoch, last_block)| epoch.parse::<Epoch>().is_ok() && last_block.parse::<HeaderHash>().is_ok())
+}
+
+fn remove_dir_if_exists(path: &Path) -> Result<(), StoreError> {
+    match fs::remove_dir_all(path) {
+        Err(err) if err.kind() != io::ErrorKind::NotFound => {
+            Err(StoreError::Open(OpenErrorKind::io_with_file(path, err)))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Candidate snapshots depend on blocks that were not stable when the node stopped. The ledger
+/// creates them again when it needs them, so they are removed when the store opens.
+fn remove_all_candidate_snapshots(dirname: &Path) -> Result<(), StoreError> {
+    let entries = match fs::read_dir(dirname) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(StoreError::Open(OpenErrorKind::io_with_file(dirname, err))),
+    };
+
+    for entry in entries {
+        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+        if is_candidate_dirname(entry.file_name().to_str().unwrap_or_default()) {
+            remove_dir_if_exists(&entry.path())?;
+        }
+    }
+
+    Ok(())
+}
+
 fn with_snapshots(
-    dirname: &Path,
+    snapshots_dir: &Path,
     mut with: impl FnMut(PathBuf, Epoch) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
-    let mut dir = fs::read_dir(dirname).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+    let mut dir =
+        fs::read_dir(snapshots_dir).map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(snapshots_dir, err)))?;
 
     for entry in dir.by_ref() {
-        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
+        let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(snapshots_dir, err)))?;
         let path = entry.path();
-        if let Ok(epoch) = entry.file_name().to_str().unwrap_or_default().parse::<Epoch>() {
+        let dirname = entry.file_name();
+        let dirname = dirname.to_str().unwrap_or_default();
+        if let Ok(epoch) = dirname.parse::<Epoch>() {
             with(path, epoch)?;
-        } else if entry.file_name() != DIR_LIVE_DB {
-            let filename = entry.file_name();
-            warn!(stores::ledger::snapshots::UNEXPECTED_FILE, filename = filename.to_str().unwrap_or_default());
+        } else if dirname != DIR_LIVE_DB && !is_candidate_dirname(dirname) {
+            warn!(stores::ledger::snapshots::UNEXPECTED_DIRECTORY, dirname);
         }
     }
 
@@ -1194,6 +1277,127 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(&RocksDbConfig::new(dir.path().into())).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    mod candidate_snapshots {
+        use std::path::Path;
+
+        use amaru_kernel::{Epoch, HeaderHash, PREPROD_DEFAULT_PROTOCOL_PARAMETERS};
+        use amaru_ledger::store::{HistoricalStores, ReadStore, Store, TransactionalContext};
+        use tempfile::TempDir;
+
+        use crate::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
+
+        #[test]
+        fn a_candidate_snapshot_can_be_created_and_written_to() {
+            let dir = TempDir::new().unwrap();
+            let (store, snapshots) = open_store(dir.path());
+
+            let candidate = store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap();
+            make_a_write(&candidate);
+            drop(candidate);
+
+            assert!(
+                is_write_present(&snapshots.for_candidate_epoch(EPOCH_10, &last_block(1)).unwrap()),
+                "the candidate snapshot has the write"
+            );
+            assert_eq!(snapshots.snapshots().unwrap(), vec![EPOCH_8, EPOCH_9]);
+            assert!(snapshots.for_epoch(EPOCH_10).is_err(), "a candidate snapshot is not a final snapshot");
+        }
+
+        #[test]
+        fn candidate_snapshots_can_be_created_for_different_blocks() {
+            let dir = TempDir::new().unwrap();
+            let (store, snapshots) = open_store(dir.path());
+
+            let candidate = store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap();
+            make_a_write(&candidate);
+            drop(candidate);
+            drop(store.create_candidate_snapshot(EPOCH_10, &last_block(2)).unwrap());
+
+            let has_the_write_for =
+                |byte| is_write_present(&snapshots.for_candidate_epoch(EPOCH_10, &last_block(byte)).unwrap());
+            assert!(has_the_write_for(1));
+            assert!(!has_the_write_for(2));
+        }
+
+        #[test]
+        fn creating_a_candidate_snapshot_again_replaces_it() {
+            let dir = TempDir::new().unwrap();
+            let (store, snapshots) = open_store(dir.path());
+
+            let candidate = store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap();
+            make_a_write(&candidate);
+            drop(candidate);
+            drop(store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap());
+
+            assert!(!is_write_present(&snapshots.for_candidate_epoch(EPOCH_10, &last_block(1)).unwrap()));
+        }
+
+        #[test]
+        fn a_candidate_snapshot_can_be_removed() {
+            let dir = TempDir::new().unwrap();
+            let (store, snapshots) = open_store(dir.path());
+
+            drop(store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap());
+            store.remove_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap();
+            store.remove_candidate_snapshot(EPOCH_10, &last_block(1)).expect("removing twice is not an error");
+            assert!(snapshots.for_candidate_epoch(EPOCH_10, &last_block(1)).is_err());
+        }
+
+        #[test]
+        fn opening_the_store_removes_all_candidate_snapshots() {
+            let dir = TempDir::new().unwrap();
+            let (store, snapshots) = open_store(dir.path());
+            drop(store.create_candidate_snapshot(EPOCH_10, &last_block(1)).unwrap());
+            drop(store.create_candidate_snapshot(EPOCH_11, &last_block(2)).unwrap());
+            drop(store);
+
+            let _store = RocksDB::new(&RocksDbConfig::new(dir.path().into())).unwrap();
+
+            assert!(snapshots.for_candidate_epoch(EPOCH_10, &last_block(1)).is_err());
+            assert!(snapshots.for_candidate_epoch(EPOCH_11, &last_block(2)).is_err());
+        }
+
+        #[test]
+        fn only_well_formed_names_are_candidate_snapshots() {
+            use crate::rocksdb::{candidate_dirname, is_candidate_dirname};
+
+            assert!(is_candidate_dirname(&candidate_dirname(EPOCH_10, &last_block(1))));
+            assert!(!is_candidate_dirname("10"));
+            assert!(!is_candidate_dirname("live"));
+            assert!(!is_candidate_dirname("10.candidate-"));
+            assert!(!is_candidate_dirname("10.candidate-not-a-hash"));
+            assert!(!is_candidate_dirname(&format!("x.candidate-{}", last_block(1))));
+        }
+
+        // HELPERS
+        const EPOCH_8: Epoch = Epoch::new(8);
+        const EPOCH_9: Epoch = Epoch::new(9);
+        const EPOCH_10: Epoch = Epoch::new(10);
+        const EPOCH_11: Epoch = Epoch::new(11);
+
+        fn last_block(byte: u8) -> HeaderHash {
+            HeaderHash::from([byte; 32])
+        }
+
+        /// A store with the two consecutive final snapshots that `RocksDB::new` requires.
+        fn open_store(dir: &Path) -> (RocksDB, RocksDBHistoricalStores) {
+            let config = RocksDbConfig::new(dir.into());
+            let store = RocksDB::empty(&config).unwrap();
+            store.next_snapshot(EPOCH_8).unwrap();
+            store.next_snapshot(EPOCH_9).unwrap();
+            (store, RocksDBHistoricalStores::new(&config, 0))
+        }
+
+        /// Any write will do: the tests only check which store gets the writes.
+        fn make_a_write(store: &impl Store) {
+            store.with_transaction(|ctx| ctx.set_protocol_parameters(&PREPROD_DEFAULT_PROTOCOL_PARAMETERS)).unwrap();
+        }
+
+        fn is_write_present(store: &impl ReadStore) -> bool {
+            store.protocol_parameters().is_ok()
+        }
     }
 
     #[test]

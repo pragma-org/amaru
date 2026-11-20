@@ -18,9 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, GlobalParameters, Hash, Lovelace, MemoizedTransactionOutput,
-    PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters,
-    TransactionInput, size::SCRIPT,
+    Credential, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
+    Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -35,7 +34,7 @@ use crate::{
             VolatileSequence, VolatileSeries, VolatileState, overlay::StateOverlay,
         },
     },
-    store::{HistoricalStores, Store},
+    store::{Store, TransactionalContext},
 };
 
 #[derive(Debug)]
@@ -285,12 +284,6 @@ impl VolatileDB {
         self.overlay.epoch()
     }
 
-    /// Get the most recent taken, by peaking at the files on disk or looking an in-memory cached
-    /// value if available.
-    pub fn most_recent_snapshot<HS: HistoricalStores>(&self, snapshots: &HS) -> Epoch {
-        self.overlay.most_recent_snapshot(snapshots)
-    }
-
     /// The protocol parameters carried by an in-flight epoch transition, if any.
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         self.overlay.pending_protocol_parameters().unwrap_or(&self.protocol_parameters)
@@ -352,9 +345,11 @@ impl VolatileDB {
         self.overlay.pending_proposals_roots()
     }
 
-    /// Whether the rewards for the in-flight epoch are still to be computed.
-    pub fn rewards_not_ready(&self) -> bool {
-        matches!(self.overlay.rewards(), RewardsState::NotReady)
+    /// Whether the overlay holds rewards that wait for the next epoch boundary. A rollback across
+    /// that boundary turns the effective rewards back into computed ones, and the replay of the
+    /// epoch transition uses them again.
+    pub fn has_computed_rewards(&self) -> bool {
+        matches!(self.overlay.rewards(), RewardsState::Computed(_))
     }
 
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
@@ -411,13 +406,28 @@ impl VolatileDB {
         self.overlay.transition(effective_rewards, pools_updates, governance_updates, donations, account_exists);
     }
 
+    /// Whether no block of the closing epoch is still volatile.
+    pub fn is_draining_empty(&self) -> bool {
+        self.draining.is_empty()
+    }
+
+    /// Return the blocks of the closing epoch that are still volatile, oldest first.
+    pub fn epoch_tail_view(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
+        self.draining.iter()
+    }
+
+    /// Write the end of the closing epoch to `batch`: pay the rewards, and reset the recently pruned
+    /// proposals. A candidate snapshot gets these writes first, then the stable store at the flush.
+    pub fn end_epoch<'store>(&self, batch: &impl TransactionalContext<'store>) -> Result<(), StateError> {
+        self.overlay.end_epoch(batch)
+    }
+
     /// Whether an epoch transition has been computed but not yet flushed to the stable store.
-    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory, global_parameters: &GlobalParameters) -> bool {
+    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory) -> bool {
         !self.overlay.is_empty()
             && self.draining.view_front().is_none_or(|_| {
                 let absolute_slot = self.current.view_back().map(|fragment| fragment.slot()).unwrap_or_default();
-                let relative_slot = era_history.slot_in_epoch(absolute_slot, absolute_slot).unwrap_or_default();
-                relative_slot >= global_parameters.stability_window()
+                era_history.is_stable(absolute_slot)
             })
     }
 
