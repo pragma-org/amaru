@@ -26,6 +26,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{
     ConsensusParameters, EraHistory, GlobalParameters, HeaderHash, IsHeader, PeerCandidate, Point, Transaction,
+    cbor::WithOriginalBytes,
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
@@ -37,8 +38,7 @@ use amaru_metrics::Meter;
 use amaru_network::{connection::TokioConnections, resolve::init_resolver};
 use amaru_observability::warn;
 use amaru_ouroboros::{
-    BaseReadChainStore, ChainStore, ConnectionsResource, MempoolMsg, PoolSummaries, ResourceMempool,
-    StoreError as ChainStoreError,
+    BaseReadChainStore, ChainStore, ConnectionsResource, PoolSummaries, ResourceMempool, StoreError as ChainStoreError,
 };
 use amaru_ouroboros_traits::Mempool;
 use amaru_protocols::{
@@ -46,7 +46,7 @@ use amaru_protocols::{
     store_effects::{ResourceHeaderStore, ResourceParameters},
 };
 use amaru_pure_stage::{
-    BoxFuture, Name, Sender, StageGraph, StageGraphRunning,
+    BoxFuture, Name, StageGraph, StageGraphRunning,
     drop_guard::DropGuard,
     tokio::{TokioBuilder, TokioRunning},
     trace_buffer::TraceBuffer,
@@ -62,6 +62,7 @@ use tokio::runtime::Handle;
 use crate::{
     ClearValidity,
     chain_realign::ensure_store_consistency,
+    mempool::MempoolServices,
     realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
@@ -256,9 +257,11 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
 
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
-    let mempool_sender = stage_builder.input(node_stages.mempool_stage());
+    let sender = stage_builder.input(node_stages.mempool_stage());
+    let pool = stage_builder.resources().take::<Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
-    Ok(NodeRunning { tokio_running, mempool_sender, lifecycle, listen_address })
+    let (mempool, mempool_guard) = MempoolServices::new(&pool, sender, tokio_running.termination());
+    Ok(NodeRunning { tokio_running, mempool, mempool_guard, lifecycle, listen_address })
 }
 
 async fn await_readiness(running: NodeRunning, runtime: &Handle) -> Result<NodeRunning, NodeStartError> {
@@ -325,7 +328,8 @@ async fn await_listener(
 #[must_use = "call shutdown().await to release all node resources deterministically"]
 pub struct NodeRunning {
     tokio_running: TokioRunning,
-    mempool_sender: Sender<MempoolMsg>,
+    mempool: MempoolServices,
+    mempool_guard: tokio_util::sync::DropGuard,
     lifecycle: NodeLifecycle,
     listen_address: SocketAddr,
 }
@@ -336,8 +340,9 @@ impl NodeRunning {
         self.listen_address
     }
 
-    pub fn mempool_sender(&self) -> Sender<MempoolMsg> {
-        self.mempool_sender.clone()
+    /// Access the node's read-only and submission mempool services.
+    pub fn mempool(&self) -> MempoolServices {
+        self.mempool.clone()
     }
 
     pub fn trace_buffer(&self) -> &Arc<Mutex<TraceBuffer>> {
@@ -352,12 +357,18 @@ impl NodeRunning {
     ///
     /// This does not wait for cleanup; call [`Self::shutdown`] to finalize the node.
     pub fn request_abort(&self) {
+        self.mempool.close();
         self.tokio_running.request_abort();
     }
 
     /// Return a non-blocking abort callback that does not own the node's shutdown result.
     pub fn abort_callback(&self) -> impl Fn() + Send + Sync + 'static {
-        self.tokio_running.abort_callback()
+        let abort = self.tokio_running.abort_callback();
+        let mempool = self.mempool.clone();
+        move || {
+            mempool.close();
+            abort();
+        }
     }
 
     /// Stop and join every node-owned task, then close listeners and stores.
@@ -373,11 +384,12 @@ impl NodeRunning {
 
     /// Like [`Self::shutdown`], with an explicit ledger-worker wait budget.
     pub async fn shutdown_with_timeout(self, timeout: Duration) -> Result<ShutdownReport, ShutdownError> {
-        let Self { tokio_running, mempool_sender, lifecycle, listen_address: _ } = self;
+        let Self { tokio_running, mempool, mempool_guard, lifecycle, listen_address: _ } = self;
+        drop(mempool_guard);
+        drop(mempool);
         let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
 
         tokio_running.request_abort();
-        drop(mempool_sender);
         let mut unexpected_exits = match tokio_running.join().await {
             Ok(report) => {
                 report.unexpected_exits.into_iter().map(|stage| ComponentFailure::StageExited { stage }).collect()
@@ -568,6 +580,7 @@ fn register_resources(
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
     let mempool = Arc::new(InMemoryMempool::new(mempool_config));
     mempool.set_tip(ledger_tip);
+    stage_graph.resources().put(mempool.clone());
     stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
@@ -844,7 +857,7 @@ mod tests {
             let chain_config = RocksDbConfig::new(stores.path().join(network.to_string()));
 
             let running = build_and_run_node(config, &Handle::current()).await?;
-            retained.push((running.abort_callback(), running.mempool_sender()));
+            retained.push((running.abort_callback(), running.mempool()));
             assert_eq!(running.listen_address(), listen_address);
             drop(TcpStream::connect(listen_address).await?);
             let report = timeout(Duration::from_secs(15), running.shutdown()).await??;
@@ -853,9 +866,9 @@ mod tests {
             drop(TcpListener::bind(listen_address)?);
             drop(RocksDB::new(&ledger_config)?);
             drop(RocksDBStore::open(&chain_config)?);
-            for (abort, sender) in &retained {
+            for (abort, mempool) in &retained {
                 abort();
-                assert!(sender.send(MempoolMsg::NewTip(Point::Origin)).await.is_err());
+                assert_eq!(mempool.submit(&[]).await, Err(crate::MempoolError::Closed));
             }
         }
 
