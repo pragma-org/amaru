@@ -257,13 +257,17 @@ impl LatestSnapshot {
 
     /// Take the final snapshot of `epoch`, once the stable store holds it:
     ///
+    ///  - Final(epoch) -> Final(epoch): the transition out of `epoch` resumes after a restart, and
+    ///    the stable store took the snapshot of `epoch` before that restart.
     ///  - Final(epoch - 1) -> Final(epoch): the new final snapshot becomes the latest one.
-    ///  - Candidate(epoch) -> Settled(epoch): the candidate is final now, but its directory stays
-    ///    on disk while the computation reads it.
+    ///  - Candidate(epoch) -> Settled(epoch) ?-> Final(epoch): the candidate is final now, but its directory
+    ///    stays on disk while the computation reads it, and goes to final if the computation is done.
+    ///  - Settled(epoch) ?-> Final(epoch): the candidate is settled now, but its directory
+    ///    stays on disk while the computation reads it, and goes to final if the computation is done.
     pub fn finalize(&mut self, epoch: Epoch, store: &impl Store) {
         match &self.kind {
-            Kind::Final(final_epoch) => {
-                debug_assert_ne!(*final_epoch, epoch, "the final snapshot of {epoch} is already the latest one");
+            Kind::Final(final_epoch) if *final_epoch == epoch => {}
+            Kind::Final(_) => {
                 debug_assert!(!self.tasks.is_running(), "no computation runs at the finalization of {epoch}: {self:?}");
                 self.kind = Kind::Final(epoch);
                 self.computed = false;
