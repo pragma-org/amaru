@@ -21,6 +21,8 @@
 //! writing blocks that are not final to the stable store, so that a legal rollback past these
 //! blocks stays possible.
 
+mod properties;
+
 use std::{
     sync::{
         Arc, Mutex,

@@ -145,6 +145,12 @@ impl LatestSnapshot {
         self.candidate_snapshot().map(|snapshot| (snapshot.epoch, snapshot.last_block))
     }
 
+    /// The epoch and the last block of the snapshot that still has a directory on disk, candidate or settled.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn candidate_on_disk(&self) -> Option<(Epoch, Point)> {
+        self.on_disk().map(|snapshot| (snapshot.epoch, snapshot.last_block))
+    }
+
     /// The last block of the candidate snapshot.
     pub fn candidate_last_block(&self) -> Option<Point> {
         self.candidate_snapshot().map(|snapshot| snapshot.last_block)

@@ -340,6 +340,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         self.latest_snapshot.candidate()
     }
 
+    /// The epoch and the last block of the snapshot that still has a directory on disk, candidate or settled.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn candidate_snapshot_on_disk(&self) -> Option<(Epoch, Point)> {
+        self.latest_snapshot.candidate_on_disk()
+    }
+
     /// Points of the blocks of the closing epoch that are still volatile, oldest first.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn volatile_epoch_tail(&self) -> Vec<Point> {
@@ -409,7 +415,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             // wait for the rewards computation to be finished and get the rewards
             let rewards = self.latest_snapshot.join_task(next_epoch - 1, &self.stable)?;
 
-            let computed_rewards = if let Some(rewards) = rewards {
+            let mut computed_rewards = if let Some(rewards) = rewards {
                 debug_assert!(
                     !self.volatile.has_computed_rewards(),
                     "the rewards of epoch {} were computed again, while the ledger still holds them",
@@ -430,6 +436,17 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             // pending epoch transition must reach the stable store now.
             if !self.volatile.is_draining_empty() {
                 self.flush_epoch_transition()?;
+            }
+
+            // NOTE: No block after the stability window
+            //
+            // Only a block after the stability window starts the computation. When the closing
+            // epoch has no such block, the computation runs now, from the final snapshot that the
+            // flush took. A computation that ran already is not started again.
+            if computed_rewards.is_none() && self.stable.epoch_transition_progress()?.is_none() {
+                self.compute_stake_distribution_and_rewards()?;
+                computed_rewards =
+                    self.latest_snapshot.join_task(next_epoch - 1, &self.stable)?.map(Rewards::<Computed>::from);
             }
 
             // A rollback to the last block of the epoch of the candidate snapshot keeps it: the replay
@@ -538,36 +555,48 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         })
     }
 
-    // NOTE: Epochs used by the stake distribution and rewards computation
-    //
-    // The tip is in epoch e, at least 3·k/f slots after its start. The computation reads
-    // 2 snapshots:
-    //
-    // - Snapshot e−1 (`previous_epoch`): the state at the end of epoch e−1. It is a final
-    //   snapshot, or a candidate snapshot when the last blocks of epoch e−1 are still
-    //   volatile. It gives:
-    //   - the stake distribution of epoch e−1. The computation publishes it at once,
-    //     because consensus needs it to validate the headers of epoch e+1;
-    //   - the blocks made by each pool during epoch e−1, and the pots. They set the amount
-    //     of the rewards.
-    // - Snapshot e−3 (`rewards_snapshot`): the stake that the rewards are shared on. It is
-    //   the stake distribution that elected the leaders of epoch e−1.
-    //
-    // The transition from epoch e to epoch e+1 pays these rewards.
-    //
-    //  epoch e−3 │ epoch e−2 │ epoch e−1 │     epoch e     │ epoch e+1
-    // ───────────┼───────────┼───────────┼─────────────────┼───────────
-    //            ▲                       ▲     ▲           ▲
-    //            │                       │     │           └ the transition e → e+1 pays the rewards
-    //            │                       │     └ after 3·k/f slots: the computation starts
-    //            │                       └ snapshot e−1: the blocks of each pool in epoch e−1, the pots,
-    //            │                         and the stake distribution of epoch e−1 for the headers of epoch e+1
-    //            └ snapshot e−3: the stake that the rewards are shared on
+    /// If we are in the stability window for the current epoch start computing the stake distribution
+    /// and rewards applicable to the next epoch.
+    ///
+    /// NOTE: Epochs used by the stake distribution and rewards computation
+    ///
+    /// The tip is in epoch e, at least 3·k/f slots after its start. The computation reads
+    /// 2 snapshots:
+    ///
+    /// - Snapshot e−1 (`previous_epoch`): the state at the end of epoch e−1. It is a final
+    ///   snapshot, or a candidate snapshot when the last blocks of epoch e−1 are still
+    ///   volatile. It gives:
+    ///   - the stake distribution of epoch e−1. The computation publishes it at once,
+    ///     because consensus needs it to validate the headers of epoch e+1;
+    ///   - the blocks made by each pool during epoch e−1, and the pots. They set the amount
+    ///     of the rewards.
+    /// - Snapshot e−3 (`rewards_snapshot`): the stake that the rewards are shared on. It is
+    ///   the stake distribution that elected the leaders of epoch e−1.
+    ///
+    /// The transition from epoch e to epoch e+1 pays these rewards.
+    ///
+    ///  epoch e−3 │ epoch e−2 │ epoch e−1 │     epoch e     │ epoch e+1
+    /// ───────────┼───────────┼───────────┼─────────────────┼───────────
+    ///            ▲                       ▲     ▲           ▲
+    ///            │                       │     │           └ the transition e → e+1 pays the rewards
+    ///            │                       │     └ after 3·k/f slots: the computation starts
+    ///            │                       └ snapshot e−1: the blocks of each pool in epoch e−1, the pots,
+    ///            │                         and the stake distribution of epoch e−1 for the headers of epoch e+1
+    ///            └ snapshot e−3: the stake that the rewards are shared on
     fn try_compute_stake_distribution_and_rewards(&mut self) -> Result<(), StateError> {
-        // Don't start any computation if
-        //  - We are still in the previous epoch (e - 1 above)
-        //  - We are not yet in the stable part of an epoch (e above, but still outside of the stability window)
-        if self.latest_snapshot.epoch() >= self.current_epoch() || !self.is_epoch_stable() {
+        if !self.is_epoch_stable() {
+            return Ok(());
+        }
+        self.compute_stake_distribution_and_rewards()
+    }
+
+    /// Start the stake distribution and rewards computation of the current epoch, from the latest
+    /// snapshot.
+    fn compute_stake_distribution_and_rewards(&mut self) -> Result<(), StateError> {
+        // The computation must only start when the current epoch is `e` and the latest snapshot
+        // is `e - 1`. But after a restart the volatile state is lost and the stable tip might be in
+        // epoch `e - 1` while we already have a snapshot of `e - 1` as the latest snapshot.
+        if self.latest_snapshot.epoch() >= self.current_epoch() {
             return Ok(());
         }
 
