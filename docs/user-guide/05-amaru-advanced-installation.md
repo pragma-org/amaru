@@ -89,7 +89,7 @@ AMARU_LOG_JSON=true
 # <mainnet|preprod|preview|testnet_<U32>> Target Cardano network.
 AMARU_NETWORK="mainnet"
 
-# <FILEPATH> Operational certificate, as an unencrypted cardano-cli `node.cert` text envelope.
+# <FILEPATH> Operational certificate, as binary CBOR or a legacy cardano-cli `node.cert` text envelope.
 # AMARU_OPERATOR_CERT=
 
 # <FILEPATH> KES signing key, as raw bytes (legacy cardano-cli `kes.skey` text envelopes are also accepted).
@@ -449,3 +449,5 @@ Best practice is to back up `--db-chain`/`--db-ledger` before upgrading across a
 :::warning
 When using the CLI directly, `AMARU_DB_CHAIN_AUTOMATIC_MIGRATION` defaults to `false`, so if a db migration is needed, Amaru won't start and will ask to use `--db-chain-automatic-migration` in order to perform the upgrade.
 :::
+
+To let this node forge blocks for a stake pool, continue to [Block Producer](06-amaru-block-producer.md).

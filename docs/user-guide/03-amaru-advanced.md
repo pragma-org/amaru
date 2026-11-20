@@ -5,10 +5,11 @@ sidebar_label: "Advanced Installation on Mainnet"
 description: Prerequisites for a production-grade Amaru deployment on mainnet, split into system hardening and advanced installation.
 ---
 
-This is the production-grade path for running Amaru on mainnet: hardening the host, installing Amaru as a systemd service under its own dedicated system user, and operating it long-term. It's split into two parts:
+This is the production-grade path for running Amaru on mainnet: hardening the host, installing Amaru as a systemd service under its own dedicated system user, and operating it long-term. It's split into three parts:
 
 1. [System Hardening](04-amaru-advanced-hardening.md) — secures the host before anything is installed.
 2. [Advanced Installation](05-amaru-advanced-installation.md) — installs Amaru, configures it for mainnet, and covers day-2 operations.
+3. [Block Producer](06-amaru-block-producer.md) — turns the node into a stake pool block producer and covers KES key rotation.
 
 :::tip Just want to test on preprod?
 This path isn't needed for a quick test — see [Running on Preprod (Fast-Forward)](01-amaru-fast-forward.md) instead.
