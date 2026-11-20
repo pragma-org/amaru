@@ -596,6 +596,7 @@ impl FetchBlocks {
             peer,
             point.hash(),
             block.header.block_height(),
+            block.header.slot(),
             block.header.parent_hash(),
             now,
             response,

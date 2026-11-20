@@ -21,9 +21,9 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
 use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
-use amaru_observability::{debug, error, info};
+use amaru_observability::{debug, error};
 use amaru_pure_stage::Instant;
 
 use super::spans::HeaderSpanBook;
@@ -77,10 +77,25 @@ struct HeaderAudience {
     delivered: Vec<Peer>,
     /// The block was adopted. Later peers do not emit `header.announced`.
     adopted: bool,
+    /// Header slot, once an announcement or a body delivery has supplied it.
+    slot: Option<Slot>,
     /// Slot onset as a duration since the global epoch, from the first announcement that knew it.
     slot_onset: Option<Duration>,
     /// When each peer was asked for this body. The first ask of a peer wins.
     asked_at: BTreeMap<Peer, Instant>,
+}
+
+impl HeaderAudience {
+    /// Slot and block number for a `block.requested` line.
+    ///
+    /// A fetch ask can open this entry before any header is known. Height 0 with no slot is that
+    /// placeholder, not a genesis block, so both fields stay absent.
+    fn logged_slot_and_height(&self) -> (Option<u64>, Option<u64>) {
+        let slot = self.slot.map(|slot| slot.as_u64());
+        let block_height =
+            if self.slot.is_some() || self.height != BlockHeight::from(0) { Some(self.height.as_u64()) } else { None };
+        (slot, block_height)
+    }
 }
 
 /// The processing timestamps accumulated for a header until its block reaches a terminal state.
@@ -206,20 +221,42 @@ pub enum HeaderTelemetry {
     /// Closed fork switch (`perf.fork.switch`).
     ForkSwitch { hash: HeaderHash, outcome: ForkSwitchOutcome, duration_micros: u64 },
     /// One of the first three distinct peers to announce `hash` (`header.announced`).
-    Announced { hash: HeaderHash, peer: Peer, rank: u64, slot_latency_ms: Option<u64> },
+    Announced { hash: HeaderHash, peer: Peer, rank: u64, slot: Slot, block_height: u64, slot_latency_ms: Option<u64> },
     /// Peers asked for the body of `hash` (`block.requested`).
-    Requested { hash: HeaderHash, peers: String, slot_latency_ms: Option<u64> },
+    ///
+    /// `slot` and `block_height` are absent when the ask is recorded before a header or a body
+    /// has identified the block (this may happen after a node restart).
+    Requested {
+        hash: HeaderHash,
+        peers: String,
+        slot: Option<u64>,
+        block_height: Option<u64>,
+        slot_latency_ms: Option<u64>,
+    },
     /// A distinct peer delivered the body of `hash` (`block.received`).
     Received {
         hash: HeaderHash,
         peer: Peer,
         rank: u64,
+        slot: Slot,
+        block_height: u64,
+        /// Raw block length in bytes.
+        size: u64,
         slot_latency_ms: Option<u64>,
         /// Milliseconds since this peer was asked. Absent when that ask was not recorded.
         fetch_latency_ms: Option<u64>,
     },
     /// `hash` was adopted locally (`block.adopted`).
-    Adopted { hash: HeaderHash, peer: Option<Peer>, slot_latency_ms: Option<u64> },
+    Adopted { hash: HeaderHash, peer: Option<Peer>, slot: Slot, block_height: u64, slot_latency_ms: Option<u64> },
+}
+
+/// Emit one blockperf event. These lines stay at debug while syncing and while live.
+macro_rules! emit_blockperf {
+    ($spans:expr, $hash:expr, $schema:path, { $($field:tt)* }) => {
+        in_forward($spans, $hash, || {
+            debug!($schema, $($field)*);
+        });
+    };
 }
 
 impl HeaderTelemetry {
@@ -228,7 +265,7 @@ impl HeaderTelemetry {
     /// Safe to call where OTel/export layers may drop or lag; must not run on the performance
     /// worker thread. Blockperf lines are emitted under the forward span when it is still open.
     /// Lifecycle closes that span and uses its duration.
-    pub(crate) fn emit(&self, meter: Option<&Meter>, live: bool, spans: &mut HeaderSpanBook) {
+    pub(crate) fn emit(&self, meter: Option<&Meter>, spans: &mut HeaderSpanBook) {
         match self {
             Self::Lifecycle {
                 hash,
@@ -289,85 +326,63 @@ impl HeaderTelemetry {
                     ConsensusMetrics::ForkSwitch { outcome: outcome.as_str().to_string(), duration_micros },
                 );
             }
-            Self::Announced { hash, peer, rank, slot_latency_ms } => {
-                in_forward(spans, hash, || {
-                    if live {
-                        info!(
-                            blockperf::header::ANNOUNCED,
-                            peer,
-                            header_hash = hash,
-                            rank = *rank,
-                            slot_latency_ms = @slot_latency_ms
-                        );
-                    } else {
-                        debug!(
-                            blockperf::header::ANNOUNCED,
-                            peer,
-                            header_hash = hash,
-                            rank = *rank,
-                            slot_latency_ms = @slot_latency_ms
-                        );
-                    }
+            Self::Announced { hash, peer, rank, slot, block_height, slot_latency_ms } => {
+                let slot = slot.as_u64();
+                let block_height = *block_height;
+                emit_blockperf!(spans, hash, blockperf::header::ANNOUNCED, {
+                    peer,
+                    header_hash = hash,
+                    rank = *rank,
+                    slot = slot,
+                    block_height = block_height,
+                    slot_latency_ms = @slot_latency_ms
                 });
             }
-            Self::Requested { hash, peers, slot_latency_ms } => {
-                in_forward(spans, hash, || {
-                    if live {
-                        info!(
-                            blockperf::block::REQUESTED,
-                            header_hash = hash,
-                            peers = peers.as_str(),
-                            slot_latency_ms = @slot_latency_ms
-                        );
-                    } else {
-                        debug!(
-                            blockperf::block::REQUESTED,
-                            header_hash = hash,
-                            peers = peers.as_str(),
-                            slot_latency_ms = @slot_latency_ms
-                        );
-                    }
+            Self::Requested { hash, peers, slot, block_height, slot_latency_ms } => {
+                let slot = *slot;
+                let block_height = *block_height;
+                emit_blockperf!(spans, hash, blockperf::block::REQUESTED, {
+                    header_hash = hash,
+                    peers = peers.as_str(),
+                    slot = @slot,
+                    block_height = @block_height,
+                    slot_latency_ms = @slot_latency_ms
                 });
             }
-            Self::Received { hash, peer, rank, slot_latency_ms, fetch_latency_ms } => {
-                in_forward(spans, hash, || {
-                    if live {
-                        info!(
-                            blockperf::block::RECEIVED,
-                            peer,
-                            header_hash = hash,
-                            rank = *rank,
-                            slot_latency_ms = @slot_latency_ms,
-                            fetch_latency_ms = @fetch_latency_ms
-                        );
-                    } else {
-                        debug!(
-                            blockperf::block::RECEIVED,
-                            peer,
-                            header_hash = hash,
-                            rank = *rank,
-                            slot_latency_ms = @slot_latency_ms,
-                            fetch_latency_ms = @fetch_latency_ms
-                        );
-                    }
+            Self::Received { hash, peer, rank, slot, block_height, size, slot_latency_ms, fetch_latency_ms } => {
+                let slot = slot.as_u64();
+                let block_height = *block_height;
+                let size = *size;
+                emit_blockperf!(spans, hash, blockperf::block::RECEIVED, {
+                    peer,
+                    header_hash = hash,
+                    rank = *rank,
+                    slot = slot,
+                    block_height = block_height,
+                    size = size,
+                    slot_latency_ms = @slot_latency_ms,
+                    fetch_latency_ms = @fetch_latency_ms
                 });
             }
-            Self::Adopted { hash, peer: Some(peer), slot_latency_ms } => {
-                in_forward(spans, hash, || {
-                    if live {
-                        info!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
-                    } else {
-                        debug!(blockperf::block::ADOPTED, header_hash = hash, peer, slot_latency_ms = @slot_latency_ms);
-                    }
+            Self::Adopted { hash, peer: Some(peer), slot, block_height, slot_latency_ms } => {
+                let slot = slot.as_u64();
+                let block_height = *block_height;
+                emit_blockperf!(spans, hash, blockperf::block::ADOPTED, {
+                    header_hash = hash,
+                    peer,
+                    slot = slot,
+                    block_height = block_height,
+                    slot_latency_ms = @slot_latency_ms
                 });
             }
-            Self::Adopted { hash, peer: None, slot_latency_ms } => {
-                in_forward(spans, hash, || {
-                    if live {
-                        info!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
-                    } else {
-                        debug!(blockperf::block::ADOPTED, header_hash = hash, slot_latency_ms = @slot_latency_ms);
-                    }
+            Self::Adopted { hash, peer: None, slot, block_height, slot_latency_ms } => {
+                let slot = slot.as_u64();
+                let block_height = *block_height;
+                emit_blockperf!(spans, hash, blockperf::block::ADOPTED, {
+                    header_hash = hash,
+                    slot = slot,
+                    block_height = block_height,
+                    slot_latency_ms = @slot_latency_ms
                 });
             }
         }
@@ -376,13 +391,12 @@ impl HeaderTelemetry {
     /// Emit a batch of telemetry events.
     ///
     /// Blockperf and fork events run before lifecycle so they still see the forward span.
-    /// `live` prints block-propagation events at info; sync keeps them at debug.
-    pub(crate) fn emit_all(events: &[Self], meter: Option<&Meter>, live: bool, spans: &mut HeaderSpanBook) {
+    pub(crate) fn emit_all(events: &[Self], meter: Option<&Meter>, spans: &mut HeaderSpanBook) {
         for event in events.iter().filter(|event| !matches!(event, Self::Lifecycle { .. })) {
-            event.emit(meter, live, spans);
+            event.emit(meter, spans);
         }
         for event in events.iter().filter(|event| matches!(event, Self::Lifecycle { .. })) {
-            event.emit(meter, live, spans);
+            event.emit(meter, spans);
         }
     }
 
@@ -490,13 +504,15 @@ impl HeaderPerformance {
         already_stored: bool,
     ) -> Vec<HeaderTelemetry> {
         let hash = tip.hash();
+        let height = tip.block_height();
+        let slot = tip.slot();
         if already_stored {
-            return self.extend_announcement(peer, hash, received_at, slot_onset).into_iter().collect();
+            return self.extend_announcement(peer, hash, height, slot, received_at, slot_onset).into_iter().collect();
         }
-        self.lifecycles.entry(hash).or_insert_with(|| {
-            HeaderLifecycle::new(peer, slot_start_to_header_micros, tip.block_height(), received_at)
-        });
-        self.note_announcement(peer, hash, tip.block_height(), received_at, slot_onset).into_iter().collect()
+        self.lifecycles
+            .entry(hash)
+            .or_insert_with(|| HeaderLifecycle::new(peer, slot_start_to_header_micros, height, received_at));
+        self.note_announcement(peer, hash, height, slot, received_at, slot_onset).into_iter().collect()
     }
 
     /// Close open lifecycles (and any matching fork switch) for headers that have fallen behind
@@ -533,7 +549,14 @@ impl HeaderPerformance {
                     audience.asked_at.entry(*peer).or_insert(at);
                 }
                 let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
-                HeaderTelemetry::Requested { hash: *hash, peers: peers_field.clone(), slot_latency_ms }
+                let (slot, block_height) = audience.logged_slot_and_height();
+                HeaderTelemetry::Requested {
+                    hash: *hash,
+                    peers: peers_field.clone(),
+                    slot,
+                    block_height,
+                    slot_latency_ms,
+                }
             })
             .collect()
     }
@@ -554,12 +577,14 @@ impl HeaderPerformance {
         peer: Peer,
         hash: &HeaderHash,
         height: BlockHeight,
+        slot: Slot,
+        bytes: u64,
         downloaded_at: Instant,
     ) -> Vec<HeaderTelemetry> {
         if let Some(lifecycle) = self.lifecycles.get_mut(hash) {
             lifecycle.downloaded_at.get_or_insert(downloaded_at);
         }
-        self.note_delivery(peer, *hash, height, downloaded_at).into_iter().collect()
+        self.note_delivery(peer, *hash, height, slot, bytes, downloaded_at).into_iter().collect()
     }
 
     /// Header rejected on reception (duplicate, undecodable, invalid, store error, …).
@@ -596,6 +621,7 @@ impl HeaderPerformance {
         &mut self,
         hash: &HeaderHash,
         height: BlockHeight,
+        slot: Slot,
         now: Instant,
         syncing: bool,
     ) -> Vec<HeaderTelemetry> {
@@ -606,12 +632,19 @@ impl HeaderPerformance {
         let (delivered_by, slot_latency_ms) = match self.audience.get_mut(hash) {
             Some(audience) => {
                 audience.adopted = true;
+                audience.slot.get_or_insert(slot);
                 (audience.delivered.first().copied(), audience.slot_onset.map(|onset| latency_since_onset(onset, now)))
             }
             None => (None, None),
         };
         let mut out = self.close_lifecycle(hash, HeaderLifecycleOutcome::ValidBlock, now, syncing);
-        out.push(HeaderTelemetry::Adopted { hash: *hash, peer: delivered_by, slot_latency_ms });
+        out.push(HeaderTelemetry::Adopted {
+            hash: *hash,
+            peer: delivered_by,
+            slot,
+            block_height: height.as_u64(),
+            slot_latency_ms,
+        });
         out.extend(self.close_fork(hash, ForkSwitchOutcome::ValidBlock, now));
         out
     }
@@ -666,12 +699,14 @@ impl HeaderPerformance {
         peer: Peer,
         hash: HeaderHash,
         height: BlockHeight,
+        slot: Slot,
         at: Instant,
         slot_onset: Duration,
     ) -> Option<HeaderTelemetry> {
         let audience = self.audience_mut(hash, height);
         audience.slot_onset.get_or_insert(slot_onset);
-        Self::push_announcer(audience, peer, hash, at)
+        audience.slot.get_or_insert(slot);
+        Self::push_announcer(audience, peer, hash, slot, height, at)
     }
 
     /// Rank 2 or 3 for a header whose announcement list is still open.
@@ -682,18 +717,26 @@ impl HeaderPerformance {
         &mut self,
         peer: Peer,
         hash: HeaderHash,
+        height: BlockHeight,
+        slot: Slot,
         at: Instant,
         slot_onset: Duration,
     ) -> Option<HeaderTelemetry> {
         let audience = self.audience.get_mut(&hash)?;
         audience.slot_onset.get_or_insert(slot_onset);
-        Self::push_announcer(audience, peer, hash, at)
+        audience.slot.get_or_insert(slot);
+        if audience.height == BlockHeight::from(0) && height != BlockHeight::from(0) {
+            audience.height = height;
+        }
+        Self::push_announcer(audience, peer, hash, slot, height, at)
     }
 
     fn push_announcer(
         audience: &mut HeaderAudience,
         peer: Peer,
         hash: HeaderHash,
+        slot: Slot,
+        height: BlockHeight,
         at: Instant,
     ) -> Option<HeaderTelemetry> {
         if audience.adopted || audience.announced.contains(&peer) || audience.announced.len() >= LOGGED_ANNOUNCEMENTS {
@@ -702,7 +745,7 @@ impl HeaderPerformance {
         audience.announced.push(peer);
         let rank = audience.announced.len() as u64;
         let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
-        Some(HeaderTelemetry::Announced { hash, peer, rank, slot_latency_ms })
+        Some(HeaderTelemetry::Announced { hash, peer, rank, slot, block_height: height.as_u64(), slot_latency_ms })
     }
 
     fn note_delivery(
@@ -710,9 +753,12 @@ impl HeaderPerformance {
         peer: Peer,
         hash: HeaderHash,
         height: BlockHeight,
+        slot: Slot,
+        bytes: u64,
         at: Instant,
     ) -> Option<HeaderTelemetry> {
         let audience = self.audience_mut(hash, height);
+        audience.slot.get_or_insert(slot);
         if audience.delivered.contains(&peer) {
             return None;
         }
@@ -720,7 +766,16 @@ impl HeaderPerformance {
         let rank = audience.delivered.len() as u64;
         let slot_latency_ms = audience.slot_onset.map(|onset| latency_since_onset(onset, at));
         let fetch_latency_ms = audience.asked_at.get(&peer).map(|asked| since_ms(*asked, at));
-        Some(HeaderTelemetry::Received { hash, peer, rank, slot_latency_ms, fetch_latency_ms })
+        Some(HeaderTelemetry::Received {
+            hash,
+            peer,
+            rank,
+            slot,
+            block_height: height.as_u64(),
+            size: bytes,
+            slot_latency_ms,
+            fetch_latency_ms,
+        })
     }
 
     fn audience_mut(&mut self, hash: HeaderHash, height: BlockHeight) -> &mut HeaderAudience {
@@ -729,6 +784,7 @@ impl HeaderPerformance {
             announced: Vec::new(),
             delivered: Vec::new(),
             adopted: false,
+            slot: None,
             slot_onset: None,
             asked_at: BTreeMap::new(),
         });

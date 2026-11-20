@@ -15,6 +15,7 @@
 use std::{
     collections::BTreeSet,
     io::{IsTerminal, Write},
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -43,7 +44,7 @@ use amaru_node::{
     },
 };
 use amaru_observability::{error, info, info_record, info_span, warn};
-use amaru_protocols::tx_submission::ResponderParams;
+use amaru_protocols::{protocol_messages::version_number::VersionNumber, tx_submission::ResponderParams};
 use amaru_pure_stage::trace_buffer::TraceBuffer;
 use amaru_stores::rocksdb::RocksDbConfig;
 use amaru_tui as tui;
@@ -489,6 +490,41 @@ fn peers_snapshot_value(args: &Args) -> String {
 
 const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// One identity line once the peer listener is bound. The `amaru::cli` span of the same
+/// name remains the configuration dump.
+fn note_node_started(network: NetworkName, listen_addr: SocketAddr, submit_api: Option<SocketAddr>) {
+    let versions = offered_n2n_versions();
+    let addrs = listen_addrs(listen_addr, submit_api);
+    info!(
+        node::RUN,
+        version = version::display_version(),
+        n2n_versions = versions.as_slice(),
+        network,
+        listen_addrs = addrs.as_slice(),
+    );
+}
+
+/// Node-to-node versions this process offers, lowest first.
+fn offered_n2n_versions() -> Vec<u64> {
+    VersionNumber::SUPPORTED.iter().map(|version| version.as_u64()).collect()
+}
+
+/// Bound peer listener, then the submit API address when one is enabled.
+fn listen_addrs(peer: SocketAddr, submit_api: Option<SocketAddr>) -> Vec<String> {
+    let mut addrs = vec![peer.to_string()];
+    if let Some(submit) = submit_api {
+        addrs.push(submit.to_string());
+    }
+    addrs
+}
+
+/// One process-stop marker. Sessions still open at this line close as `node_restart`.
+fn note_node_shutdown(logged: &AtomicBool) {
+    if !logged.swap(true, Ordering::SeqCst) {
+        info!(setup::lifecycle::SHUTDOWN, reason = "node_restart");
+    }
+}
+
 pub(crate) fn runnable(args: Args) -> Runnable {
     Runnable::soft(RuntimeKind::Node, move |shutdown, meter| run(args, meter, shutdown))
 }
@@ -505,12 +541,25 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     let meter = Arc::new(meter);
     let metrics = track_system_metrics(meter.clone())?;
     config.meter = Some(meter);
+    let network = config.network();
     // Explicit handle: node stages must run on this process's Tokio runtime.
+    // Readiness includes the bound peer listener.
     let running = build_and_run_node(config, &tokio::runtime::Handle::current()).await?;
+    note_node_started(network, running.listen_address(), submit_api_address);
 
     // Main-thread signal path can abort stages without scheduling this future.
-    shutdown.register_abort(running.abort_callback());
+    // Log the generation close before that abort drops sockets.
+    let shutdown_logged = Arc::new(AtomicBool::new(false));
+    shutdown.register_abort({
+        let abort = running.abort_callback();
+        let shutdown_logged = Arc::clone(&shutdown_logged);
+        move || {
+            note_node_shutdown(&shutdown_logged);
+            abort();
+        }
+    });
     if shutdown.is_cancelled() {
+        note_node_shutdown(&shutdown_logged);
         running.request_abort();
     }
 
@@ -519,6 +568,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
         Ok(handle) => handle,
         Err(err) => {
             let trace_buffer = running.trace_buffer().clone();
+            note_node_shutdown(&shutdown_logged);
             running.request_abort();
             dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
 
@@ -548,6 +598,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     exit.cancelled().await;
 
     let trace_buffer = running.trace_buffer().clone();
+    note_node_shutdown(&shutdown_logged);
     running.request_abort();
     dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
 
@@ -847,4 +898,22 @@ fn pre_flight_checks() -> Result<(), PreFlightError> {
 #[cfg(not(unix))]
 fn pre_flight_checks() -> Result<(), PreFlightError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listen_addrs_lists_the_peer_listener_then_the_submit_api() {
+        let peer: SocketAddr = "0.0.0.0:3001".parse().unwrap();
+        assert_eq!(listen_addrs(peer, None), vec!["0.0.0.0:3001".to_string()]);
+        let submit: SocketAddr = "127.0.0.1:8090".parse().unwrap();
+        assert_eq!(listen_addrs(peer, Some(submit)), vec!["0.0.0.0:3001".to_string(), "127.0.0.1:8090".to_string()]);
+    }
+
+    #[test]
+    fn offered_n2n_versions_lists_every_supported_version() {
+        assert_eq!(offered_n2n_versions(), vec![11, 12, 13, 14, 15]);
+    }
 }

@@ -139,7 +139,7 @@ fn test_extension_adopts_and_sends() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
-            te_record_block_valid("ac-1", tip.hash(), tip.block_height(), sim_clock(), false),
+            te_record_block_valid("ac-1", tip.hash(), tip.block_height(), tip.slot(), sim_clock(), false),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
             te_record_sync_adoption("ac-1", sim_clock(), true),
@@ -163,6 +163,7 @@ fn test_extension_adopts_and_sends() {
                 "block_height=4",
                 "max_block_height=0",
                 "suppressed=0",
+                r#"adopt_kind="roll_forward""#,
             ],
         )
         .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])
@@ -201,8 +202,22 @@ fn test_fork_switch_adopts_and_sends() {
             te_find_anchor_at_height("ac-1", BlockHeight::new(2)),
             te_set_anchor_point("ac-1", prep.headers.h1.point()),
             te_clock("ac-1"),
-            te_record_block_valid("ac-1", prep.headers.h2a.hash(), prep.headers.h2a.block_height(), sim_clock(), false),
-            te_record_block_valid("ac-1", prep.headers.h3a.hash(), prep.headers.h3a.block_height(), sim_clock(), false),
+            te_record_block_valid(
+                "ac-1",
+                prep.headers.h2a.hash(),
+                prep.headers.h2a.block_height(),
+                prep.headers.h2a.point().slot(),
+                sim_clock(),
+                false,
+            ),
+            te_record_block_valid(
+                "ac-1",
+                prep.headers.h3a.hash(),
+                prep.headers.h3a.block_height(),
+                prep.headers.h3a.point().slot(),
+                sim_clock(),
+                false,
+            ),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
             te_record_sync_adoption("ac-1", sim_clock(), true),
@@ -223,20 +238,11 @@ fn test_fork_switch_adopts_and_sends() {
             Level::INFO,
             &[
                 "tip.adopt",
-                &format!(r#"header_hash="{}""#, prep.headers.h2a.hash()),
-                &format!("block_height={}", prep.headers.h2a.block_height().as_u64()),
-                "max_block_height=0",
-                "suppressed=0",
-            ],
-        )
-        .assert_and_remove(
-            Level::INFO,
-            &[
-                "tip.adopt",
                 &format!(r#"header_hash="{}""#, prep.headers.h3a.hash()),
                 "block_height=4",
                 "max_block_height=0",
                 "suppressed=0",
+                r#"adopt_kind="fork_switch""#,
             ],
         )
         .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])
@@ -288,7 +294,7 @@ fn test_fork_switch_opcert_hacked() {
             te_switch_to_fork("ac-1", prep.headers.h1.point(), NonEmptyVec::singleton(prep.headers.h2.point())),
             te_find_anchor_at_height("ac-1", BlockHeight::new(1)),
             te_clock("ac-1"),
-            te_record_block_valid("ac-1", tip.hash(), tip.block_height(), sim_clock(), false),
+            te_record_block_valid("ac-1", tip.hash(), tip.block_height(), tip.slot(), sim_clock(), false),
             te_prune_below("ac-1", tip.block_height() - 2, sim_clock()),
             te_update_consensus_mode("ac-1", tip.slot(), sim_clock()),
             te_record_sync_adoption("ac-1", sim_clock(), true),
@@ -312,6 +318,7 @@ fn test_fork_switch_opcert_hacked() {
                 "block_height=3",
                 "max_block_height=0",
                 "suppressed=0",
+                r#"adopt_kind="fork_switch""#,
             ],
         )
         .assert_and_remove(Level::INFO, &["tip.mode", r#"mode="live""#, r#"previous="sync""#])

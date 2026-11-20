@@ -106,16 +106,16 @@ These duration spans, together with `perf.header.block_fetch_wait` and `perf.for
 
 Operators also need these points as individual log lines they can turn on with `EnvFilter`. `EnvFilter` matches a bracketed name against the current span, so an event whose metadata name is `perf.header.lifecycle` is not selected by `amaru::consensus[perf.header.lifecycle{peer}]`. The four points are also emitted as events on target `amaru::blockperf`, in addition to the duration spans:
 
-- `header.announced` — the first three distinct peers to announce a header hash, with `rank` 1, 2, or 3. A header already in the store does not open a new rank-1 line; later peers are logged only while that header's first three slots are still open and the header has not been adopted
-- `block.requested` — the peers asked for that block body
-- `block.received` — each distinct peer that delivers the body, with `rank` in arrival order
-- `block.adopted` — local adoption; `peer` is the first peer that delivered the body when one did
+- `header.announced` — the first three distinct peers to announce a header hash, with `rank` 1, 2, or 3. A header already in the store does not open a new rank-1 line; later peers are logged only while that header's first three slots are still open and the header has not been adopted. The line carries `slot` and `block_height`
+- `block.requested` — the peers asked for that block body. `slot` and `block_height` are present once a header or a delivered body has identified the block
+- `block.received` — each distinct peer that delivers the body, with `rank` in arrival order, plus `slot`, `block_height`, and `size` (raw block bytes)
+- `block.adopted` — every block placed on the best chain, including each block between a fork and the new tip; `peer` is the first peer that delivered the body when one did. The line carries `slot` and `block_height`. `tip.adopt` logs only the new tip and carries `adopt_kind`: `roll_forward` or `fork_switch`
 
 Each of these lines carries `slot_latency_ms`, milliseconds since the onset of the block's slot. `block.received` also carries `fetch_latency_ms`, milliseconds since the request was sent to that peer, so a later staggered ask is timed from its own request.
 
 `AMARU_LOG=info,amaru::blockperf=debug` adds them to the usual info log. `AMARU_LOG=off,amaru::blockperf=debug` prints only them. The terminal `perf.header.lifecycle` event still carries the intervals between the points for the TUI.
 
-`adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. While syncing, the four events are debug and `tip.adopt` is limited to one info line per second. While live, the four events and every adoption are info. `track_peers` logs `chainsync.chain_lagging` at most once a minute when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. A sync that is still adopting faster than 10 blocks per second, and the first minute of that condition, stay quiet. So does a tip that has reached the height of the header seen at the previous check: at the tip a header is seen before it is adopted, and the lag measured then is the gap to the previous block.
+`adopt_chain` stores a consensus mode from the adopted tip's slot onset and the wall clock. A lag strictly under 60 seconds is live. A change of mode is logged at info as `tip.mode`. The four blockperf events are always debug. While syncing, `tip.adopt` is limited to one info line per second. While live, every new tip is one info line. `track_peers` logs `chainsync.chain_lagging` at most once a minute when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. A sync that is still adopting faster than 10 blocks per second, and the first minute of that condition, stay quiet. So does a tip that has reached the height of the header seen at the previous check: at the tip a header is seen before it is adopted, and the lag measured then is the gap to the previous block.
 
 Switching to a different fork opens the span id `perf.fork.switch` on target `amaru::network` for all blocks on the target fork. That span is separate from the consensus event of the same id, which records the outcome when a fork switch ends.
 

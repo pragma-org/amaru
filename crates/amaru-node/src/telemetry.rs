@@ -284,6 +284,7 @@ mod tests {
             block_height = 100_u64,
             max_block_height = 100_u64,
             suppressed = 0_u32,
+            adopt_kind = "roll_forward",
         );
     }
 

@@ -712,7 +712,10 @@ define_schemas! {
                     required previous: String
                     required slot: amaru_kernel::Slot
                 }
-                /// Adopt a tip as the next tip in the best chain
+                /// The new best-chain tip, for the console. A fork switch logs only this tip.
+                /// `adopt_kind` ∈ {roll_forward, fork_switch}.
+                /// While syncing, at most one line per second is info; the rest are debug and
+                /// counted in `suppressed`. While live, every new tip is info.
                 public event ADOPT {
                     levels: debug, info
                     required slot: amaru_kernel::Slot
@@ -720,6 +723,7 @@ define_schemas! {
                     required block_height: u64
                     required max_block_height: u64
                     required suppressed: u32
+                    required adopt_kind: String
                 }
             }
             forge {
@@ -832,43 +836,60 @@ define_schemas! {
                 /// being collected. A header that is already stored does not start a new line, and
                 /// a header that has been adopted is not announced again.
                 /// `rank` is 1, 2, or 3 in arrival order. Later peers are not logged.
+                /// `slot` is the header's slot. `block_height` is its block number.
                 /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 public event ANNOUNCED {
-                    levels: debug, info
+                    levels: debug
                     required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                     required rank: u64
+                    required slot: u64
+                    required block_height: u64
                     optional slot_latency_ms: u64
                 }
             }
             block {
                 /// Peers asked to fetch this block body. `peers` is a comma-separated list of
                 /// socket addresses, sorted.
+                /// `slot` and `block_height` are omitted when this ask is recorded before any
+                /// header for the hash has supplied them (may happen after node restart).
                 /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 public event REQUESTED {
-                    levels: debug, info
+                    levels: debug
                     required header_hash: amaru_kernel::HeaderHash
                     required peers: String
+                    optional slot: u64
+                    optional block_height: u64
                     optional slot_latency_ms: u64
                 }
                 /// A distinct peer delivered this block body.
                 /// `rank` is 1 for the first delivery, then 2, 3, … in arrival order.
+                /// `size` is the raw block length in bytes.
                 /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
                 /// `fetch_latency_ms` is milliseconds since the request was sent to this peer.
                 public event RECEIVED {
-                    levels: debug, info
+                    levels: debug
                     required peer: %amaru_kernel::Peer
                     required header_hash: amaru_kernel::HeaderHash
                     required rank: u64
+                    required slot: u64
+                    required block_height: u64
+                    required size: u64
                     optional slot_latency_ms: u64
                     optional fetch_latency_ms: u64
                 }
-                /// The block was adopted locally.
+                /// A block placed on the best chain. A fork switch includes each block from the
+                /// fork up to the new tip. Chain selection may already have reported the tip;
+                /// a second report emits nothing.
                 /// `peer` is the first peer that delivered the body, when a delivery was recorded.
                 /// `slot_latency_ms` is milliseconds since the onset of this block's slot.
+                /// Whether the move extended the chain or switched forks is `adopt_kind` on
+                /// `consensus::tip::ADOPT`, which logs only the new tip.
                 public event ADOPTED {
-                    levels: debug, info
+                    levels: debug
                     required header_hash: amaru_kernel::HeaderHash
+                    required slot: u64
+                    required block_height: u64
                     optional peer: %amaru_kernel::Peer
                     optional slot_latency_ms: u64
                 }
@@ -2435,7 +2456,9 @@ define_schemas! {
                         required peer: %amaru_kernel::Peer
                         required error: String
                     }
-                    /// The handshake completed on a connection
+                    /// The handshake completed on a connection.
+                    /// `peer_sharing` ∈ {Enabled, Disabled}.
+                    /// `full_duplex` is the inverse of `initiator_only_diffusion_mode`.
                     public event HANDSHAKE_COMPLETED {
                         levels: info
                         required peer: %amaru_kernel::Peer
@@ -2443,6 +2466,9 @@ define_schemas! {
                         required role: String
                         required full_duplex: bool
                         required advertisable: bool
+                        required n2n_version: u64
+                        required initiator_only_diffusion_mode: bool
+                        required peer_sharing: String
                     }
                     /// A duplicate connection is terminated after its handshake completed
                     public event DUPLICATE_TERMINATED {
@@ -2474,11 +2500,11 @@ define_schemas! {
                         optional conn_id: u64
                     }
                     /// A dead connection was reconciled with the peer's remaining state.
-                    /// Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed,
-                    /// reconnect_scheduled}.
+                    /// Outcome ∈ {peer_removed, kept_for_outbound, kept_for_inbound}.
                     public event CONNECTION_DIED_HANDLED {
                         levels: info
                         required peer: %amaru_kernel::Peer
+                        required conn_id: u64
                         required outcome: String
                     }
                     /// Closing the socket of a dead connection failed
@@ -3101,6 +3127,12 @@ define_schemas! {
                 public event TERMINATION_SIGNAL {
                     levels: warn
                 }
+                /// The node process is stopping. Sessions still open at this line close as a
+                /// restart of this process. `reason` ∈ {node_restart}.
+                public event SHUTDOWN {
+                    levels: info
+                    required reason: String
+                }
                 /// Ledger cleanup is still running after the soft shutdown timeout
                 public event LEDGER_STILL_CLOSING {
                     levels: warn
@@ -3248,6 +3280,19 @@ define_schemas! {
             }
         }
         node {
+            /// The node process is up. Stable identity for this run, separate from the
+            /// `amaru::cli` configuration dump.
+            /// `version` is this binary. `n2n_versions` is the node-to-node versions offered,
+            /// lowest first.
+            /// `listen_addrs` is the bound peer listener, then the submit API address when
+            /// one is enabled.
+            public event RUN {
+                levels: info
+                required version: String
+                required n2n_versions: &[u64]
+                required network: %amaru_kernel::NetworkName
+                required listen_addrs: &[String]
+            }
             build {
                 tags: setup
                 /// Opened the ledger state; reports the ledger tip at startup
