@@ -24,6 +24,7 @@ pub(crate) mod node;
 pub(crate) mod pool;
 pub(crate) mod shell_completions;
 pub(crate) mod snapshot;
+mod temporary_node;
 pub(crate) mod transaction;
 
 #[derive(Debug, Clone)]

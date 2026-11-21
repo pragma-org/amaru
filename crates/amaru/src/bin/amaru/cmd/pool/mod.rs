@@ -25,6 +25,7 @@ pub mod cold;
 pub mod create;
 pub mod id;
 pub mod kes;
+pub mod register;
 pub mod schedule;
 pub mod vrf;
 
@@ -32,6 +33,8 @@ pub mod vrf;
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum PoolCommand {
     Create(create::CreateArgs),
+
+    Register(register::RegisterArgs),
 
     #[command(subcommand)]
     Cert(cert::CertCommand),
@@ -56,6 +59,7 @@ impl PoolCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
             Self::Create(args) => args.into_runnable(),
+            Self::Register(args) => args.into_runnable(),
             Self::Cert(cmd) => cmd.into_runnable(),
             Self::Cold(cmd) => cmd.into_runnable(),
             Self::Kes(cmd) => cmd.into_runnable(),

@@ -15,7 +15,7 @@
 use std::{collections::BTreeSet, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    block_validator::{BlockValidator, LedgerThreadJoinError, LedgerThreadStop},
+    block_validator::{BlockValidator, LedgerThreadJoinError, RegistrationQueryError},
     effects::{
         ConsensusMode, ResourceBlockBuilderConstraints, ResourceBlockValidation, ResourceConsensusParameters,
         ResourceEraHistory, ResourceHasStakePools, ResourceMeter, ResourcePoolSummaries, ResourceTxValidation,
@@ -30,7 +30,10 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
-    state::State,
+    state::{
+        State,
+        registration::{RegistrationContext, RegistrationQuery},
+    },
     store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
@@ -151,7 +154,7 @@ impl From<anyhow::Error> for NodeStartError {
 }
 
 struct NodeLifecycle {
-    ledger_thread: LedgerThreadStop,
+    ledger: Arc<BlockValidator>,
     connections: Arc<TokioConnections>,
     performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
@@ -335,6 +338,14 @@ pub struct NodeRunning {
 }
 
 impl NodeRunning {
+    /// Query selected UTxOs and registration state at one live ledger point.
+    pub async fn registration_context(
+        &self,
+        query: RegistrationQuery,
+    ) -> Result<RegistrationContext, RegistrationQueryError> {
+        self.lifecycle.ledger.registration_context(query).await
+    }
+
     /// Bound node-to-node address, including the assigned port when configured with port zero.
     pub fn listen_address(&self) -> SocketAddr {
         self.listen_address
@@ -387,7 +398,9 @@ impl NodeRunning {
         let Self { tokio_running, mempool, mempool_guard, lifecycle, listen_address: _ } = self;
         drop(mempool_guard);
         drop(mempool);
-        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
+        let NodeLifecycle { ledger, connections, performance } = lifecycle;
+        let ledger_thread = ledger.thread_stop();
+        drop(ledger);
 
         tokio_running.request_abort();
         let mut unexpected_exits = match tokio_running.join().await {
@@ -571,9 +584,8 @@ fn register_resources(
     stage_graph.resources().put::<ResourceBlockBuilderConstraints>(block_validator.clone());
     stage_graph.resources().put::<ResourceHasStakePools>(block_validator.clone());
     stage_graph.resources().put::<ResourceTxValidation>(block_validator.clone());
-    let ledger_thread = block_validator.thread_stop();
     // NOTE: used in WorldLoop::stop() and impl Drop for World
-    stage_graph.resources().put(ledger_thread.clone());
+    stage_graph.resources().put(block_validator.thread_stop());
     stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
     let connections =
         Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
@@ -614,7 +626,7 @@ fn register_resources(
         Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone());
     let join_performance = Box::new(performance.install(stage_graph.resources()));
 
-    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
+    stage_graph.resources().put(NodeLifecycle { ledger: block_validator, connections, performance: join_performance });
 }
 
 /// This function migrates the database if necessary
@@ -760,6 +772,31 @@ mod tests {
         assert_eq!(running.listen_address(), address);
         drop(TcpStream::connect(address).await?);
         assert!(running.shutdown().await?.is_clean());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn registration_query_and_shutdown_release_stores() -> anyhow::Result<()> {
+        let test_config = lifecycle_test_config(NetworkName::Preprod, "127.0.0.1:0".parse()?)?;
+        let config = test_config.make_node_configuration()?;
+        let ledger_config = config.ledger_config.ledger_store.clone();
+        let running = build_and_run_node(config, &Handle::current()).await?;
+        let context = running
+            .registration_context(RegistrationQuery {
+                inputs: BTreeSet::new(),
+                pool: amaru_kernel::PoolId::new([0; 28]),
+                reward_account: amaru_kernel::Credential::KeyHash(amaru_kernel::Hash::new([0; 28])),
+                owners: BTreeSet::new(),
+            })
+            .await;
+        let report = running.shutdown().await?;
+        assert!(report.is_clean());
+        let context = context?;
+        assert_eq!(context.network, amaru_kernel::Network::Testnet);
+        assert!(context.inputs.is_empty());
+        assert!(!context.pool_registered);
+        assert!(!context.reward_registered);
+        drop(RocksDB::new(&ledger_config)?);
         Ok(())
     }
 

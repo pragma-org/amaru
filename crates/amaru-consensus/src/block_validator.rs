@@ -22,8 +22,12 @@ use std::{
 
 use amaru_kernel::{Block, BlockBuilderConstraints, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
+    context::ContextHydratationError,
     rules::block::BlockValidation,
-    state::State,
+    state::{
+        State,
+        registration::{RegistrationContext, RegistrationQuery},
+    },
     store::{HistoricalStores, Store},
 };
 use amaru_metrics::ledger::LedgerMetrics;
@@ -62,6 +66,7 @@ enum LedgerRequest {
     ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
+    RegistrationContext(RegistrationQuery, oneshot::Sender<Result<RegistrationContext, ContextHydratationError>>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
 }
 
@@ -77,6 +82,7 @@ pub enum LedgerThreadPhase {
     ValidatingTransaction,
     ReadingRelayCandidates,
     ReadingBlockBuilderConstraints,
+    ReadingRegistrationContext,
     UpdatingStakeDistributionCallback,
     JoiningRewards,
     ReleasingStores,
@@ -147,6 +153,15 @@ fn panic_message(payload: Box<dyn Any + Send>) -> String {
     }
 }
 
+/// A registration context could not be read from the live ledger.
+#[derive(Debug, Error)]
+pub enum RegistrationQueryError {
+    #[error("ledger worker has terminated")]
+    Terminated(#[from] LedgerThreadTerminated),
+    #[error("could not resolve registration context")]
+    Context(#[from] ContextHydratationError),
+}
+
 /// Handle to the ledger state, which lives on a dedicated thread owning it exclusively.
 ///
 /// Ledger operations are requested by sending a message to that thread and awaiting its
@@ -193,6 +208,14 @@ impl BlockValidator {
         let stop =
             LedgerThreadStop { join: Arc::new(Mutex::new((Some(join), None))), phase, sender: Arc::downgrade(&sender) };
         Ok(Self { sender, chain_store, stop })
+    }
+
+    /// Read a consistent registration context between ledger mutations.
+    pub async fn registration_context(
+        &self,
+        query: RegistrationQuery,
+    ) -> Result<RegistrationContext, RegistrationQueryError> {
+        Ok(self.request(|reply| LedgerRequest::RegistrationContext(query, reply)).await??)
     }
 
     /// Shared stop-and-join handle for the ledger worker.
@@ -355,6 +378,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                     tip: self.state.tip().into_owned(),
                     constraints: BlockBuilderConstraints::from(self.state.protocol_parameters()),
                 });
+            }
+            LedgerRequest::RegistrationContext(query, reply) => {
+                *phase.lock() = LedgerThreadPhase::ReadingRegistrationContext;
+                let _ = reply.send(self.state.registration_context(&query));
             }
             LedgerRequest::SetOnStakeDistUpdated(callback) => {
                 *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;

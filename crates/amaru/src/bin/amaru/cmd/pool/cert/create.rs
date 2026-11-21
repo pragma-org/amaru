@@ -15,15 +15,20 @@
 use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use amaru::lifecycle::{Runnable, RuntimeKind};
-use amaru_kernel::{KesPeriod, OperationalCert, VerificationKey, cbor, protocol_version::PROTOCOL_VERSION_12};
+use amaru_kernel::{
+    ConsensusParameters, KesPeriod, NetworkName, OperationalCert, VerificationKey, cbor,
+    protocol_version::PROTOCOL_VERSION_12,
+};
 use amaru_ouroboros::{
     credentials::{ColdSigningKey, load_cold_signing_key},
     envelope::{HasEnvelope, ReadEnvelopeError, read_cbor_or_envelope, read_key_file},
 };
 use anyhow::{Context, ensure};
+use clap::ArgGroup;
 use tempfile::NamedTempFile;
 
 use super::super::{
@@ -41,6 +46,7 @@ use super::super::{
 /// after publication. If it remains after an interruption, recover the certificate and check the
 /// counter before removing it and issuing again. Use a directory only you can modify.
 #[derive(Debug, clap::Args)]
+#[command(group(ArgGroup::new("period_source").required(true).args(["kes_period", "network"])))]
 pub struct CreateArgs {
     /// Destination for the binary CBOR pair [operational certificate, cold verification key].
     #[arg(long, env = "AMARU_POOL_CERT", value_name = amaru::value_names::FILEPATH, display_order = 0)]
@@ -54,9 +60,13 @@ pub struct CreateArgs {
     #[arg(long, env = "AMARU_POOL_COUNTER", value_name = amaru::value_names::FILEPATH, display_order = 0)]
     counter: PathBuf,
 
-    /// Absolute KES period at which the certificate starts; obtain it from the online node.
+    /// Absolute KES period at which the certificate starts.
     #[arg(long, env = "AMARU_POOL_KES_PERIOD", value_name = amaru::value_names::UINT, display_order = 0)]
-    kes_period: u64,
+    kes_period: Option<u64>,
+
+    /// Derive the starting KES period offline from the local clock and this network's era history.
+    #[arg(long, value_name = "mainnet|preprod|preview", display_order = 0)]
+    network: Option<NetworkName>,
 
     /// KES verification key, as 32 raw bytes or a cardano-cli text envelope.
     #[arg(long, env = "AMARU_POOL_KES_VERIFICATION_KEY", value_name = amaru::value_names::FILEPATH, display_order = 0)]
@@ -88,12 +98,25 @@ impl CreateArgs {
         let cold = load_cold_signing_key(&self.cold_signing_key)
             .with_context(|| format!("could not read cold signing key {}", self.cold_signing_key.display()))?;
         let hot = read_kes_verification_key(&self.kes_verification_key)?;
-        let (certificate, next_counter) = issue_certificate(&cold, counter, hot, KesPeriod::from(self.kes_period))?;
+        let (certificate, next_counter) = issue_certificate(&cold, counter, hot, self.start_period()?)?;
         let staged_cert = prepare_file(&self.cert, &certificate)?;
         let staged_counter = prepare_counter(&next_counter, &counter_path)?;
         ensure_absent(&self.cert)?;
         advance_counter(&certificate, staged_counter, &counter_path, &recovery)?;
         publish_certificate(staged_cert, &self.cert, &recovery)
+    }
+
+    fn start_period(&self) -> anyhow::Result<KesPeriod> {
+        if let Some(period) = self.kes_period {
+            return Ok(KesPeriod::from(period));
+        }
+        let network = self.network.context("provide --kes-period or --network")?;
+        let globals = network.as_global_parameters().context("use --kes-period for a custom network")?;
+        let history = network.as_era_history().context("missing network era history")?;
+        let slot = history
+            .posix_time_to_slot(SystemTime::now(), globals.system_start())
+            .with_context(|| format!("local clock is outside the known {network} era history"))?;
+        Ok(ConsensusParameters::new(globals.clone(), history).slot_to_kes_period(slot))
     }
 }
 

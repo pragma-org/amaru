@@ -49,6 +49,7 @@ pub mod telemetry;
 
 use std::time::Duration;
 
+pub use amaru_consensus::block_validator::RegistrationQueryError;
 pub use amaru_kernel::{
     Epoch, EraHistory, GlobalParameters, NetworkMagic, NetworkName, NetworkPoint, Peer, Point, Transaction,
     TransactionId, TransactionRef,
@@ -56,6 +57,9 @@ pub use amaru_kernel::{
 pub use amaru_ledger::{
     AccountState, AdoptedBlock, DRepState, LedgerBlockEvent, LedgerObservers, LedgerStateSnapshot, PoolState,
     StakeDistribution, StakeSummary, UndoneBlock, UtxoDiff,
+    state::registration::{
+        OwnerAction, OwnerDelegation, RegistrationContext, RegistrationError, RegistrationQuery, build_registration,
+    },
 };
 pub use amaru_metrics::{METRICS_METER_NAME, Meter};
 pub use amaru_observability::{FieldValue, TelemetryCaptureLayer, TelemetryRecord, subscribe_telemetry};
