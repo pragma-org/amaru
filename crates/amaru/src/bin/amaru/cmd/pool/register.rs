@@ -54,6 +54,8 @@ use crate::cmd::temporary_node;
 pub struct RegisterArgs {
     /// Pool settings JSON: pledge and cost in lovelace, margin as {"numerator":1,"denominator":100},
     /// optional relays (Relay JSON) and metadata ({"url":"...","content_hash":"hex"}).
+    /// IP relays use named fields, e.g. {"port":3001,"ipv4":"192.0.2.1","ipv6":"2001:db8::1"}.
+    /// Omit an absent address family; null is not accepted.
     /// Omit cost to use the protocol minimum at the registration tip.
     #[arg(value_name = "SETTINGS")]
     settings: PathBuf,
