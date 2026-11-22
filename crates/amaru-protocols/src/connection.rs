@@ -444,6 +444,9 @@ async fn do_handshake(
 
     let full_duplex = version_data.is_full_duplex_capable();
     let advertisable = version_data.is_advertisable();
+    let n2n_version = version_number;
+    let initiator_only_diffusion_mode = version_data.initiator_only_diffusion_mode();
+    let peer_sharing = version_data.peer_sharing();
     let stage = eff.me();
     let conn_id = *conn_id;
     let role = *role;
@@ -458,6 +461,9 @@ async fn do_handshake(
             role,
             full_duplex,
             advertisable,
+            n2n_version,
+            initiator_only_diffusion_mode,
+            peer_sharing,
             caller,
         })
         .await;

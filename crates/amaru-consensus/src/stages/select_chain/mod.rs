@@ -349,7 +349,7 @@ impl SelectChain {
             });
             debug!(consensus::chain::BLOCK_VALIDATED, tip, advanced, syncing);
             let now = eff.clock().await;
-            eff.external(Performance::record_block_valid(tip_hash, tip.block_height(), now, syncing)).await;
+            eff.external(Performance::record_block_valid(tip_hash, tip.block_height(), tip.slot(), now, syncing)).await;
             return;
         }
         // INVALID CASE

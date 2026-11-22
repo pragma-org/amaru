@@ -123,6 +123,6 @@ mod tests {
         assert!(definitions["amaru::ledger::state::SWITCH_TO_FORK"].get("levels").is_none());
         assert_eq!(definitions["amaru::consensus::perf::header::LIFECYCLE"]["kind"], "event");
         assert_eq!(definitions["amaru::consensus::perf::header::LIFECYCLE"]["levels"], json!(["debug", "error"]));
-        assert_eq!(definitions["amaru::blockperf::header::ANNOUNCED"]["levels"], json!(["debug", "info"]));
+        assert_eq!(definitions["amaru::blockperf::header::ANNOUNCED"]["levels"], json!(["debug"]));
     }
 }

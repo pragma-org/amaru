@@ -267,7 +267,14 @@ fn dispatch_peer(peers: &mut PeerPerformance, headers: &mut HeaderPerformance, o
                 effect.response,
                 effect.bytes,
             );
-            let telemetry = headers.apply_block_downloaded(effect.peer, &effect.hash, effect.height, effect.at);
+            let telemetry = headers.apply_block_downloaded(
+                effect.peer,
+                &effect.hash,
+                effect.height,
+                effect.slot,
+                effect.bytes,
+                effect.at,
+            );
             let _ = reply.send(telemetry);
         }
         PeerOp::RecordFetchFailure { effect } => {
@@ -419,7 +426,8 @@ fn dispatch_header(peers: &mut PeerPerformance, headers: &mut HeaderPerformance,
             let _ = reply.send(telemetry);
         }
         HeaderOp::RecordBlockValid { effect, reply } => {
-            let telemetry = headers.apply_block_valid(&effect.hash, effect.height, effect.now, effect.syncing);
+            let telemetry =
+                headers.apply_block_valid(&effect.hash, effect.height, effect.slot, effect.now, effect.syncing);
             let _ = reply.send(telemetry);
         }
         HeaderOp::RecordBlockPruned { effect, reply } => {

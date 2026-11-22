@@ -13,6 +13,12 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
         "peer": {
           "type": "string"
         },
@@ -21,7 +27,9 @@
         }
       },
       "required": [
-        "header_hash"
+        "header_hash",
+        "slot",
+        "block_height"
       ],
       "optional": [
         "peer",
@@ -31,11 +39,10 @@
       "name": "adopted",
       "kind": "event",
       "target": "amaru::blockperf::block",
-      "description": "The block was adopted locally. `peer` is the first peer that delivered the body, when a delivery was recorded. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
+      "description": "A block placed on the best chain. A fork switch includes each block from the fork up to the new tip. Chain selection may already have reported the tip; a second report emits nothing. `peer` is the first peer that delivered the body, when a delivery was recorded. `slot_latency_ms` is milliseconds since the onset of this block's slot. Whether the move extended the chain or switched forks is `adopt_kind` on `consensus::tip::ADOPT`, which logs only the new tip.",
       "public": true,
       "levels": [
-        "debug",
-        "info"
+        "debug"
       ]
     },
     "amaru::blockperf::block::RECEIVED": {
@@ -53,6 +60,15 @@
         "rank": {
           "type": "integer"
         },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
+        "size": {
+          "type": "integer"
+        },
         "slot_latency_ms": {
           "type": "integer"
         },
@@ -63,7 +79,10 @@
       "required": [
         "peer",
         "header_hash",
-        "rank"
+        "rank",
+        "slot",
+        "block_height",
+        "size"
       ],
       "optional": [
         "slot_latency_ms",
@@ -73,11 +92,10 @@
       "name": "received",
       "kind": "event",
       "target": "amaru::blockperf::block",
-      "description": "A distinct peer delivered this block body. `rank` is 1 for the first delivery, then 2, 3, … in arrival order. `slot_latency_ms` is milliseconds since the onset of this block's slot. `fetch_latency_ms` is milliseconds since the request was sent to this peer.",
+      "description": "A distinct peer delivered this block body. `rank` is 1 for the first delivery, then 2, 3, … in arrival order. `size` is the raw block length in bytes. `slot_latency_ms` is milliseconds since the onset of this block's slot. `fetch_latency_ms` is milliseconds since the request was sent to this peer.",
       "public": true,
       "levels": [
-        "debug",
-        "info"
+        "debug"
       ]
     },
     "amaru::blockperf::block::REQUESTED": {
@@ -92,6 +110,12 @@
         "peers": {
           "type": "string"
         },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
         "slot_latency_ms": {
           "type": "integer"
         }
@@ -101,17 +125,18 @@
         "peers"
       ],
       "optional": [
+        "slot",
+        "block_height",
         "slot_latency_ms"
       ],
       "additionalProperties": false,
       "name": "requested",
       "kind": "event",
       "target": "amaru::blockperf::block",
-      "description": "Peers asked to fetch this block body. `peers` is a comma-separated list of socket addresses, sorted. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
+      "description": "Peers asked to fetch this block body. `peers` is a comma-separated list of socket addresses, sorted. `slot` and `block_height` are omitted when this ask is recorded before any header for the hash has supplied them (may happen after node restart). `slot_latency_ms` is milliseconds since the onset of this block's slot.",
       "public": true,
       "levels": [
-        "debug",
-        "info"
+        "debug"
       ]
     },
     "amaru::blockperf::header::ANNOUNCED": {
@@ -129,6 +154,12 @@
         "rank": {
           "type": "integer"
         },
+        "slot": {
+          "type": "integer"
+        },
+        "block_height": {
+          "type": "integer"
+        },
         "slot_latency_ms": {
           "type": "integer"
         }
@@ -136,7 +167,9 @@
       "required": [
         "peer",
         "header_hash",
-        "rank"
+        "rank",
+        "slot",
+        "block_height"
       ],
       "optional": [
         "slot_latency_ms"
@@ -145,11 +178,10 @@
       "name": "announced",
       "kind": "event",
       "target": "amaru::blockperf::header",
-      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
+      "description": "One of the first three distinct peers to announce this header while it is still being collected. A header that is already stored does not start a new line, and a header that has been adopted is not announced again. `rank` is 1, 2, or 3 in arrival order. Later peers are not logged. `slot` is the header's slot. `block_height` is its block number. `slot_latency_ms` is milliseconds since the onset of this block's slot.",
       "public": true,
       "levels": [
-        "debug",
-        "info"
+        "debug"
       ]
     },
     "amaru::bootstrap::COMPLETE": {
@@ -5381,6 +5413,9 @@
         },
         "suppressed": {
           "type": "integer"
+        },
+        "adopt_kind": {
+          "type": "string"
         }
       },
       "required": [
@@ -5388,14 +5423,15 @@
         "header_hash",
         "block_height",
         "max_block_height",
-        "suppressed"
+        "suppressed",
+        "adopt_kind"
       ],
       "optional": [],
       "additionalProperties": false,
       "name": "adopt",
       "kind": "event",
       "target": "amaru::consensus::tip",
-      "description": "Adopt a tip as the next tip in the best chain",
+      "description": "The new best-chain tip, for the console. A fork switch logs only this tip. `adopt_kind` ∈ {roll_forward, fork_switch}. While syncing, at most one line per second is info; the rest are debug and counted in `suppressed`. While live, every new tip is info.",
       "public": true,
       "levels": [
         "debug",
@@ -8086,6 +8122,54 @@
       "description": "Header accepted from an upstream peer, or forged locally, until chain selection finishes with it. A locally forged block has no upstream roll-forward and is a root span.",
       "public": true
     },
+    "amaru::node::RUN": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "n2n_versions": {
+          "title": "Array_of_uint64",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0.0
+          }
+        },
+        "network": {
+          "type": "string"
+        },
+        "listen_addrs": {
+          "title": "Array_of_String",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "submit_api": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "n2n_versions",
+        "network",
+        "listen_addrs"
+      ],
+      "optional": [
+        "submit_api"
+      ],
+      "additionalProperties": false,
+      "name": "run",
+      "kind": "event",
+      "target": "amaru::node",
+      "description": "The node process is up. Stable identity for this run, separate from the `amaru::cli` configuration dump. `version` is this binary. `n2n_versions` is the node-to-node versions offered, lowest first. `listen_addrs` is the bound node-to-node peer listeners. `submit_api` is the bound HTTP submit API address. It is absent when that API is disabled.",
+      "public": true,
+      "levels": [
+        "info"
+      ]
+    },
     "amaru::node::build::FORGING": {
       "type": "object",
       "properties": {
@@ -8775,12 +8859,16 @@
         "peer": {
           "type": "string"
         },
+        "conn_id": {
+          "type": "integer"
+        },
         "outcome": {
           "type": "string"
         }
       },
       "required": [
         "peer",
+        "conn_id",
         "outcome"
       ],
       "optional": [],
@@ -8788,7 +8876,7 @@
       "name": "connection_died_handled",
       "kind": "event",
       "target": "amaru::protocols::manager::peer",
-      "description": "A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, retries_suppressed, reconnect_scheduled}.",
+      "description": "A dead connection was reconciled with the peer's remaining state. Outcome ∈ {peer_removed, kept_for_outbound, kept_for_inbound}.",
       "public": true,
       "levels": [
         "info"
@@ -8948,6 +9036,15 @@
         },
         "advertisable": {
           "type": "boolean"
+        },
+        "n2n_version": {
+          "type": "integer"
+        },
+        "initiator_only_diffusion_mode": {
+          "type": "boolean"
+        },
+        "peer_sharing": {
+          "type": "string"
         }
       },
       "required": [
@@ -8955,14 +9052,17 @@
         "conn_id",
         "role",
         "full_duplex",
-        "advertisable"
+        "advertisable",
+        "n2n_version",
+        "initiator_only_diffusion_mode",
+        "peer_sharing"
       ],
       "optional": [],
       "additionalProperties": false,
       "name": "handshake_completed",
       "kind": "event",
       "target": "amaru::protocols::manager::peer",
-      "description": "The handshake completed on a connection",
+      "description": "The handshake completed on a connection. `peer_sharing` ∈ {Enabled, Disabled}. `full_duplex` is the inverse of `initiator_only_diffusion_mode`.",
       "public": true,
       "levels": [
         "info"
@@ -10000,6 +10100,27 @@
       "public": true,
       "levels": [
         "warn"
+      ]
+    },
+    "amaru::setup::lifecycle::SHUTDOWN": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "optional": [],
+      "additionalProperties": false,
+      "name": "shutdown",
+      "kind": "event",
+      "target": "amaru::setup::lifecycle",
+      "description": "The node process is stopping. Sessions still open at this line close as a restart of this process. `reason` ∈ {node_restart}.",
+      "public": true,
+      "levels": [
+        "info"
       ]
     },
     "amaru::setup::lifecycle::TERMINATION_SIGNAL": {

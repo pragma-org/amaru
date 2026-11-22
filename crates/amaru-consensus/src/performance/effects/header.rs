@@ -16,7 +16,7 @@
 
 #![expect(clippy::unit_arg)]
 
-use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point};
+use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
 use amaru_observability::{
     TraceContext,
     amaru::{consensus::roll_forward::PROCESS, network::perf::header::FORWARD},
@@ -86,10 +86,11 @@ impl Performance {
     pub fn record_block_valid(
         hash: HeaderHash,
         height: BlockHeight,
+        slot: Slot,
         now: Instant,
         syncing: bool,
     ) -> RecordBlockValidEffect {
-        RecordBlockValidEffect { hash, height, now, syncing }
+        RecordBlockValidEffect { hash, height, slot, now, syncing }
     }
 
     pub fn record_block_pruned(
@@ -113,9 +114,8 @@ impl Performance {
 
     pub(crate) fn emit_telemetry(&self, events: &[HeaderTelemetry], resources: &Resources) {
         let meter = super::optional_meter(resources);
-        let live = crate::consensus_mode::is_live(resources);
         let mut spans = self.spans.lock();
-        HeaderTelemetry::emit_all(events, meter.as_deref(), live, &mut spans);
+        HeaderTelemetry::emit_all(events, meter.as_deref(), &mut spans);
     }
 
     pub(crate) fn span_open_forward(
@@ -341,6 +341,7 @@ impl ExternalEffectAPI for RecordForkStartedEffect {
 pub struct RecordBlockValidEffect {
     pub(crate) hash: HeaderHash,
     pub(crate) height: BlockHeight,
+    pub(crate) slot: Slot,
     pub(crate) now: Instant,
     /// When true, omit `slot_start_to_header_micros` from the emitted lifecycle metric.
     pub(crate) syncing: bool,

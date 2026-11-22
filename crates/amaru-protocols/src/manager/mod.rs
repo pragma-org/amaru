@@ -31,7 +31,7 @@ use crate::{
     peer_tracking::observed_at,
     peer_tracking_effects::PeerTrack,
     protocol::Role,
-    protocol_messages::version_number::VersionNumber,
+    protocol_messages::{version_data::PeerSharing, version_number::VersionNumber},
     tx_submission::ResponderParams,
 };
 
@@ -83,6 +83,9 @@ pub enum ManagerMessage {
         role: Role,
         full_duplex: bool,
         advertisable: bool,
+        n2n_version: VersionNumber,
+        initiator_only_diffusion_mode: bool,
+        peer_sharing: PeerSharing,
         /// Completed after the establish write is applied. `true` when this bearer was kept.
         caller: StageRef<bool>,
     },
@@ -511,6 +514,9 @@ impl Manager {
         role: Role,
         full_duplex: bool,
         advertisable: bool,
+        n2n_version: VersionNumber,
+        initiator_only_diffusion_mode: bool,
+        peer_sharing: PeerSharing,
         caller: StageRef<bool>,
         eff: &Effects<ManagerMessage>,
     ) {
@@ -532,7 +538,10 @@ impl Manager {
             conn_id = conn_id.as_u64(),
             role = role.to_string(),
             full_duplex,
-            advertisable
+            advertisable,
+            n2n_version = n2n_version.as_u64(),
+            initiator_only_diffusion_mode,
+            peer_sharing = peer_sharing.to_string()
         );
         let inbound_live = self.peers.values().filter(|state| state.inbound.is_some()).count();
         let over_cap = direction == ConnectionDirection::Inbound
@@ -725,7 +734,7 @@ impl Manager {
         if remove {
             self.peers.remove(&peer);
         }
-        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, outcome);
+        info!(protocols::manager::peer::CONNECTION_DIED_HANDLED, peer, conn_id = conn_id.as_u64(), outcome);
         self.record_connection_counts(eff).await;
         record_closed(eff, peer, conn_id, CloseReason::BearerEnded).await;
     }
@@ -855,8 +864,33 @@ pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<Manag
                 );
                 manager.connection_died(peer, conn_id, role, &eff).instrument(span.into()).await;
             }
-            ManagerMessage::HandshakeComplete { peer, stage, conn_id, role, full_duplex, advertisable, caller } => {
-                manager.handshake_complete(peer, stage, conn_id, role, full_duplex, advertisable, caller, &eff).await;
+            ManagerMessage::HandshakeComplete {
+                peer,
+                stage,
+                conn_id,
+                role,
+                full_duplex,
+                advertisable,
+                n2n_version,
+                initiator_only_diffusion_mode,
+                peer_sharing,
+                caller,
+            } => {
+                manager
+                    .handshake_complete(
+                        peer,
+                        stage,
+                        conn_id,
+                        role,
+                        full_duplex,
+                        advertisable,
+                        n2n_version,
+                        initiator_only_diffusion_mode,
+                        peer_sharing,
+                        caller,
+                        &eff,
+                    )
+                    .await;
             }
             ManagerMessage::Listen(listen_addr) => {
                 manager.listen(listen_addr, &eff).await;

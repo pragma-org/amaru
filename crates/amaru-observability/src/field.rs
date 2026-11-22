@@ -56,9 +56,13 @@ pub fn is_tag_field_name(name: &str) -> bool {
 /// Borrow a call-site expression as `&T`.
 ///
 /// Accepts an owned `T`, a `&T`, and other [`Borrow<T>`] wrappers so a schema can declare
-/// the owned type (or a slice `[T]`) while call sites pass whatever is already on hand
-/// without cloning. Slice fields declared `[T]` therefore accept `Vec<T>`, `[T; N]`, and
-/// `&[T]`.
+/// the owned type while call sites pass whatever is already on hand without cloning.
+///
+/// A list field on a schema is `&[T]`. A bare `[T]` does not compile there: the inventory
+/// anchor takes the field type by value, and `JsonSchema` requires `Sized`. The call site
+/// then passes a `&[T]` (for example `vec.as_slice()`). `Vec<T>` implements `Borrow<[T]>`,
+/// not `Borrow<&[T]>`. `as_field_ref::<[T]>` still accepts a `Vec<T>`, `[T; N]`, or `&[T]`;
+/// that is this helper, not a schema spelling.
 ///
 /// [`AsRef`] is not used here because it is not reflexive: `T: AsRef<T>` does not hold
 /// for ordinary types such as `u64` or `Peer`, so a call site passing the owned value
@@ -71,8 +75,8 @@ pub fn as_field_ref<T: ?Sized>(value: &(impl Borrow<T> + ?Sized)) -> &T {
 /// Serialize `value` as CBOR for transport through `tracing` as `record_bytes`.
 ///
 /// Returns an owned `Box<[u8]>` so the result implements [`tracing::Value`] via
-/// `Box<[u8]>` → `[u8]` → `record_bytes`. `T` is `?Sized` so slice schema types (`[Peer]`)
-/// can be encoded from `&[Peer]`. The value is passed as `&&T` because cbor4ii requires
+/// `Box<[u8]>` → `[u8]` → `record_bytes`. `T` is `?Sized` so an unsized slice can be
+/// encoded from `&[T]`. The value is passed as `&&T` because cbor4ii requires
 /// `Sized` (a reference is always `Sized`).
 pub fn encode_cbor<T: Serialize + ?Sized>(value: &T) -> Box<[u8]> {
     let mut buf = Vec::new();
