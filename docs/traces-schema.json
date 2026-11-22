@@ -8146,6 +8146,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "submit_api": {
+          "type": "string"
         }
       },
       "required": [
@@ -8154,12 +8157,14 @@
         "network",
         "listen_addrs"
       ],
-      "optional": [],
+      "optional": [
+        "submit_api"
+      ],
       "additionalProperties": false,
       "name": "run",
       "kind": "event",
       "target": "amaru::node",
-      "description": "The node process is up. Stable identity for this run, separate from the `amaru::cli` configuration dump. `version` is this binary. `n2n_versions` is the node-to-node versions offered, lowest first. `listen_addrs` is the bound peer listener, then the submit API address when one is enabled.",
+      "description": "The node process is up. Stable identity for this run, separate from the `amaru::cli` configuration dump. `version` is this binary. `n2n_versions` is the node-to-node versions offered, lowest first. `listen_addrs` is the bound node-to-node peer listeners. `submit_api` is the bound HTTP submit API address. It is absent when that API is disabled.",
       "public": true,
       "levels": [
         "info"

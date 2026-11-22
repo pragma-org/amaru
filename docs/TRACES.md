@@ -2815,7 +2815,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 
 | name | kind | levels | public | description | required fields | optional fields |
 | --- | --- | --- | --- | --- | --- | --- |
-| `run` | `event` | info | public | The node process is up. Stable identity for this run, separate from the \`amaru::cli\` configuration dump. \`version\` is this binary. \`n2n_versions\` is the node-to-node versions offered, lowest first. \`listen_addrs\` is the bound peer listener, then the submit API address when one is enabled. | version, n2n_versions, network, listen_addrs |  |
+| `run` | `event` | info | public | The node process is up. Stable identity for this run, separate from the \`amaru::cli\` configuration dump. \`version\` is this binary. \`n2n_versions\` is the node-to-node versions offered, lowest first. \`listen_addrs\` is the bound node-to-node peer listeners. \`submit_api\` is the bound HTTP submit API address. It is absent when that API is disabled. | version, n2n_versions, network, listen_addrs | submit_api |
 
 <details><summary>event: `run`</summary>
 
@@ -2825,6 +2825,7 @@ For information on how to use and filter these traces, see [monitoring/README.md
 | `n2n_versions` | `array` | ✓ |
 | `network` | `string` | ✓ |
 | `listen_addrs` | `array` | ✓ |
+| `submit_api` | `string` |  |
 
 </details>
 

@@ -490,17 +490,21 @@ fn peers_snapshot_value(args: &Args) -> String {
 
 const SUBMIT_API_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// One identity line once the peer listener is bound. The `amaru::cli` span of the same
-/// name remains the configuration dump.
+/// One identity line. The `amaru::cli` span of the same name remains the configuration dump.
+///
+/// Call once the peer listener is bound. When the submit API is enabled, call only after
+/// that listener has bound, and pass the address it bound. A failed bind does not call this.
 fn note_node_started(network: NetworkName, listen_addr: SocketAddr, submit_api: Option<SocketAddr>) {
     let versions = offered_n2n_versions();
-    let addrs = listen_addrs(listen_addr, submit_api);
+    let addrs = listen_addrs(listen_addr);
+    let submit_api = submit_api.map(|addr| addr.to_string());
     info!(
         node::RUN,
         version = version::display_version(),
         n2n_versions = versions.as_slice(),
         network,
         listen_addrs = addrs.as_slice(),
+        submit_api = @submit_api,
     );
 }
 
@@ -509,19 +513,20 @@ fn offered_n2n_versions() -> Vec<u64> {
     VersionNumber::SUPPORTED.iter().map(|version| version.as_u64()).collect()
 }
 
-/// Bound peer listener, then the submit API address when one is enabled.
-fn listen_addrs(peer: SocketAddr, submit_api: Option<SocketAddr>) -> Vec<String> {
-    let mut addrs = vec![peer.to_string()];
-    if let Some(submit) = submit_api {
-        addrs.push(submit.to_string());
-    }
-    addrs
+/// Bound node-to-node peer listeners. The submit API address is a separate field.
+fn listen_addrs(peer: SocketAddr) -> Vec<String> {
+    vec![peer.to_string()]
 }
 
 /// One process-stop marker. Sessions still open at this line close as `node_restart`.
-fn note_node_shutdown(logged: &AtomicBool) {
-    if !logged.swap(true, Ordering::SeqCst) {
+///
+/// The mutex is held until the line is emitted. Callers abort only after this returns,
+/// so sockets are not dropped before the line.
+fn note_node_shutdown(logged: &Mutex<bool>) {
+    let mut logged = logged.lock();
+    if !*logged {
         info!(setup::lifecycle::SHUTDOWN, reason = "node_restart");
+        *logged = true;
     }
 }
 
@@ -545,11 +550,15 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     // Explicit handle: node stages must run on this process's Tokio runtime.
     // Readiness includes the bound peer listener.
     let running = build_and_run_node(config, &tokio::runtime::Handle::current()).await?;
-    note_node_started(network, running.listen_address(), submit_api_address);
+    // The peer listener is bound. With the submit API off, this is the identity line.
+    // With it on, the line waits until that listener has bound.
+    if submit_api_address.is_none() {
+        note_node_started(network, running.listen_address(), None);
+    }
 
     // Main-thread signal path can abort stages without scheduling this future.
     // Log the generation close before that abort drops sockets.
-    let shutdown_logged = Arc::new(AtomicBool::new(false));
+    let shutdown_logged = Arc::new(Mutex::new(false));
     shutdown.register_abort({
         let abort = running.abort_callback();
         let shutdown_logged = Arc::clone(&shutdown_logged);
@@ -564,8 +573,8 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     }
 
     let exit = shutdown.token();
-    let submit_api_handle = match start_submit_api(submit_api_address, running.mempool(), &exit).await {
-        Ok(handle) => handle,
+    let submit_api = match start_submit_api(submit_api_address, running.mempool(), &exit).await {
+        Ok(started) => started,
         Err(err) => {
             let trace_buffer = running.trace_buffer().clone();
             note_node_shutdown(&shutdown_logged);
@@ -581,6 +590,12 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
             return Err(err);
         }
     };
+    // A signal during bind already emitted `lifecycle.shutdown`. Skip the identity line then.
+    if let Some((_, bound)) = submit_api.as_ref()
+        && !shutdown.is_cancelled()
+    {
+        note_node_started(network, running.listen_address(), Some(*bound));
+    }
 
     let term = running.termination();
     let exit_for_term = exit.clone();
@@ -602,7 +617,7 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
     running.request_abort();
     dump_trace_buffer_to_file(trace_dump_path.as_deref(), &trace_buffer);
 
-    if let Some(handle) = submit_api_handle {
+    if let Some((handle, _)) = submit_api {
         match tokio::time::timeout(SUBMIT_API_JOIN_TIMEOUT, handle).await {
             Ok(Ok(())) => {}
             Ok(Err(err)) => {
@@ -631,17 +646,20 @@ async fn run(args: Args, meter: Meter, shutdown: ShutdownHandle) -> anyhow::Resu
 }
 
 /// Start an HTTP API endpoint to allow local users to post CBOR-serialized transactions.
+///
+/// `Ok(None)` means the API is disabled. `Ok(Some((handle, addr)))` is the server task and
+/// the address it bound, which differs from `address` when the port was zero.
 async fn start_submit_api(
     address: Option<std::net::SocketAddr>,
     mempool: MempoolServices,
     exit: &CancellationToken,
-) -> anyhow::Result<Option<tokio::task::JoinHandle<()>>> {
+) -> anyhow::Result<Option<(tokio::task::JoinHandle<()>, std::net::SocketAddr)>> {
     let Some(addr) = address else {
         return Ok(None);
     };
     let shutdown = exit.child_token();
-    let (handle, _) = amaru_node::submit_api::start(addr, mempool, shutdown).await?;
-    Ok(Some(handle))
+    let (handle, local_addr) = amaru_node::submit_api::start(addr, mempool, shutdown).await?;
+    Ok(Some((handle, local_addr)))
 }
 
 fn dump_trace_buffer_to_file(path: Option<&Path>, trace_buffer: &Arc<Mutex<TraceBuffer>>) {
@@ -905,11 +923,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn listen_addrs_lists_the_peer_listener_then_the_submit_api() {
+    fn listen_addrs_lists_only_the_peer_listener() {
         let peer: SocketAddr = "0.0.0.0:3001".parse().unwrap();
-        assert_eq!(listen_addrs(peer, None), vec!["0.0.0.0:3001".to_string()]);
-        let submit: SocketAddr = "127.0.0.1:8090".parse().unwrap();
-        assert_eq!(listen_addrs(peer, Some(submit)), vec!["0.0.0.0:3001".to_string(), "127.0.0.1:8090".to_string()]);
+        assert_eq!(listen_addrs(peer), vec!["0.0.0.0:3001".to_string()]);
     }
 
     #[test]

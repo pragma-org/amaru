@@ -3284,14 +3284,16 @@ define_schemas! {
             /// `amaru::cli` configuration dump.
             /// `version` is this binary. `n2n_versions` is the node-to-node versions offered,
             /// lowest first.
-            /// `listen_addrs` is the bound peer listener, then the submit API address when
-            /// one is enabled.
+            /// `listen_addrs` is the bound node-to-node peer listeners.
+            /// `submit_api` is the bound HTTP submit API address. It is absent when that API
+            /// is disabled.
             public event RUN {
                 levels: info
                 required version: String
                 required n2n_versions: &[u64]
                 required network: %amaru_kernel::NetworkName
                 required listen_addrs: &[String]
+                optional submit_api: String
             }
             build {
                 tags: setup
