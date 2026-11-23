@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! CIP-0203 block producer identifier; Amaru's payload is specified in `docs/cip-0203/README.md`.
+//! CIP-0203 block producer identifier; Amaru's payload is specified in
+//! `engineering-decision-records/040-cip-0203-block-producer-identifer.md` and described in
+//! CIP-0203's payload definition format by `cip-0203-payload.json`.
 
 use std::fmt;
 
@@ -412,11 +414,88 @@ mod tests {
         );
     }
 
-    #[test]
-    fn amaru_tag_round_trips() {
-        for days in [0, 1, 161, 267, ReleaseDay::MAX.0] {
-            let tag = AmaruTag::new(ReleaseDay(days));
-            assert_eq!(AmaruTag::try_from(tag.software_tag()), Ok(tag));
+    mod payload_definition {
+        use std::collections::BTreeMap;
+
+        use serde_json::Value;
+        use test_case::test_case;
+
+        use super::*;
+
+        fn definition() -> Value {
+            serde_json::from_str(include_str!("cip-0203-payload.json")).unwrap()
+        }
+
+        fn mask((lo, hi): (u32, u32)) -> u32 {
+            ((1 << (hi - lo + 1)) - 1) << lo
+        }
+
+        fn bits(entry: &Value) -> (u32, u32) {
+            let [lo, hi] = entry["bits"].as_array().unwrap().as_slice() else { panic!("bits is not a pair") };
+            let (lo, hi) = (lo.as_u64().unwrap() as u32, hi.as_u64().unwrap() as u32);
+            assert!(lo <= hi && hi < 22, "bits [{lo}, {hi}]");
+            (lo, hi)
+        }
+
+        fn decode(minor: u32) -> BTreeMap<String, u32> {
+            let definition = definition();
+            let SoftwareTag::Attributed { payload: Payload(payload), .. } = SoftwareTag::try_from(minor).unwrap()
+            else {
+                panic!("{minor:#x} carries no payload")
+            };
+            let extract = |bits: (u32, u32)| (payload & mask(bits)) >> bits.0;
+
+            let version = extract(bits(&definition["layout_version"]));
+            let mut fields = BTreeMap::from([("layout_version".to_string(), version)]);
+            for field in definition["layout_version"]["layouts"][version.to_string()]["fields"].as_array().unwrap() {
+                fields.insert(field["name"].as_str().unwrap().to_string(), extract(bits(field)));
+            }
+            fields
+        }
+
+        fn fields(days: u32, flags: u32) -> BTreeMap<String, u32> {
+            BTreeMap::from([
+                ("layout_version".to_string(), 0),
+                ("days_since_amaru_epoch".to_string(), days),
+                ("flags".to_string(), flags),
+            ])
+        }
+
+        #[test]
+        fn decodes_every_release_day_like_amaru_tag() {
+            for days in 0..=ReleaseDay::MAX.0 {
+                let tag = AmaruTag::new(ReleaseDay(days)).software_tag();
+                let minor = u32::from(tag);
+                assert_eq!(AmaruTag::try_from(tag).map(|tag| tag.release_day().days()), Ok(days), "{minor:#x}");
+                assert_eq!(decode(minor), fields(u32::from(days), 0), "{minor:#x}");
+            }
+        }
+
+        #[test_case(0x0042_C141 => fields(267, 0x01); "flag bit 0")]
+        #[test_case(0x0042_FF41 => fields(267, 0x3F); "all flags")]
+        fn decodes_flags(minor: u32) -> BTreeMap<String, u32> {
+            decode(minor)
+        }
+
+        #[test]
+        fn describes_exactly_the_current_layout_version() {
+            let definition = definition();
+            let layouts: Vec<_> = definition["layout_version"]["layouts"].as_object().unwrap().keys().collect();
+            assert_eq!(layouts, [&AmaruTag::LAYOUT_VERSION.to_string()]);
+        }
+
+        #[test]
+        fn every_layout_covers_each_payload_bit_once() {
+            let definition = definition();
+            let version_mask = mask(bits(&definition["layout_version"]));
+            for (version, layout) in definition["layout_version"]["layouts"].as_object().unwrap() {
+                let covered = layout["fields"].as_array().unwrap().iter().fold(version_mask, |covered, field| {
+                    let field_mask = mask(bits(field));
+                    assert_eq!(covered & field_mask, 0, "layout {version}: {} overlaps", field["name"]);
+                    covered | field_mask
+                });
+                assert_eq!(covered, Payload::MASK, "layout {version}");
+            }
         }
     }
 }

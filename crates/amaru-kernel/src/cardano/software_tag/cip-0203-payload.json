@@ -1,0 +1,31 @@
+{
+  "definition_format": 0,
+  "layout_version": {
+    "bits": [
+      20,
+      21
+    ],
+    "layouts": {
+      "0": {
+        "fields": [
+          {
+            "name": "days_since_amaru_epoch",
+            "type": "integer",
+            "bits": [
+              6,
+              19
+            ]
+          },
+          {
+            "name": "flags",
+            "type": "integer",
+            "bits": [
+              0,
+              5
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

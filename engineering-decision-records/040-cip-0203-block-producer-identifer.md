@@ -33,6 +33,9 @@ The identifier registered for Amaru is `65` under scheme `0`.
 | `days`  | 19 - 6  | 14    | 0 - 16383  | Release day as days elapsed since 2026-01-01 (UTC), or `0` for an unreleased build. The last representable day is 2070-11-09. |
 | `flags` | 5 - 0   | 6     | 0 - 63     | Feature flags. None are assigned. |
 
+The same layout is published in CIP-0203's payload definition format at
+[`crates/amaru-kernel/src/cardano/software_tag/cip-0203-payload.json`](../crates/amaru-kernel/src/cardano/software_tag/cip-0203-payload.json).
+
 #### Construction and extraction
 
 ```
