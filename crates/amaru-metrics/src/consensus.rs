@@ -21,7 +21,7 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter as OpenTelemetryMeter;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::{Counter, Histogram};
+use crate::{Counter, Gauge, Histogram};
 use crate::{Meter, MetricRecorder, MetricsEvent};
 
 /// Bucket boundaries, in microseconds, of the duration histograms below: 0.5 ms to 30 s.
@@ -73,7 +73,25 @@ pub enum ConsensusMetrics {
     ForkSwitch { outcome: String, duration_micros: u64 },
     /// The adopted chain switched to a fork, rolling back at least one block.
     SwitchedToFork,
+    /// The body of a block adopted while following the tip was received.
+    BlockDelay {
+        /// Time from the virtual beginning of the block's slot to the first reception of its body.
+        delay_micros: u64,
+        /// Delays of recent blocks, absent until enough of them have been received.
+        recent: Option<BlockDelayShares>,
+    },
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlockDelayShares {
+    pub blocks: u64,
+    pub within_1s: u64,
+    pub within_3s: u64,
+    pub within_5s: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const LATE_BLOCK_DELAY_MICROS: u64 = 5_000_000;
 
 #[cfg(target_arch = "wasm32")]
 impl MetricRecorder for ConsensusMetrics {
@@ -91,6 +109,11 @@ impl MetricRecorder for ConsensusMetrics {
         static FORK_SWITCH_DURATION: OnceLock<Histogram<u64>> = OnceLock::new();
         static FORK_SWITCH_TOTAL: OnceLock<Counter<u64>> = OnceLock::new();
         static FORKS: OnceLock<Counter<u64>> = OnceLock::new();
+        static BLOCK_DELAY: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_WITHIN_1S: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_WITHIN_3S: OnceLock<Gauge<f64>> = OnceLock::new();
+        static BLOCK_DELAY_WITHIN_5S: OnceLock<Gauge<f64>> = OnceLock::new();
+        static LATE_BLOCKS: OnceLock<Counter<u64>> = OnceLock::new();
 
         let Some(meter) = meter.get() else {
             return;
@@ -168,8 +191,63 @@ impl MetricRecorder for ConsensusMetrics {
                         .build()
                 })
                 .add(1, &[]),
+            ConsensusMetrics::BlockDelay { delay_micros, recent } => {
+                f64_gauge(
+                    meter,
+                    &BLOCK_DELAY,
+                    "cardano_node_metrics_blockfetchclient_blockdelay_real",
+                    "delay (s) of the latest block fetch",
+                )
+                .record(*delay_micros as f64 / 1_000_000.0, &[]);
+                if *delay_micros > LATE_BLOCK_DELAY_MICROS {
+                    LATE_BLOCKS
+                        .get_or_init(|| {
+                            meter
+                                .u64_counter("cardano_node_metrics_blockfetchclient_lateblocks_counter")
+                                .with_description("number of block fetches that took longer than 5s")
+                                .build()
+                        })
+                        .add(1, &[]);
+                }
+                let Some(recent) = recent.filter(|recent| recent.blocks > 0) else {
+                    return;
+                };
+                let blocks = recent.blocks as f64;
+                for (gauge, name, description, within) in [
+                    (
+                        &BLOCK_DELAY_WITHIN_1S,
+                        "cardano_node_metrics_blockfetchclient_blockdelay_cdfOne_real",
+                        "probability for block fetch to complete within 1s",
+                        recent.within_1s,
+                    ),
+                    (
+                        &BLOCK_DELAY_WITHIN_3S,
+                        "cardano_node_metrics_blockfetchclient_blockdelay_cdfThree_real",
+                        "probability for block fetch to complete within 3s",
+                        recent.within_3s,
+                    ),
+                    (
+                        &BLOCK_DELAY_WITHIN_5S,
+                        "cardano_node_metrics_blockfetchclient_blockdelay_cdfFive_real",
+                        "probability for block fetch to complete within 5s",
+                        recent.within_5s,
+                    ),
+                ] {
+                    f64_gauge(meter, gauge, name, description).record(within as f64 / blocks, &[]);
+                }
+            }
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn f64_gauge<'a>(
+    meter: &OpenTelemetryMeter,
+    gauge: &'a OnceLock<Gauge<f64>>,
+    name: &'static str,
+    description: &'static str,
+) -> &'a Gauge<f64> {
+    gauge.get_or_init(|| meter.f64_gauge(name).with_description(description).build())
 }
 
 /// Record a duration to its histogram, if present, without touching any counter.
@@ -295,5 +373,56 @@ mod tests {
                 "{name}: nothing else recorded, in particular not the overflow bucket"
             );
         }
+    }
+    #[test]
+    fn block_delay_sets_cardano_node_gauges_and_counts_late_blocks() {
+        let exporter = InMemoryMetricExporter::default();
+        let provider =
+            SdkMeterProvider::builder().with_reader(PeriodicReader::builder(exporter.clone()).build()).build();
+        let meter = Meter::from(provider.meter("amaru"));
+
+        ConsensusMetrics::BlockDelay {
+            delay_micros: 6_500_000,
+            recent: Some(BlockDelayShares { blocks: 4, within_1s: 1, within_3s: 2, within_5s: 3 }),
+        }
+        .record_to_meter(&meter);
+        ConsensusMetrics::BlockDelay { delay_micros: 500_000, recent: None }.record_to_meter(&meter);
+        provider.force_flush().expect("flush metrics");
+
+        let exported = exporter.get_finished_metrics().expect("finished metrics");
+        let metrics: Vec<_> =
+            exported.iter().flat_map(|resource| resource.scope_metrics()).flat_map(|scope| scope.metrics()).collect();
+        let gauge = |name: &str| {
+            metrics
+                .iter()
+                .rev()
+                .find(|metric| metric.name() == name)
+                .and_then(|metric| {
+                    if let AggregatedMetrics::F64(MetricData::Gauge(gauge)) = metric.data() {
+                        gauge.data_points().last().map(|p| p.value())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| panic!("{name} gauge"))
+        };
+        let late = metrics
+            .iter()
+            .rev()
+            .find(|metric| metric.name() == "cardano_node_metrics_blockfetchclient_lateblocks_counter")
+            .and_then(|metric| {
+                if let AggregatedMetrics::U64(MetricData::Sum(sum)) = metric.data() {
+                    sum.data_points().last().map(|p| p.value())
+                } else {
+                    None
+                }
+            })
+            .expect("late blocks counter");
+
+        assert_eq!(gauge("cardano_node_metrics_blockfetchclient_blockdelay_real"), 0.5);
+        assert_eq!(gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfOne_real"), 0.25);
+        assert_eq!(gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfThree_real"), 0.5);
+        assert_eq!(gauge("cardano_node_metrics_blockfetchclient_blockdelay_cdfFive_real"), 0.75);
+        assert_eq!(late, 1);
     }
 }

@@ -87,6 +87,7 @@
 //! stall or couple to performance state updates.
 
 mod adoption;
+mod block_delay;
 mod effects;
 mod header;
 mod ops;
@@ -107,6 +108,7 @@ use std::{
 use adoption::SyncAdoptionPace;
 use amaru_kernel::PeerCandidate;
 use amaru_observability::{error, warn};
+pub use block_delay::BlockDelayWindow;
 pub use effects::*;
 pub use header::{ForkSwitchOutcome, HeaderLifecycleOutcome, HeaderPerformance, HeaderTelemetry};
 use ops::PerformanceOp;
@@ -210,6 +212,7 @@ fn spawn_worker(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<Job>,
     pending: Arc<AtomicUsize>,
     initial_peers: PeerPerformance,
+    block_delays: BlockDelayWindow,
     probe: Probe,
 ) -> JoinHandle<()> {
     thread::Builder::new()
@@ -233,7 +236,7 @@ fn spawn_worker(
                 tokio::runtime::Builder::new_current_thread().enable_all().build().expect("performance worker runtime");
             rt.block_on(async move {
                 let mut peers = initial_peers;
-                let mut headers = HeaderPerformance::new();
+                let mut headers = HeaderPerformance::with_block_delays(block_delays);
                 let mut pace = SyncAdoptionPace::default();
                 while let Some(job) = rx.recv().await {
                     pending.fetch_sub(1, Ordering::Relaxed);
@@ -315,7 +318,13 @@ impl Performance {
     /// (after it drains remaining ops). Prefer that drop on a non-hot path (node teardown), not
     /// from a multi-thread Tokio worker task.
     pub fn new() -> Self {
-        Self::with_peer_sources(Default::default(), Default::default(), Default::default(), PeerMix::default())
+        Self::with_peer_sources(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            PeerMix::default(),
+            BlockDelayWindow::default(),
+        )
     }
 
     /// Start the worker with outbound candidate sources and mix.
@@ -328,12 +337,13 @@ impl Performance {
         snapshot_candidates: std::collections::BTreeSet<PeerCandidate>,
         ledger_candidates: std::collections::BTreeSet<PeerCandidate>,
         peer_mix: PeerMix,
+        block_delays: BlockDelayWindow,
     ) -> Self {
         let (tx, rx) = unbounded_channel::<Job>();
         let pending = Arc::new(AtomicUsize::new(0));
         let initial_peers =
             PeerPerformance::with_sources(static_peers, snapshot_candidates, ledger_candidates, peer_mix);
-        let join = spawn_worker(rx, Arc::clone(&pending), initial_peers, Probe::none());
+        let join = spawn_worker(rx, Arc::clone(&pending), initial_peers, block_delays, Probe::none());
 
         Self {
             tx,
@@ -363,7 +373,13 @@ impl Performance {
             max_urgent_ns: AtomicU64::new(0),
         });
         let pending = Arc::new(AtomicUsize::new(0));
-        let join = spawn_worker(rx, Arc::clone(&pending), initial, Probe::hold(Arc::clone(&probe)));
+        let join = spawn_worker(
+            rx,
+            Arc::clone(&pending),
+            initial,
+            BlockDelayWindow::default(),
+            Probe::hold(Arc::clone(&probe)),
+        );
         (
             Self {
                 tx,

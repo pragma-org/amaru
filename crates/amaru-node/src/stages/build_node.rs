@@ -21,7 +21,7 @@ use amaru_consensus::{
         ResourceEraHistory, ResourceHasStakePools, ResourceMeter, ResourcePoolSummaries, ResourceTxValidation,
         find_best_candidate,
     },
-    performance::Performance,
+    performance::{BlockDelayWindow, Performance},
     stages::track_peers::TrackPeersMsg,
 };
 use amaru_kernel::{
@@ -610,8 +610,13 @@ fn register_resources(
         .map(PeerCandidate::from)
         .chain(config.peer_snapshot_unresolved.iter().cloned())
         .collect();
-    let performance =
-        Performance::with_peer_sources(static_peers, snapshot_candidates, Default::default(), config.peer_mix.clone());
+    let performance = Performance::with_peer_sources(
+        static_peers,
+        snapshot_candidates,
+        Default::default(),
+        config.peer_mix.clone(),
+        BlockDelayWindow::for_security_param(global_parameters.consensus_security_param),
+    );
     let join_performance = Box::new(performance.install(stage_graph.resources()));
 
     stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });

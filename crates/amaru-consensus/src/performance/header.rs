@@ -22,11 +22,14 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use amaru_kernel::{BlockHeight, HeaderHash, Peer, Point, Slot};
-use amaru_metrics::{Meter, MetricRecorder, consensus::ConsensusMetrics};
+use amaru_metrics::{BlockDelayShares, Meter, MetricRecorder, consensus::ConsensusMetrics};
 use amaru_observability::{debug, error};
 use amaru_pure_stage::Instant;
 
-use super::spans::HeaderSpanBook;
+use super::{
+    block_delay::{BlockDelayObservation, BlockDelayWindow},
+    spans::HeaderSpanBook,
+};
 
 /// How many distinct announcing peers are logged for one header hash.
 const LOGGED_ANNOUNCEMENTS: usize = 3;
@@ -67,6 +70,8 @@ pub struct HeaderPerformance {
     /// Headers already reported valid, kept until they fall behind the immutable horizon.
     /// The height comes from the caller's `Point`.
     reported_valid: BTreeMap<HeaderHash, BlockHeight>,
+    /// Delays of the bodies fetched for tracked headers.
+    block_delays: BlockDelayWindow,
 }
 
 /// Peers that have announced or delivered one header, in arrival order.
@@ -248,6 +253,8 @@ pub enum HeaderTelemetry {
     },
     /// `hash` was adopted locally (`block.adopted`).
     Adopted { hash: HeaderHash, peer: Option<Peer>, slot: Slot, block_height: u64, slot_latency_ms: Option<u64> },
+    /// Time from a block's slot start to the first reception of its body.
+    BlockDelay { delay_micros: u64, recent: Option<BlockDelayShares> },
 }
 
 /// Emit one blockperf event. These lines stay at debug while syncing and while live.
@@ -385,6 +392,9 @@ impl HeaderTelemetry {
                     slot_latency_ms = @slot_latency_ms
                 });
             }
+            Self::BlockDelay { delay_micros, recent } => {
+                record_metric(meter, ConsensusMetrics::BlockDelay { delay_micros: *delay_micros, recent: *recent });
+            }
         }
     }
 
@@ -477,6 +487,10 @@ fn emit_lifecycle(
 impl HeaderPerformance {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_block_delays(block_delays: BlockDelayWindow) -> Self {
+        Self { block_delays, ..Self::default() }
     }
 
     /// A header has been accepted from upstream: start tracking its lifecycle from `received_at`.
@@ -572,6 +586,7 @@ impl HeaderPerformance {
 
     /// The fetch stage received a block for this header: record the first reception time and,
     /// for each distinct delivering peer, return `block.received` telemetry with arrival rank.
+    /// The first reception also returns the block's delay.
     pub fn apply_block_downloaded(
         &mut self,
         peer: Peer,
@@ -581,10 +596,8 @@ impl HeaderPerformance {
         bytes: u64,
         downloaded_at: Instant,
     ) -> Vec<HeaderTelemetry> {
-        if let Some(lifecycle) = self.lifecycles.get_mut(hash) {
-            lifecycle.downloaded_at.get_or_insert(downloaded_at);
-        }
-        self.note_delivery(peer, *hash, height, slot, bytes, downloaded_at).into_iter().collect()
+        let block_delay = self.note_first_download(hash, downloaded_at);
+        self.note_delivery(peer, *hash, height, slot, bytes, downloaded_at).into_iter().chain(block_delay).collect()
     }
 
     /// Header rejected on reception (duplicate, undecodable, invalid, store error, …).
@@ -776,6 +789,20 @@ impl HeaderPerformance {
             slot_latency_ms,
             fetch_latency_ms,
         })
+    }
+
+    fn note_first_download(&mut self, hash: &HeaderHash, downloaded_at: Instant) -> Option<HeaderTelemetry> {
+        let lifecycle = self.lifecycles.get_mut(hash)?;
+        if lifecycle.downloaded_at.is_some() {
+            return None;
+        }
+        lifecycle.downloaded_at = Some(downloaded_at);
+        let delay_micros =
+            lifecycle.slot_start_to_header_micros.saturating_add(duration_micros(lifecycle.received_at, downloaded_at));
+        match self.block_delays.observe(Duration::from_micros(delay_micros)) {
+            BlockDelayObservation::CatchingUp => None,
+            BlockDelayObservation::Counted { recent } => Some(HeaderTelemetry::BlockDelay { delay_micros, recent }),
+        }
     }
 
     fn audience_mut(&mut self, hash: HeaderHash, height: BlockHeight) -> &mut HeaderAudience {

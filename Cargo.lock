@@ -170,6 +170,7 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "serde",
+ "test-case",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

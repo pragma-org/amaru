@@ -45,6 +45,7 @@ Other guiding principles:
 - **amaru-node**: embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.
 - **amaru-consensus**: `cardano_node_metrics_forks_counter` counts the times the adopted chain switched to a fork and rolled back at least one block. The metric appears after the first such switch.
 - **amaru-protocols**: the connection manager reports `cardano_node_metrics_connectionManager_duplexConns_int`, the number of connections whose handshake agreed on full duplex.
+- **amaru-consensus**: block propagation is reported with the cardano-node metric names. `cardano_node_metrics_blockfetchclient_blockdelay_real` is the time in seconds from a block's slot start to the reception of its body. `cardano_node_metrics_blockfetchclient_blockdelay_cdfOne_real`, `cdfThree_real` and `cdfFive_real` are the shares of recent blocks received within 1, 3 and 5 seconds. `cardano_node_metrics_blockfetchclient_lateblocks_counter` counts blocks received more than 5 seconds after their slot start. As in cardano-node, blocks are ignored after startup until one arrives within 20 seconds of its slot start, and every fetched block counts after that. The shares cover the last k/2 blocks. The shares appear once 45 blocks have been measured.
 
 ### Changed
 

@@ -179,6 +179,7 @@ fn setup_preload_with_mode(
                 prep.snapshot_candidates.iter().copied().map(PeerCandidate::from).collect(),
                 prep.ledger_candidates.clone(),
                 prep.peer_mix.clone(),
+                Default::default(),
             );
             if let Some((donor, addr)) = prep.learned_share {
                 prep.rt.block_on(performance.record_shared_peers(
