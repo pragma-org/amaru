@@ -33,6 +33,7 @@ use crate::state::StateError;
 ///  - [`Self::join`] waits for the thread and returns its result `R`.
 ///  - [`Self::cancel`] stops the thread and discards its result, for example during a rollback,
 ///    when the computation becomes irrelevant.
+///  - [`Self::finished`] gives the result of a thread that ended, before the join.
 ///
 /// After a join or a cancel, the task is not running, and can start again.
 ///
@@ -51,6 +52,10 @@ enum State<R> {
         cancellable: Cancellable,
         handle: JoinHandle<Result<R, StateError>>,
     },
+    Finished {
+        epoch: Epoch,
+        result: Result<R, StateError>,
+    },
 }
 
 impl<R> fmt::Debug for BackgroundTask<R> {
@@ -58,6 +63,7 @@ impl<R> fmt::Debug for BackgroundTask<R> {
         let state = match &self.state {
             State::NotStarted => "NotStarted".to_string(),
             State::Running { epoch, .. } => format!("Running({epoch})"),
+            State::Finished { epoch, .. } => format!("Finished({epoch})"),
         };
         f.debug_struct("BackgroundTask").field("name", &self.name).field("state", &state).finish()
     }
@@ -84,8 +90,10 @@ impl<R: Send + 'static> BackgroundTask<R> {
     /// is used to double-check that the task was started in the correct epoch. Without a running
     /// task, this returns `None`.
     pub fn join(&mut self, epoch: Epoch) -> Result<Option<R>, StateError> {
-        let State::Running { epoch: started_epoch, handle, .. } = mem::take(&mut self.state) else {
-            return Ok(None);
+        let (started_epoch, result) = match mem::take(&mut self.state) {
+            State::NotStarted => return Ok(None),
+            State::Running { epoch, handle, .. } => (epoch, Self::wait(&self.name, handle)),
+            State::Finished { epoch, result } => (epoch, result),
         };
         assert_eq!(
             started_epoch, epoch,
@@ -93,11 +101,29 @@ impl<R: Send + 'static> BackgroundTask<R> {
              epoch {epoch}",
             self.name
         );
-        handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: self.name.clone() })?.map(Some)
+        result.map(Some)
     }
 
-    /// Stop the running task, if any, and wait for it. Its result is discarded; a panic in it is a
-    /// bug and propagates, unless this thread is already unwinding.
+    /// The result of a task whose thread ended, kept until [`Self::join`] takes it. `None` while
+    /// the thread still executes, and without a task.
+    pub fn finished(&mut self) -> Option<&mut Result<R, StateError>> {
+        if !self.is_executing()
+            && let State::Running { epoch, handle, .. } = mem::take(&mut self.state)
+        {
+            self.state = State::Finished { epoch, result: Self::wait(&self.name, handle) };
+        }
+        match &mut self.state {
+            State::Finished { result, .. } => Some(result),
+            State::NotStarted | State::Running { .. } => None,
+        }
+    }
+
+    fn wait(name: &str, handle: JoinHandle<Result<R, StateError>>) -> Result<R, StateError> {
+        handle.join().map_err(|_| StateError::BackgroundTaskFailed { task: name.to_string() })?
+    }
+
+    /// Stop the running task, if any, and wait for it. Its result is discarded; a panic in a thread
+    /// that this call waits for is a bug and propagates, unless this thread is already unwinding.
     pub fn cancel(&mut self) {
         if let State::Running { cancellable, handle, .. } = mem::take(&mut self.state) {
             cancellable.cancel();
@@ -109,8 +135,14 @@ impl<R: Send + 'static> BackgroundTask<R> {
         }
     }
 
+    /// Whether a task was started, and neither joined nor cancelled yet. Its thread could have ended.
     pub fn is_running(&self) -> bool {
-        matches!(self.state, State::Running { .. })
+        !matches!(self.state, State::NotStarted)
+    }
+
+    /// Whether the thread of the task is still executing.
+    pub fn is_executing(&self) -> bool {
+        matches!(&self.state, State::Running { handle, .. } if !handle.is_finished())
     }
 }
 
@@ -140,5 +172,48 @@ impl Cancellable {
 
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::{self, Receiver};
+
+    use super::*;
+
+    struct WaitFor(Receiver<u64>);
+
+    impl Runnable<u64> for WaitFor {
+        fn run(self, _cancellable: Cancellable) -> Result<u64, StateError> {
+            self.0.recv().map_err(|_| StateError::BackgroundTaskCancelled)
+        }
+    }
+
+    const EPOCH: Epoch = Epoch::new(10);
+
+    #[test]
+    fn a_task_has_no_result_while_its_thread_executes() {
+        let (_sender, receiver) = mpsc::channel();
+        let mut task = BackgroundTask::new("test");
+        task.start(EPOCH, WaitFor(receiver));
+
+        assert!(task.is_running() && task.is_executing());
+        assert!(task.finished().is_none());
+    }
+
+    #[test]
+    fn a_finished_task_keeps_its_result_until_the_join() {
+        let (sender, receiver) = mpsc::channel();
+        let mut task = BackgroundTask::new("test");
+        task.start(EPOCH, WaitFor(receiver));
+        sender.send(42).unwrap();
+        while task.is_executing() {
+            std::thread::yield_now();
+        }
+
+        assert!(matches!(task.finished(), Some(Ok(42))));
+        assert!(task.is_running(), "the task is not joined yet");
+        assert!(matches!(task.join(EPOCH), Ok(Some(42))));
+        assert!(!task.is_running());
     }
 }

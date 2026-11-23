@@ -336,12 +336,10 @@ impl LatestSnapshot {
 
     /// End a failed fork switch, once the volatile state of the old chain is back: put back the
     /// snapshot that the rollback discarded, and delete the snapshot that the replay took, if any.
-    /// The next header can need the stake distributions of the old chain, so publish them again
-    /// after a change of snapshot.
+    /// The next header may need the stake distributions of the old chain, so publish them again
+    /// after a change of snapshot. A computation that reads an unchanged snapshot keeps running.
     pub fn recover(&mut self, before: BeforeRollback, store: &impl Store) {
         let replayed = self.recover_snapshot(before.candidate);
-        // Stop any started computation if any.
-        self.tasks.cancel();
         self.computed = before.computed;
         if let Some(replayed) = replayed {
             replayed.remove(store);
@@ -386,16 +384,24 @@ impl LatestSnapshot {
         replayed
     }
 
-    /// Settled(epoch) -> Final(epoch), deleting the directory, once no computation reads it. Then
-    /// publish the stake distributions again, without the candidate tag: the computation published
-    /// them with that tag, and the tag makes the validation of each header walk back to the last
-    /// block of the snapshot.
+    /// Settled(epoch) -> Final(epoch), deleting the directory, once no computation reads it: its
+    /// thread ended, even if no epoch boundary joined it yet. Then publish the stake distributions
+    /// again, without the candidate tag: the computation published them with that tag, and the tag
+    /// makes the validation of each header walk back to the last block of the snapshot.
     fn release_settled(&mut self, store: &impl Store) {
         let Kind::Settled(snapshot) = &self.kind else { return };
-        if self.tasks.is_running() {
+        if self.tasks.is_executing() {
             return;
         }
         let snapshot = snapshot.clone();
+        let stake_distribution = match self.tasks.finished() {
+            Some(Ok((stake_distribution, _))) => stake_distribution.take(),
+            Some(Err(_)) | None => None,
+        };
+        if let Some(distribution) = stake_distribution {
+            self.install_stake_distribution(distribution);
+        }
+
         self.kind = Kind::Final(snapshot.epoch);
         snapshot.remove(store);
         self.publish_stake_distributions();
@@ -449,7 +455,7 @@ enum Kind {
     Candidate(CandidateSnapshot),
     /// The last block of its epoch is stable, so the final snapshot of that epoch exists. The
     /// stake distribution and rewards computation can still read the candidate directory until
-    /// the next epoch boundary joins that computation.
+    /// its thread ends.
     Settled(CandidateSnapshot),
 }
 

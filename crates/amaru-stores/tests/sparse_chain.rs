@@ -467,6 +467,38 @@ fn a_rollback_that_keeps_the_last_block_of_an_epoch_keeps_its_candidate_snapshot
 }
 
 #[test]
+fn a_failed_switch_that_keeps_the_candidate_snapshot_keeps_its_computation() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block2, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // The fork starts after block2 and its last block is invalid, so the ledger goes back to block4:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ -------------------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4             restored
+    //                                ╎           │
+    //                                ╎           └──── block3' ── block4' (invalid)  replayed
+    let fork = vec![
+        empty_block_at(boundary_slot + stability_window + 2),
+        invalid_block_at(boundary_slot + stability_window + 3),
+    ];
+    match state.switch_to_fork(&block2, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Failed { .. }) => (),
+        other => panic!("expected the switch to fail, got: {other:?}"),
+    }
+
+    // The first block of epoch e+2 joins the computation. A computation started again after the
+    // failed switch would publish the stake distribution of epoch e as a candidate once more.
+    roll_forward(&mut state, &empty_block_at(boundary_slot + PREPROD_GLOBAL_PARAMETERS.epoch_length()));
+    let publications: Vec<_> = published.try_iter().collect();
+    assert!(
+        publications.iter().all(|summaries| summaries.candidates.is_empty()),
+        "the stake distribution of epoch e is not computed again: {publications:?}"
+    );
+    assert!(publications.iter().any(|summaries| summaries.by_epoch.contains_key(&closing_epoch)));
+}
+
+#[test]
 fn a_failed_switch_past_the_last_block_of_an_epoch_restores_its_candidate_snapshot() {
     let SparseChain { mut state, boundary_slot, closing_epoch, published, block1, .. } =
         make_sparse_chain_with_candidate_snapshot();
