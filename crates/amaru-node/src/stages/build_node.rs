@@ -536,12 +536,6 @@ pub fn build_node(
     Ok((node_stages, pool))
 }
 
-/// Parent of `tip`, used to preload forging.
-///
-/// An origin tip, and a header with no parent, yield [`Point::Origin`]. A missing tip
-/// header is an error. A missing parent header also yields [`Point::Origin`]: bootstrap
-/// stores the snapshot tip, and forging reads this parent only when minting in that
-/// tip's own slot. That lead is missed.
 /// Forward each stake distribution update to `track_peers`, until the sender of `updates` is
 /// dropped. Pending updates merge into one message with the latest epoch: `track_peers` reads the
 /// current summaries from the resources, so only the latest epoch matters.
@@ -558,6 +552,12 @@ fn forward_stake_dist_updates(updates: &mpsc::Receiver<Epoch>, track_peers: &Sen
     }
 }
 
+/// Parent of `tip`, used to preload forging.
+///
+/// An origin tip, and a header with no parent, yield [`Point::Origin`]. A missing tip
+/// header is an error. A missing parent header also yields [`Point::Origin`]: bootstrap
+/// stores the snapshot tip, and forging reads this parent only when minting in that
+/// tip's own slot. That lead is missed.
 fn tip_parent(store: &dyn ChainStore, tip: &Point) -> anyhow::Result<Point> {
     if *tip == Point::Origin {
         return Ok(Point::Origin);
