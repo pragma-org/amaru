@@ -142,11 +142,9 @@ jobs:
             release-repository: bloxbean/yaci-store
             install: |
               version=$(jq -er '.tag_name | ltrimstr("v")' "$RUNNER_TEMP/tool-release.json")
-              echo "Installing yaci-store $version"
-              curl -LsSf -o yaci-store.zip \
-                "https://github.com/bloxbean/yaci-store/releases/download/rel-native-${version}/yaci-store-${version}-linux-x64-all.zip"
-              unzip -q yaci-store.zip -d yaci-store-bin
-              chmod +x yaci-store-bin/*/yaci-store
+              image="bloxbean/yaci-store:$version"
+              docker pull "$image"
+              echo "YACI_STORE_IMAGE=$image" >> "$GITHUB_ENV"
             test: |
               # Point Yaci at Amaru's current best tip so it only requests blocks Amaru already
               # has bodies for, rather than the entire chain history from the well-known point.
@@ -155,16 +153,17 @@ jobs:
               TIP_SLOT=$(echo "$TIP_POINT" | cut -d. -f1)
               # Amaru displays points as <slot>.<hash>(<block-height>), while Yaci expects the bare 64-character hash.
               TIP_HASH=$(echo "$TIP_POINT" | cut -d. -f2 | cut -d'(' -f1)
-              export STORE_CARDANO_HOST=127.0.0.1
-              export STORE_CARDANO_PORT=3000
-              export STORE_CARDANO_PROTOCOL_MAGIC=1
-              export STORE_CARDANO_SYNC_START_SLOT="$TIP_SLOT"
-              export STORE_CARDANO_SYNC_START_BLOCKHASH="$TIP_HASH"
-              export SPRING_DATASOURCE_URL="jdbc:postgresql://localhost:5432/yaci_store"
-              export SPRING_DATASOURCE_USERNAME=postgres
-              export SPRING_DATASOURCE_PASSWORD=postgres
               set +e
-              timeout "$TOOL_TEST_TIMEOUT" yaci-store-bin/*/yaci-store 2>&1 | tee tool-output.txt
+              timeout "$TOOL_TEST_TIMEOUT" docker run --rm --init --network host \
+                --env SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/yaci_store \
+                --env SPRING_DATASOURCE_USERNAME=postgres \
+                --env SPRING_DATASOURCE_PASSWORD=postgres \
+                "$YACI_STORE_IMAGE" \
+                --store.cardano.host=127.0.0.1 \
+                --store.cardano.port=3000 \
+                --store.cardano.protocol-magic=1 \
+                --store.cardano.sync-start-slot="$TIP_SLOT" \
+                --store.cardano.sync-start-blockhash="$TIP_HASH" 2>&1 | tee tool-output.txt
               set -e
               grep -q 'Handshake Ok' tool-output.txt
 
