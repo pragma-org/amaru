@@ -285,20 +285,21 @@ impl LatestSnapshot {
         }
     }
 
-    /// Handle a rollback to `volatile_epoch`, when it goes back into the epoch of a candidate snapshot.
-    /// `keeps_last_block` tells if the volatile state still holds the last block of that snapshot.
+    /// Handle a rollback to `volatile_epoch`.
     ///
-    /// Candidate(epoch) -> Final(epoch - 1) when the rollback removed the last block of the snapshot:
-    /// the snapshot no longer matches the chain. The returned [`BeforeRollback`] owns the discarded
-    /// snapshot, whose directory stays on disk until the fork switch ends with [`Self::commit`] or
-    /// [`Self::recover`], so that a failed switch can restore it. A rollback to that last block keeps
-    /// the snapshot: a fork from that block has the same end of epoch.
+    /// Candidate(epoch) -> Final(epoch - 1) when the rollback goes back into the epoch of the
+    /// candidate snapshot, even to its last block: the fork can add blocks to that epoch, and then
+    /// the snapshot no longer matches the chain. The stake distribution and rewards computation is
+    /// cancelled, and the stake distributions in memory are published again. The returned
+    /// [`BeforeRollback`] owns the discarded snapshot, whose directory stays on disk until the fork
+    /// switch ends with [`Self::commit`] or [`Self::recover`], so that a failed switch can restore
+    /// it. A replay that ends the epoch with the same last block takes the same snapshot again.
+    ///
+    /// A candidate snapshot stays when the rollback stays in the epoch after it. Its computation
+    /// keeps running.
     ///
     /// A settled snapshot stays: the last block of its epoch is stable, so no rollback removes it.
-    ///
-    /// In both cases, the stake distribution and rewards computation is cancelled, and the stake
-    /// distributions in memory are published again.
-    pub fn roll_back(&mut self, volatile_epoch: Epoch, keeps_last_block: bool) -> BeforeRollback {
+    pub fn roll_back(&mut self, volatile_epoch: Epoch) -> BeforeRollback {
         let before = |candidate| BeforeRollback { candidate, computed: self.computed, final_epoch: self.final_epoch() };
 
         let Some(snapshot) = self.candidate_snapshot() else {
@@ -306,12 +307,6 @@ impl LatestSnapshot {
         };
         if volatile_epoch > snapshot.epoch {
             return before(Before::Kept);
-        }
-        if keeps_last_block {
-            let before = before(Before::Kept);
-            self.tasks.cancel();
-            self.publish_stake_distributions();
-            return before;
         }
         let discarded = snapshot.clone();
         let before = before(Before::Discarded(discarded.clone()));

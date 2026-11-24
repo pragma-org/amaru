@@ -449,11 +449,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     self.latest_snapshot.join_task(next_epoch - 1, &self.stable)?.map(Rewards::<Computed>::from);
             }
 
-            // A rollback to the last block of the epoch of the candidate snapshot keeps it: the replay
-            // of the boundary out of that epoch is the only one that it crosses.
+            // A rollback into the epoch of a candidate snapshot discards it, so no candidate snapshot
+            // of the closing epoch exists here.
             debug_assert!(
-                self.latest_snapshot.is_final() || self.latest_snapshot.epoch() == next_epoch - 1,
-                "only the candidate snapshot of the closing epoch survives the epoch boundary"
+                self.latest_snapshot.is_final(),
+                "no candidate snapshot survives the epoch boundary: {:?}",
+                self.latest_snapshot
             );
 
             let db = &self.stable;
@@ -1177,10 +1178,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn rollback_to<'a>(&mut self, to: &'a Point) -> Result<RollbackGuard<'a>, BackwardError> {
         let immutable_tip = self.immutable_tip();
         let kind = self.rollback_volatile_to(to)?;
-        let volatile = &self.volatile;
-        let keeps_last_block =
-            self.latest_snapshot.candidate_last_block().is_some_and(|last_block| volatile.has_point(&last_block));
-        let candidate = self.latest_snapshot.roll_back(volatile.epoch(), keeps_last_block);
+        let candidate = self.latest_snapshot.roll_back(self.volatile.epoch());
         Ok(RollbackGuard { immutable_tip, candidate, kind })
     }
 

@@ -394,47 +394,144 @@ fn a_rollback_past_the_last_block_of_an_epoch_discards_its_candidate_snapshot() 
 }
 
 #[test]
-fn a_rollback_into_the_epoch_of_a_candidate_snapshot_keeps_it_if_its_last_block_stays() {
+fn a_fork_from_the_last_block_of_a_candidate_snapshot_takes_the_same_snapshot_again() {
     let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, .. } =
         make_sparse_chain_with_candidate_snapshot();
 
-    // The fork starts at block1, so block1 stays on the chain, and the candidate snapshot still
-    // matches the chain. But the rollback goes back into epoch e, so the ledger cancels the
-    // background task computing rewards started at block3. This task belongs to epoch e+1: if it
-    // survived, the replay of the boundary e → e+1 would join it, and the epoch transition would
-    // panic on its epoch check.
+    // The fork starts at block1, the last block of the candidate snapshot, and goes directly into
+    // epoch e+1. The rollback goes back into epoch e, so it discards the candidate snapshot: the
+    // fork could add blocks to epoch e. But epoch e still ends at block1, so block3', after the
+    // stability window, takes the same candidate snapshot again.
     //
     //             epoch e            ╎        epoch e+1
     //     -------------------------- ╎ -------------------------------------------
-    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4             rolled back
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4              rolled back
     //                      │         ╎
-    //                      └─────────╎ block2' ── block3' ── block4'                 replayed
-    //     slots                      ╎ b+1        b+2        b+3
-    let fork =
-        vec![empty_block_at(boundary_slot + 1), empty_block_at(boundary_slot + 2), empty_block_at(boundary_slot + 3)];
+    //                      └─────────╎ block2' ── ... ── block3' ── block4'           replayed
+    //     slots            b-2       ╎ b+1               b+w        b+w+1
+    //
+    // b is `boundary_slot` and w is `stability_window` (3·k/f slots).
+    let fork = vec![
+        empty_block_at(boundary_slot + 1),
+        empty_block_at(boundary_slot + stability_window),
+        empty_block_at(boundary_slot + stability_window + 1),
+    ];
     match state.switch_to_fork(&block1, fork, &ArenaPool::new(1024, 0)) {
         Ok(ForkSwitchOutcome::Completed { .. }) => (),
         other => panic!("expected the switch to complete, got: {other:?}"),
     }
 
-    assert_eq!(state.candidate_snapshot(), Some((closing_epoch, block1)), "the candidate snapshot of epoch e stays");
-    let summaries = next_publication(&published);
-    assert!(
-        !summaries.by_epoch.contains_key(&closing_epoch) && !summaries.candidates.contains_key(&closing_epoch),
-        "the stake distribution of epoch e is withdrawn"
+    assert_eq!(
+        state.candidate_snapshot(),
+        Some((closing_epoch, block1)),
+        "the replay takes the candidate snapshot that ends at block1 again"
+    );
+    assert_eq!(
+        state.candidate_snapshot_on_disk(),
+        Some((closing_epoch, block1)),
+        "the end of the switch keeps the directory of the snapshot that the replay took again"
     );
 
-    // After the stability window, the fork computes the stake distribution again, from the same
-    // candidate snapshot.
-    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window));
-    roll_forward(&mut state, &empty_block_at(boundary_slot + stability_window + 1));
-
-    assert_eq!(state.candidate_snapshot(), Some((closing_epoch, block1)));
-    let summaries = next_publication(&published);
+    let summaries = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
+        .find(|summaries| summaries.candidates.contains_key(&closing_epoch));
     assert_eq!(
-        summaries.candidates.get(&closing_epoch),
-        Some(&block1),
-        "the stake distribution of epoch e is computed again from the candidate snapshot"
+        summaries.and_then(|summaries| summaries.candidates.get(&closing_epoch).cloned()),
+        Some(block1),
+        "the stake distribution of epoch e is computed again from the snapshot that ends at block1"
+    );
+}
+
+#[test]
+fn a_rollback_to_the_last_block_of_a_candidate_snapshot_discards_it_if_the_fork_extends_its_epoch() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // The fork starts at block1, the last block of the candidate snapshot. But its first block,
+    // block1', is still in epoch e: epoch e now ends at block1', and the candidate snapshot, which
+    // ends at block1, does not match the chain anymore. block3' comes after the stability window,
+    // so the replay must take a new candidate snapshot of epoch e, which ends at block1'.
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ -------------------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4              rolled back
+    //                      │         ╎
+    //                      └ block1' ╎ block2' ── ... ── block3' ── block4'           replayed
+    //     slots      b-2     b-1     ╎ b+1               b+w        b+w+1
+    //
+    // b is `boundary_slot` and w is `stability_window` (3·k/f slots).
+    let fork = vec![
+        empty_block_at(boundary_slot - 1),
+        empty_block_at(boundary_slot + 1),
+        empty_block_at(boundary_slot + stability_window),
+        empty_block_at(boundary_slot + stability_window + 1),
+    ];
+    let fork_block1 = fork[0].point();
+    match state.switch_to_fork(&block1, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Completed { .. }) => (),
+        other => panic!("expected the switch to complete, got: {other:?}"),
+    }
+
+    assert_eq!(
+        state.candidate_snapshot(),
+        Some((closing_epoch, fork_block1)),
+        "the candidate snapshot of epoch e ends at block1', not at block1"
+    );
+
+    let summaries = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
+        .find(|summaries| summaries.candidates.contains_key(&closing_epoch));
+    assert_eq!(
+        summaries.and_then(|summaries| summaries.candidates.get(&closing_epoch).cloned()),
+        Some(fork_block1),
+        "the stake distribution of epoch e is computed from the snapshot that ends at block1'"
+    );
+}
+
+#[test]
+fn a_failed_switch_from_the_last_block_of_a_candidate_snapshot_restores_it_if_the_fork_extends_its_epoch() {
+    let SparseChain { mut state, boundary_slot, stability_window, closing_epoch, published, block1, .. } =
+        make_sparse_chain_with_candidate_snapshot();
+
+    // The fork starts at block1, the last block of the candidate snapshot, and its first block,
+    // block1', is still in epoch e. block3' comes after the stability window, so the replay can
+    // take a candidate snapshot of epoch e, which ends at block1'. Then block4' is invalid:
+    //
+    //             epoch e            ╎        epoch e+1
+    //     -------------------------- ╎ -------------------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── block3 ── block4              restored
+    //                      │         ╎
+    //                      └ block1' ╎ block2' ── ... ── block3' ── block4' (invalid) replayed
+    //     slots      b-2     b-1     ╎ b+1               b+w        b+w+1
+    //
+    // b is `boundary_slot` and w is `stability_window` (3·k/f slots).
+    let fork = vec![
+        empty_block_at(boundary_slot - 1),
+        empty_block_at(boundary_slot + 1),
+        empty_block_at(boundary_slot + stability_window),
+        invalid_block_at(boundary_slot + stability_window + 1),
+    ];
+    match state.switch_to_fork(&block1, fork, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Failed { .. }) => (),
+        other => panic!("expected the switch to fail, got: {other:?}"),
+    }
+
+    assert_eq!(
+        state.candidate_snapshot(),
+        Some((closing_epoch, block1)),
+        "the candidate snapshot that ends at block1 is back, not the one that ends at block1'"
+    );
+    assert_eq!(
+        state.candidate_snapshot_on_disk(),
+        Some((closing_epoch, block1)),
+        "only the directory of the candidate snapshot that ends at block1 is left"
+    );
+
+    // The computation from the replayed snapshot can publish before the recovery cancels it. The
+    // recovery then computes the stake distribution of epoch e again, from the original snapshot.
+    let summaries = std::iter::from_fn(|| published.recv_timeout(Duration::from_secs(60)).ok())
+        .find(|summaries| summaries.candidates.get(&closing_epoch) == Some(&block1));
+    assert!(
+        summaries.is_some_and(|summaries| summaries.by_epoch.contains_key(&closing_epoch)),
+        "the stake distribution of epoch e, which ends at block1, is published again"
     );
 }
 
