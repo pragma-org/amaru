@@ -12,8 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraName, Header, NetworkPoint, NetworkTip, Point, cbor, to_cbor, utils::debug_bytes};
+pub use amaru_kernel::HeaderContent;
+use amaru_kernel::{NetworkPoint, NetworkTip, Point, cbor};
 use amaru_pure_stage::DeserializerGuards;
+
+/// Ouroboros Network's `smallByteLimit`, used by `byteLimitsChainSync`.
+const MAX_FIND_INTERSECT_BYTES: usize = 0xffff;
 
 pub fn register_deserializers() -> DeserializerGuards {
     vec![amaru_pure_stage::register_data_deserializer::<Message>().boxed()]
@@ -43,35 +47,6 @@ impl Message {
             Message::IntersectNotFound(_) => "IntersectNotFound",
             Message::Done => "Done",
         }
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Ord, PartialOrd)]
-pub struct HeaderContent {
-    pub variant: EraName,
-    pub byron_prefix: Option<(u8, u64)>,
-    #[serde(with = "amaru_kernel::utils::serde::bytes")]
-    pub cbor: Vec<u8>,
-}
-
-impl std::fmt::Debug for HeaderContent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HeaderContent")
-            .field("variant", &self.variant)
-            .field("byron_prefix", &self.byron_prefix)
-            .field("cbor", &debug_bytes(&self.cbor, 300))
-            .field("cbor_len", &self.cbor.len())
-            .finish()
-    }
-}
-
-impl HeaderContent {
-    pub fn new(header: &Header, era: EraName) -> Self {
-        Self { variant: era, byron_prefix: None, cbor: to_cbor(header) }
-    }
-
-    pub fn with_bytes(bytes: Vec<u8>, variant: EraName) -> Self {
-        Self { variant, byron_prefix: None, cbor: bytes }
     }
 }
 
@@ -133,6 +108,7 @@ impl cbor::Encode<()> for Message {
 
 impl<'b> cbor::Decode<'b, ()> for Message {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
+        let start = d.position();
         let len = d.array()?;
         let label = d.u16()?;
 
@@ -159,7 +135,17 @@ impl<'b> cbor::Decode<'b, ()> for Message {
             }
             4 => {
                 cbor::check_tagged_array_length(4, len, 2)?;
-                let points = d.decode()?;
+                let end = start.saturating_add(MAX_FIND_INTERSECT_BYTES).min(d.input().len());
+                let mut bounded = cbor::Decoder::new(&d.input()[..end]);
+                bounded.set_position(d.position());
+                let points = bounded.decode().map_err(|error| {
+                    if error.is_end_of_input() && end - start == MAX_FIND_INTERSECT_BYTES {
+                        cbor::decode::Error::message("ChainSync intersection exceeds message size limit")
+                    } else {
+                        error
+                    }
+                })?;
+                d.set_position(bounded.position());
                 Ok(Message::FindIntersect(points))
             }
             5 => {
@@ -182,83 +168,10 @@ impl<'b> cbor::Decode<'b, ()> for Message {
     }
 }
 
-impl<'b> cbor::Decode<'b, ()> for HeaderContent {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut ()) -> Result<Self, cbor::decode::Error> {
-        let len = d.array()?;
-        let variant = EraName::from_header_variant(d.u8()?).map_err(cbor::decode::Error::custom)?;
-
-        match variant {
-            EraName::Byron => {
-                cbor::check_tagged_array_length(0, len, 2)?;
-                let len = d.array()?;
-                cbor::check_tagged_array_length(0, len, 2)?;
-
-                // can't find a reference anywhere about the structure of these values, but they
-                // seem to provide the Byron-specific variant of the header
-                let (a, b): (u8, u64) = d.decode()?;
-
-                d.tag()?;
-                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
-                // which rejects indefinite-length byte strings, so we reject them too.
-                #[allow(clippy::disallowed_methods)]
-                let bytes = d.bytes()?;
-
-                Ok(HeaderContent { variant, byron_prefix: Some((a, b)), cbor: Vec::from(bytes) })
-            }
-            EraName::Shelley
-            | EraName::Allegra
-            | EraName::Mary
-            | EraName::Alonzo
-            | EraName::Babbage
-            | EraName::Conway
-            | EraName::Dijkstra => {
-                cbor::check_tagged_array_length(variant.header_variant().into(), len, 2)?;
-                d.tag()?;
-                // Conformance: the Haskell node unwraps CBOR-in-CBOR with cborg's `decodeBytes`,
-                // which rejects indefinite-length byte strings, so we reject them too.
-                #[allow(clippy::disallowed_methods)]
-                let bytes = d.bytes()?;
-                Ok(HeaderContent { variant, byron_prefix: None, cbor: Vec::from(bytes) })
-            }
-        }
-    }
-}
-
-impl cbor::Encode<()> for HeaderContent {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        _ctx: &mut (),
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.u8(self.variant.header_variant())?;
-
-        if self.variant == EraName::Byron {
-            e.array(2)?;
-
-            if let Some((a, b)) = self.byron_prefix {
-                e.array(2)?;
-                e.u8(a)?;
-                e.u64(b)?;
-            } else {
-                return Err(cbor::encode::Error::message("header variant 0 but no byron prefix"));
-            }
-
-            e.tag(cbor::IanaTag::Cbor)?;
-            e.bytes(&self.cbor)?;
-        } else {
-            e.tag(cbor::IanaTag::Cbor)?;
-            e.bytes(&self.cbor)?;
-        }
-
-        Ok(())
-    }
-}
-
 /// Roundtrip property tests for chainsync messages.
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::prop_cbor_roundtrip;
+    use amaru_kernel::{EraName, prop_cbor_roundtrip};
     use proptest::{prelude::*, prop_compose};
 
     use super::*;
@@ -284,6 +197,33 @@ mod tests {
         fn rejects_indefinite_length_array() {
             assert!(matches!(cbor::from_cbor_no_leftovers::<Message>(&[0x81, 0x00]), Ok(Message::RequestNext(_))));
             assert!(cbor::from_cbor_no_leftovers::<Message>(&[0x9f, 0x00, 0xff]).is_err());
+        }
+
+        #[test]
+        fn bounds_intersection_messages_before_allocating_the_whole_point_list() {
+            let points = vec![NetworkPoint::Origin; MAX_FIND_INTERSECT_BYTES - 5];
+            let bytes = amaru_kernel::to_cbor(&FindIntersect(points.clone()));
+            assert_eq!(bytes.len(), MAX_FIND_INTERSECT_BYTES);
+            assert_eq!(cbor::from_cbor_no_leftovers::<Message>(&bytes).unwrap(), FindIntersect(points));
+
+            let oversized =
+                amaru_kernel::to_cbor(&FindIntersect(vec![NetworkPoint::Origin; MAX_FIND_INTERSECT_BYTES - 4]));
+            assert!(cbor::from_cbor_no_leftovers::<Message>(&oversized).is_err());
+            assert!(
+                cbor::from_cbor_no_leftovers::<Message>(&[0x82, 4, 0x9b, 255, 255, 255, 255, 255, 255, 255, 255])
+                    .is_err()
+            );
+        }
+
+        #[test]
+        fn intersection_limit_applies_per_message_when_pipelined() {
+            let message = FindIntersect(vec![NetworkPoint::Origin; MAX_FIND_INTERSECT_BYTES - 5]);
+            let mut bytes = amaru_kernel::to_cbor(&message);
+            bytes.extend(amaru_kernel::to_cbor(&message));
+            let mut decoder = cbor::Decoder::new(&bytes);
+            assert_eq!(decoder.decode::<Message>().unwrap(), message);
+            assert_eq!(decoder.decode::<Message>().unwrap(), message);
+            assert_eq!(decoder.position(), bytes.len());
         }
     }
 

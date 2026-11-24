@@ -43,6 +43,7 @@ Other guiding principles:
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
 - **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
 - **amaru-node**: embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.
+- **amaru**: `node bootstrap --historical-blocks` downloads and imports historical blocks, including Byron, from Mithril through the bootstrap point for serving to peers over N2N. Import rejects broken header parent links, mismatches between indexed hashes and block headers, and index entries inconsistent with the network's immutable chunk layout. This requires additional download time and disk space.
 
 ### Changed
 
@@ -53,12 +54,16 @@ Other guiding principles:
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 - **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.
+- **amaru-stores**: chain databases now use version 7 to index imported historical blocks. Upgrade version 6 databases with `--db-chain-automatic-migration`; existing blocks require no rewrite. Previously imported history needs reimporting from its verified Mithril archive to populate the index.
 
 ### Fixed
 
 - **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))
 - **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
 - **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.
+- **amaru-protocols**: ChainSync and BlockFetch serve imported historical blocks across all eras, including Byron epoch boundary blocks. Peers can start from genesis or a pre-snapshot point and continue through the bootstrap point to the live chain.
+- **amaru-protocols**: reject ChainSync intersection requests larger than 65,535 bytes before looking up points.
+- **amaru**: raw chain dumps can include blocks with malformed headers or bodies. Corrupted blocks are still rejected before ledger processing.
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 

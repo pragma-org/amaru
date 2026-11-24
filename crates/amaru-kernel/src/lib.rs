@@ -131,6 +131,7 @@ pub use cardano::{
     hash::{self, Hash, HeaderHash, NULL_HASH28, NULL_HASH32, ORIGIN_HASH, size},
     header::{Header, KES_SIGNATURE, KesSignature},
     header_body::HeaderBody,
+    header_content::HeaderContent,
     int::Int,
     kes_period::{KesEvolution, KesPeriod, KesPeriodError},
     language_view::LanguageView,

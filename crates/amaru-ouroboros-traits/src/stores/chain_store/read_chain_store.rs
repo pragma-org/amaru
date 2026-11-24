@@ -15,7 +15,8 @@
 use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
 
 use amaru_kernel::{
-    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock,
+    BlockHeight, EraName, Header, HeaderContent, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point,
+    PoolId, RawBlock,
 };
 
 use crate::{
@@ -34,8 +35,13 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// Return the next best-chain header from the given pointer using a single snapshot.
     fn next_best_chain_header(&self, pointer: &Point) -> Result<NextBestChainHeader, StoreError> {
         let snapshot = self.snapshot();
-        if *pointer != Point::Origin && !snapshot.is_on_best_chain((*pointer).into()) {
-            return Ok(NextBestChainHeader::NeedRollback);
+        if *pointer == Point::Origin || !snapshot.is_on_best_chain((*pointer).into()) {
+            if let Some(next) = snapshot.next_historical_header(pointer)? {
+                return Ok(next);
+            }
+            if *pointer != Point::Origin {
+                return Ok(NextBestChainHeader::NeedRollback);
+            }
         }
         let Some(point) = snapshot.next_best_chain(pointer) else {
             return Ok(NextBestChainHeader::AtTip);
@@ -43,7 +49,7 @@ pub trait ReadChainStore: BaseReadChainStore {
         let Some(header) = snapshot.load_header(&point.hash()) else {
             return Ok(NextBestChainHeader::MissingHeader { point });
         };
-        Ok(NextBestChainHeader::RollForward { point, header })
+        Ok(NextBestChainHeader::RollForward { point, header: HeaderContent::new(&header, EraName::Conway) })
     }
 
     /// Return the hashes of the ancestors of the header (inclusive of the start hash and in parent -> child order),
@@ -204,10 +210,17 @@ pub trait ReadChainStore: BaseReadChainStore {
     /// Return None if none of the points is on the best chain
     fn find_intersect_point(&self, mut points: Vec<NetworkPoint>) -> Option<Point> {
         let snapshot = self.snapshot();
-        points.sort_by_key(|p| Reverse(*p));
+        points.sort_unstable_by_key(|p| Reverse(*p));
+        points.dedup();
         points.into_iter().find_map(|point| match point {
             NetworkPoint::Origin => Some(Point::Origin),
-            NetworkPoint::Specific(_, hash) => snapshot.is_on_best_chain(point).then(|| snapshot.load_point(&hash))?,
+            NetworkPoint::Specific(_, hash) => {
+                if snapshot.is_on_best_chain(point) {
+                    snapshot.load_point(&hash)
+                } else {
+                    snapshot.find_historical_intersect(point)
+                }
+            }
         })
     }
 
@@ -380,6 +393,14 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
         self.as_ref().load_header(hash)
     }
 
+    fn find_historical_intersect(&self, point: NetworkPoint) -> Option<Point> {
+        self.as_ref().find_historical_intersect(point)
+    }
+
+    fn next_historical_header(&self, pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        self.as_ref().next_historical_header(pointer)
+    }
+
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
@@ -406,6 +427,10 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.as_ref().load_block(hash)
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {

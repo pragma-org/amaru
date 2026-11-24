@@ -638,6 +638,63 @@ pub async fn bootstrap_with_observer(
     result
 }
 
+/// Import opaque historical blocks through `through`, inclusive, from a verified archive.
+///
+/// [`BootstrapObserver::on_historical_block`] receives the indexed hash and borrowed raw block
+/// after each database batch commits, in archive order. Callbacks run synchronously; clone the raw
+/// block if it is needed after the callback returns. Reimporting emits the callbacks again.
+///
+/// This only stores blocks: it does not decode them, apply them to the ledger, or emit ledger
+/// adoption events or UTxO deltas. Blocks in a failed or uncommitted batch emit no callbacks.
+/// The iterator must start at the beginning of the archive, so its order supplies parent links.
+pub fn import_historical_blocks(
+    store: &RocksDBStore,
+    blocks: impl IntoIterator<Item = anyhow::Result<(NetworkPoint, Vec<u8>)>>,
+    through: NetworkPoint,
+    observer: &dyn BootstrapObserver,
+) -> anyhow::Result<()> {
+    historical_block_batches(blocks, through).try_for_each(|batch| {
+        let batch = batch?;
+        store.store_historical_blocks(&batch)?;
+        for (point, _, raw_block) in &batch {
+            observer.on_historical_block(point.hash(), raw_block);
+        }
+        Ok(())
+    })
+}
+
+fn historical_block_batches(
+    blocks: impl IntoIterator<Item = anyhow::Result<(NetworkPoint, Vec<u8>)>>,
+    through: NetworkPoint,
+) -> impl Iterator<Item = anyhow::Result<Vec<(NetworkPoint, Option<HeaderHash>, RawBlock)>>> {
+    const BATCH_BYTES: usize = 8 * 1024 * 1024;
+
+    let mut blocks = blocks.into_iter();
+    let mut parent = None;
+    let mut finished = false;
+    std::iter::from_fn(move || {
+        if finished {
+            return None;
+        }
+        let batch = (|| {
+            let mut batch = Vec::new();
+            let mut batch_bytes = 0;
+            for block in blocks.by_ref() {
+                let (point, bytes) = block?;
+                batch_bytes += bytes.len();
+                batch.push((point, parent.replace(point.hash()), RawBlock::from(bytes.into_boxed_slice())));
+                finished = point == through;
+                if batch_bytes >= BATCH_BYTES || finished {
+                    return Ok(batch);
+                }
+            }
+            anyhow::bail!("bootstrap point {through} was not found in the historical archive")
+        })();
+        finished |= batch.is_err();
+        Some(batch)
+    })
+}
+
 fn load_packaged_block_from_snapshot(snapshot_path: &Path, expected_point: &str) -> anyhow::Result<(Header, RawBlock)> {
     if !is_snapshot_archive_file(snapshot_path) {
         return Err(anyhow!("snapshot does not contain packaged bootstrap blocks: {}", snapshot_path.display()));

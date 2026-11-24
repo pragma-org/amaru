@@ -60,6 +60,7 @@ pub mod governance_action;
 pub mod hash;
 pub mod header;
 pub mod header_body;
+pub mod header_content;
 pub mod int;
 pub mod kes_period;
 pub mod language_view;

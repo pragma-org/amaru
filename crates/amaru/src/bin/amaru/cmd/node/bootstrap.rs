@@ -46,6 +46,13 @@ pub struct Args {
     #[command(flatten, next_help_heading = "Storage options")]
     db_ledger: amaru::args::DbLedger,
 
+    /// Download and import all historical blocks through the bootstrap point from Mithril.
+    ///
+    /// Includes Byron blocks. Requires additional download time and chain database space.
+    #[cfg(feature = "mithril")]
+    #[arg(long, env = "AMARU_HISTORICAL_BLOCKS", default_value_t = false)]
+    historical_blocks: bool,
+
     #[command(flatten)]
     s3: amaru::args::S3,
 
@@ -104,11 +111,11 @@ async fn run(args: Args) -> anyhow::Result<()> {
         anyhow::bail!("{}", messages.join("; "));
     }
 
-    bootstrap(
+    let report = bootstrap(
         network,
         &global_parameters,
         db_ledger,
-        db_chain,
+        db_chain.clone(),
         default_snapshots_dir(network).into(),
         args.epoch,
         S3Config {
@@ -121,7 +128,107 @@ async fn run(args: Args) -> anyhow::Result<()> {
     )
     .await?;
 
+    #[cfg(feature = "mithril")]
+    if args.historical_blocks {
+        historical::bootstrap(network, db_chain, report.point).await?;
+    }
+    #[cfg(not(feature = "mithril"))]
+    let _ = report;
+
     Ok(())
+}
+
+#[cfg(feature = "mithril")]
+mod historical {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        sync::{
+            Arc,
+            atomic::{AtomicU64, Ordering},
+        },
+    };
+
+    use amaru_bootstrap::{BootstrapObserver, BootstrapProgress};
+    use amaru_kernel::{HeaderHash, NetworkName, NetworkPoint, Point, RawBlock};
+    use amaru_mithril::{
+        ImmutableChunkSize, MithrilDownloadObserver, MithrilDownloadProgress,
+        download_from_mithril_for_range_with_observer, iter_immutable_raw_blocks,
+    };
+    use amaru_progress_bar::{ProgressBar, TerminalProgressBar};
+    use amaru_stores::rocksdb::{RocksDbConfig, consensus::RocksDBStore};
+
+    struct Progress {
+        bar: TerminalProgressBar,
+        completed: AtomicU64,
+    }
+
+    impl Progress {
+        fn new(template: &str) -> Self {
+            Self { bar: TerminalProgressBar::new(0_u64, template), completed: AtomicU64::new(0) }
+        }
+    }
+
+    impl Drop for Progress {
+        fn drop(&mut self) {
+            self.bar.clear_shared();
+        }
+    }
+
+    impl MithrilDownloadObserver for Progress {
+        fn on_progress(&self, progress: MithrilDownloadProgress) {
+            if let MithrilDownloadProgress::Downloaded { completed_files, .. } = progress {
+                let previous = self.completed.swap(completed_files, Ordering::Relaxed);
+                self.bar.tick(completed_files.saturating_sub(previous) as usize);
+            }
+        }
+    }
+
+    impl BootstrapObserver for Progress {
+        fn on_progress(&self, _: BootstrapProgress) {}
+
+        fn on_historical_block(&self, _: HeaderHash, _: &RawBlock) {
+            self.bar.increment();
+        }
+    }
+
+    pub(super) async fn bootstrap(
+        network: NetworkName,
+        chain_dir: PathBuf,
+        through: NetworkPoint,
+    ) -> anyhow::Result<()> {
+        let snapshots_dir = Path::new("mithril-snapshots").join(network.to_string().to_lowercase());
+        fs::create_dir_all(&snapshots_dir)?;
+        let observer = Arc::new(Progress::new(
+            "{spinner:.green} {elapsed_precise} Downloading and verifying history ({human_pos} files)",
+        ));
+        let download = download_from_mithril_for_range_with_observer(
+            network,
+            snapshots_dir,
+            Point::Origin,
+            Some(through.slot_or_default()),
+            observer.clone(),
+        )
+        .await?;
+        drop(observer);
+        tokio::task::spawn_blocking(move || import(network, &chain_dir, &download.immutable_dir, through)).await?
+    }
+
+    pub(super) fn import(
+        network: NetworkName,
+        chain_dir: &Path,
+        immutable_dir: &Path,
+        through: NetworkPoint,
+    ) -> anyhow::Result<()> {
+        let store = RocksDBStore::open(&RocksDbConfig::new(chain_dir.to_path_buf()))?;
+        let observer = Progress::new("{spinner:.green} Importing historical blocks {human_pos} ({per_sec})");
+        amaru_bootstrap::bootstrap::import_historical_blocks(
+            &store,
+            iter_immutable_raw_blocks(immutable_dir, ImmutableChunkSize::for_network(network)?)?,
+            through,
+            &observer,
+        )
+    }
 }
 
 /// Whether `dir` holds anything. An empty directory is no more a database than a missing one, and

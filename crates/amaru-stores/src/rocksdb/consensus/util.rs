@@ -14,6 +14,7 @@
 
 use std::path::PathBuf;
 
+use amaru_kernel::Slot;
 use amaru_ouroboros_traits::StoreError;
 use rocksdb::{DB, Options};
 
@@ -25,16 +26,24 @@ pub(crate) const CONSENSUS_PREFIX_LEN: usize = 5;
 /// Increment this number by 1 every time the "schema" is updated, eg. a new
 /// type of keys is added, prefixes are changed, etc. then provide a migration
 /// function from the previous version.
-pub const CHAIN_DB_VERSION: u16 = 6;
+pub const CHAIN_DB_VERSION: u16 = 7;
 
 pub(crate) const ANCHOR_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ancho";
 pub(crate) const BEST_CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"best_";
 pub(crate) const BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"block";
+/// CBOR `(slot, parent_hash)` for verified archive blocks, keyed by header hash.
+pub(crate) const BLOCK_METADATA_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"bmeta";
+/// CBOR `NetworkPoint` of the last historical block at each big-endian slot.
+pub(crate) const HISTORICAL_BLOCK_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"histo";
 pub(crate) const CHAIN_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"chain";
 pub(crate) const CHILD_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"child";
 pub(crate) const HEADER_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"heade";
 pub(crate) const NONCES_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"nonce";
 pub(crate) const OPCERT_PREFIX: [u8; CONSENSUS_PREFIX_LEN] = *b"ocert";
+
+pub(crate) fn historical_block_key(slot: Slot) -> Vec<u8> {
+    [&HISTORICAL_BLOCK_PREFIX[..], &u64::from(slot).to_be_bytes()].concat()
+}
 
 /// Open a Chain DB for reading and writing.
 /// The DB _must_ exist otherwise the function will return an error.

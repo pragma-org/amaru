@@ -15,17 +15,17 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    Hash, Header, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock, Slot, from_cbor, size,
-    size::HEADER,
+    EraName, Hash, Header, HeaderContent, HeaderHash, IsHeader, NetworkPoint, NetworkTip, Point, PoolId, RawBlock,
+    Slot, from_cbor, size, size::HEADER,
 };
-use amaru_ouroboros_traits::{BaseReadChainStore, Nonces, StoreError, block_addressed_by, header_addressed_by};
+use amaru_ouroboros_traits::{BaseReadChainStore, NextBestChainHeader, Nonces, StoreError, verify_header_integrity};
 use rocksdb::{Direction, IteratorMode, PrefixRange, ReadOptions};
 
 use crate::rocksdb::consensus::{
     DbOps, OPCERT_PREFIX, RocksDBStore,
     util::{
-        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX, CONSENSUS_PREFIX_LEN,
-        HEADER_PREFIX, NONCES_PREFIX,
+        ANCHOR_PREFIX, BEST_CHAIN_PREFIX, BLOCK_METADATA_PREFIX, BLOCK_PREFIX, CHAIN_PREFIX, CHILD_PREFIX,
+        CONSENSUS_PREFIX_LEN, HEADER_PREFIX, HISTORICAL_BLOCK_PREFIX, NONCES_PREFIX, historical_block_key,
     },
 };
 
@@ -40,7 +40,7 @@ where
             .ok()
             .flatten()
             .and_then(|bytes| from_cbor(bytes.as_ref()))
-            .map(|header| header_addressed_by(header, hash))
+            .map(|header| verify_header_integrity(header, hash))
     }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
@@ -50,7 +50,7 @@ where
         let header = results
             .next()
             .and_then(|bytes| from_cbor(bytes.ok()??.as_ref()))
-            .map(|header| header_addressed_by(header, hash));
+            .map(|header| verify_header_integrity(header, hash));
         let validity = results.next().and_then(|bytes| {
             let bytes = bytes.ok()??;
             if bytes.len() == 1 { Some(bytes[0] == 1) } else { None }
@@ -124,11 +124,53 @@ where
         }
     }
 
+    fn find_historical_intersect(&self, point: NetworkPoint) -> Option<Point> {
+        self.historical_points_at(point.slot_or_default())
+            .ok()?
+            .iter()
+            .any(|(stored, _)| *stored == point)
+            .then(|| self.read_historical_header(point).ok().map(|(point, _)| point))?
+    }
+
+    fn next_historical_header(&self, pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        if *pointer != Point::Origin
+            && !self
+                .historical_points_at(pointer.slot_or_default())?
+                .iter()
+                .any(|(point, _)| *point == pointer.to_network_point())
+        {
+            return Ok(None);
+        }
+        let Some(next) = self.next_historical_point(pointer)? else {
+            return if *pointer == Point::Origin {
+                Ok(None)
+            } else {
+                Err(StoreError::ReadError { error: format!("missing historical successor of {pointer}") })
+            };
+        };
+        let (point, header) = self.read_historical_header(next)?;
+        Ok(Some(NextBestChainHeader::RollForward { point, header }))
+    }
+
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         Ok(self
             .db
             .get_pinned(&[&BLOCK_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
-            .map(|bytes| block_addressed_by(bytes.as_ref().into(), hash)))
+            .map(|bytes| bytes.as_ref().into()))
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        if let Some((slot, parent)) = self.read_block_metadata(hash)? {
+            return Ok(Some((NetworkPoint::Specific(slot, *hash), parent)));
+        }
+        if !self.has_block(hash)? {
+            return Ok(None);
+        }
+        let header = match self.load_header(hash) {
+            Some(header) => Some(header),
+            None => self.load_block(hash)?.and_then(|block| block.decode_header().ok()),
+        };
+        Ok(header.map(|header| (header.point().into(), header.parent())))
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
@@ -220,6 +262,85 @@ where
     fn has_header(&self, hash: &HeaderHash) -> bool {
         let prefix = [&HEADER_PREFIX[..], &hash[..]].concat();
         self.db.get_pinned(&prefix, ReadOptions::default()).map(|opt| opt.is_some()).unwrap_or(false)
+    }
+}
+
+impl<T: DbOps + Send + Sync> RocksDBStore<T> {
+    /// Recover both a boundary block and a regular block when they share an indexed slot.
+    fn historical_points_at(&self, slot: Slot) -> Result<Vec<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        let Some(bytes) = self.db.get_pinned(&historical_block_key(slot), ReadOptions::default())? else {
+            return Ok(Vec::new());
+        };
+        let indexed: NetworkPoint = from_cbor(bytes.as_ref())
+            .ok_or_else(|| StoreError::ReadError { error: "invalid historical block point".into() })?;
+        if indexed.slot_or_default() != slot {
+            return Err(StoreError::ReadError { error: "historical index slot mismatch".into() });
+        }
+        let mut hash = indexed.hash();
+        let mut points = Vec::new();
+        // A slot contains at most a Byron boundary block and its regular successor.
+        for index in 0..=2 {
+            let Some((stored_slot, parent)) = self.read_block_metadata(&hash)? else { break };
+            if stored_slot != slot {
+                break;
+            }
+            if index == 2 {
+                return Err(StoreError::ReadError { error: "more than two historical blocks at one slot".into() });
+            }
+            points.push((NetworkPoint::Specific(slot, hash), parent));
+            let Some(parent) = parent else { break };
+            hash = parent;
+        }
+        points.reverse();
+        Ok(points)
+    }
+
+    /// Seek the current and next indexed slots, ordering same-slot blocks by their parent links.
+    fn next_historical_point(&self, point: &Point) -> Result<Option<NetworkPoint>, StoreError> {
+        let mut opts = ReadOptions::default();
+        opts.set_iterate_range(PrefixRange(HISTORICAL_BLOCK_PREFIX));
+        let start = historical_block_key(point.slot_or_default());
+        let parent = (*point != Point::Origin).then_some(point.hash());
+        for entry in self.db.iterator_opt(IteratorMode::From(&start, Direction::Forward), opts).take(2) {
+            let (_, bytes) = entry.map_err(|error| StoreError::ReadError { error: error.to_string() })?;
+            let indexed: NetworkPoint = from_cbor(&bytes)
+                .ok_or_else(|| StoreError::ReadError { error: "invalid historical block point".into() })?;
+            for (candidate, previous) in self.historical_points_at(indexed.slot_or_default())? {
+                if previous == parent {
+                    return Ok(Some(candidate));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Copy only the header out of the pinned block value, and read each block at most once.
+    fn read_historical_header(&self, point: NetworkPoint) -> Result<(Point, HeaderContent), StoreError> {
+        if let Some(header) = self.load_header(&point.hash()) {
+            return Ok((header.point(), HeaderContent::new(&header, EraName::Conway)));
+        }
+        let key = [&BLOCK_PREFIX[..], &point.hash()[..]].concat();
+        let bytes = self
+            .db
+            .get_pinned(&key, ReadOptions::default())?
+            .ok_or_else(|| StoreError::ReadError { error: format!("missing historical block {point}") })?;
+        let header = HeaderContent::from_block(bytes.as_ref())
+            .map_err(|error| StoreError::ReadError { error: error.to_string() })?;
+        let height = header.block_height().map_err(|error| StoreError::ReadError { error: error.to_string() })?;
+        Ok((Point::Specific(point.slot_or_default(), point.hash(), height), header))
+    }
+
+    pub(super) fn read_block_metadata(
+        &self,
+        hash: &HeaderHash,
+    ) -> Result<Option<(Slot, Option<HeaderHash>)>, StoreError> {
+        self.db
+            .get_pinned(&[&BLOCK_METADATA_PREFIX[..], &hash[..]].concat(), ReadOptions::default())?
+            .map(|bytes| {
+                from_cbor(bytes.as_ref())
+                    .ok_or_else(|| StoreError::ReadError { error: format!("invalid block metadata for {hash}") })
+            })
+            .transpose()
     }
 }
 

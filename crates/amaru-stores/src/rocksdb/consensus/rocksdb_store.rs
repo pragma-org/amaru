@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use amaru_kernel::{HeaderHash, IsHeader as _};
+use amaru_kernel::{HeaderHash, IsHeader as _, NetworkPoint, RawBlock, Slot, from_cbor, to_cbor};
 use amaru_ouroboros_traits::{BaseReadChainStore, StoreError};
 use rocksdb::{DB, Options, WriteBatch};
 
@@ -28,7 +28,8 @@ use crate::rocksdb::{
         base_read_chain_store::opcert_key,
         check_db_version, migrate_db, set_version,
         util::{
-            BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX, open_db, open_or_create_db,
+            BLOCK_METADATA_PREFIX, BLOCK_PREFIX, CHAIN_DB_VERSION, CHILD_PREFIX, HEADER_PREFIX, NONCES_PREFIX,
+            historical_block_key, open_db, open_or_create_db,
         },
     },
 };
@@ -124,9 +125,37 @@ impl RocksDBStore<DB> {
         self.db.write(batch).map_err(|e| StoreError::WriteError { error: e.to_string() })
     }
 
+    /// Store a bounded batch from a verified archive for serving to peers, including range links,
+    /// without changing headers or chain selection. Blocks remain opaque in storage;
+    /// ledger callers must check their integrity before processing them.
+    /// Blocks must be in archive order; the last block at each slot is indexed.
+    pub fn store_historical_blocks(
+        &self,
+        blocks: &[(NetworkPoint, Option<HeaderHash>, RawBlock)],
+    ) -> Result<(), StoreError> {
+        self.with_batch(|batch| {
+            for (point, parent, block) in blocks {
+                let hash = point.hash();
+                batch.put([&BLOCK_PREFIX[..], &hash[..]].concat(), block.as_ref());
+                batch
+                    .put([&BLOCK_METADATA_PREFIX[..], &hash[..]].concat(), to_cbor(&(point.slot_or_default(), parent)));
+                let slot = point.slot_or_default();
+                if let Some(current) = self.read_historical_block(slot)?
+                    && self.read_block_metadata(&current.hash())?.is_some_and(|(_, parent)| parent == Some(hash))
+                {
+                    continue;
+                }
+                batch.put(historical_block_key(slot), to_cbor(point));
+            }
+            Ok(())
+        })
+    }
+
     pub fn remove_block(&self, hash: &HeaderHash) -> Result<(), StoreError> {
         self.with_batch(|batch| {
+            self.remove_historical_block_index(batch, hash)?;
             batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());
+            batch.delete([&BLOCK_METADATA_PREFIX[..], &hash[..]].concat());
             batch.delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat());
             Ok(())
         })
@@ -136,6 +165,7 @@ impl RocksDBStore<DB> {
         let parent = self.load_header(hash).and_then(|h| h.parent());
         let header = self.load_header(hash);
         self.with_batch(|batch| {
+            self.remove_historical_block_index(batch, hash)?;
             if let Some(parent) = parent {
                 batch.delete([&CHILD_PREFIX[..], &parent[..], &hash[..]].concat());
             }
@@ -147,9 +177,36 @@ impl RocksDBStore<DB> {
             }
             batch.delete([&HEADER_PREFIX[..], &hash[..]].concat());
             batch.delete([&BLOCK_PREFIX[..], &hash[..]].concat());
+            batch.delete([&BLOCK_METADATA_PREFIX[..], &hash[..]].concat());
             batch.delete([&HEADER_PREFIX[..], &hash[..], &[0]].concat());
             batch.delete([&NONCES_PREFIX[..], &hash[..]].concat());
             Ok(())
         })
+    }
+
+    fn read_historical_block(&self, slot: Slot) -> Result<Option<NetworkPoint>, StoreError> {
+        self.db
+            .get_pinned(historical_block_key(slot))
+            .map_err(|e| StoreError::ReadError { error: e.to_string() })?
+            .map(|bytes| {
+                from_cbor(bytes.as_ref())
+                    .ok_or_else(|| StoreError::ReadError { error: "invalid historical block point".into() })
+            })
+            .transpose()
+    }
+
+    fn remove_historical_block_index(&self, batch: &mut WriteBatch, hash: &HeaderHash) -> Result<(), StoreError> {
+        if let Some((slot, parent)) = self.read_block_metadata(hash)?
+            && self.read_historical_block(slot)? == Some(NetworkPoint::Specific(slot, *hash))
+        {
+            let key = historical_block_key(slot);
+            batch.delete(&key);
+            if let Some(parent) = parent
+                && self.read_block_metadata(&parent)?.is_some_and(|(parent_slot, _)| parent_slot == slot)
+            {
+                batch.put(key, to_cbor(&NetworkPoint::Specific(slot, parent)));
+            }
+        }
+        Ok(())
     }
 }

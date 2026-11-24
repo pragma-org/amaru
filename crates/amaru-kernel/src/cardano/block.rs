@@ -58,10 +58,6 @@ impl Block {
         self.hash
     }
 
-    /// Hash of the four body CBOR items, as stored in [`HeaderBody::block_body_hash`](crate::HeaderBody).
-    ///
-    /// The array must contain the slices of the four CBOR items in the order they appear in the
-    /// block body: `[bodies, witnesses, aux, invalid]`.
     /// Get the size in bytes of the serialised block.
     pub fn body_len(&self) -> u64 {
         self.original_body_size

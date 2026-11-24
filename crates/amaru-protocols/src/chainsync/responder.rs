@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraName, NetworkPoint, Peer, Point};
+use amaru_kernel::{NetworkPoint, Peer, Point};
 use amaru_observability::{CarriedHeader, Instrument, TraceContext, debug_span, info};
 use amaru_ouroboros::{ConnectionId, RemoteProtocol};
 use amaru_ouroboros_traits::{FindAncestorOnBestChainResult, NextBestChainHeader};
@@ -174,7 +174,7 @@ async fn next_header(
         NextBestChainHeader::MissingHeader { point } => Err(anyhow!("missing header for point {point}")),
         NextBestChainHeader::RollForward { point, header } => {
             *pointer = point;
-            Ok(Some(ResponderAction::RollForward(HeaderContent::new(&header, EraName::Conway), tip)))
+            Ok(Some(ResponderAction::RollForward(header, tip)))
         }
     }
 }
@@ -304,6 +304,8 @@ impl ProtocolState<Responder> for ResponderState {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::EraName;
+
     use super::*;
     use crate::protocol::ProtoSpec;
 

@@ -44,7 +44,7 @@ pub const VERSION_KEY: [u8; 11] = *b"__VERSION__";
 // the RocksDB puts that were correct for the version it produces, not call
 // the high-level store API of the running binary.
 static MIGRATIONS: [fn(&RocksDBStore<DB>) -> Result<(), StoreError>; CHAIN_DB_VERSION as usize] =
-    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5, migrate_to_v6];
+    [migrate_to_v1, migrate_to_v2, migrate_to_v3, migrate_to_v4, migrate_to_v5, migrate_to_v6, migrate_to_v7];
 
 /// Migrate the Chain Database at the given `path` to the current `CHAIN_DB_VERSION`.
 /// Returns the pair of numbers consisting in the initial version of the database and
@@ -177,6 +177,11 @@ pub(crate) fn migrate_to_v6(store: &RocksDBStore<DB>) -> Result<(), StoreError> 
     rewrite_singleton_point(store, &ANCHOR_PREFIX)?;
     rewrite_chain_prefix_points(store)?;
     set_version(store, 6)
+}
+
+/// Reserve the archive metadata and slot index prefixes. Historical imports populate both.
+pub(crate) fn migrate_to_v7(store: &RocksDBStore<DB>) -> Result<(), StoreError> {
+    set_version(store, 7)
 }
 
 fn rewrite_singleton_point(store: &RocksDBStore<DB>, key: &[u8]) -> Result<(), StoreError> {

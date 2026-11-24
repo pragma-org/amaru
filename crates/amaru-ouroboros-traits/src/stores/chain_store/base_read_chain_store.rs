@@ -14,13 +14,23 @@
 
 use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock};
 
-use crate::{Nonces, StoreError};
+use crate::{NextBestChainHeader, Nonces, StoreError};
 
 /// Low-level chain store reads. It is used by the `ReadChainStore` trait which most code should
 /// depend on.
 pub trait BaseReadChainStore: Send + Sync {
     /// Try to load a header by its hash.
     fn load_header(&self, hash: &HeaderHash) -> Option<Header>;
+
+    /// Find an intersection in imported immutable history, without changing consensus membership.
+    fn find_historical_intersect(&self, _point: NetworkPoint) -> Option<Point> {
+        None
+    }
+
+    /// Serve the successor of an immutable-history pointer, or return `None` if it is not in history.
+    fn next_historical_header(&self, _pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        Ok(None)
+    }
 
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)>;
 
@@ -56,7 +66,18 @@ pub trait BaseReadChainStore: Send + Sync {
     /// `Point`, if it exists.
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
+    /// Load stored block bytes without decoding or checking their integrity.
+    /// Callers requiring integrity checks must use [`crate::verify_block_integrity`] before processing them.
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
+
+    /// Point and parent link used to serve a block range, independently of the block's era.
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        Ok(self.load_block(hash)?.and_then(|block| {
+            let header = block.decode_header().ok()?;
+            Some((header.point().into(), header.parent()))
+        }))
+    }
+
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
     fn get_nonces(&self, header: &HeaderHash) -> Option<Nonces>;
 
@@ -81,6 +102,14 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
         self.as_ref().load_header(hash)
     }
 
+    fn find_historical_intersect(&self, point: NetworkPoint) -> Option<Point> {
+        self.as_ref().find_historical_intersect(point)
+    }
+
+    fn next_historical_header(&self, pointer: &Point) -> Result<Option<NextBestChainHeader>, StoreError> {
+        self.as_ref().next_historical_header(pointer)
+    }
+
     fn load_header_with_validity(&self, hash: &HeaderHash) -> Option<(Header, Option<bool>)> {
         self.as_ref().load_header_with_validity(hash)
     }
@@ -103,6 +132,10 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {
         self.as_ref().load_block(hash)
+    }
+
+    fn load_block_metadata(&self, hash: &HeaderHash) -> Result<Option<(NetworkPoint, Option<HeaderHash>)>, StoreError> {
+        self.as_ref().load_block_metadata(hash)
     }
 
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError> {
