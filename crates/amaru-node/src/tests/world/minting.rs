@@ -415,7 +415,7 @@ fn node_log() -> (tracing::Dispatch, Arc<Mutex<Vec<LogRecord>>>) {
                         | "forge.missed_slot"
                         | "forge.forge_failed"
                         | "perf.header.lifecycle"
-                        | "tip.adopt"
+                        | "block.adopted"
                         | "tip.update"
                         | "rewards.summarize"
                 ))
@@ -946,9 +946,9 @@ fn assert_forwarding(seed: u64, fixture: &MintFixture, logs: &[Vec<LogRecord>], 
                     record.fields
                 );
             }
-            let adopted = events(records, "tip.adopt")
+            let adopted = events(records, "block.adopted")
                 .any(|record| field_hex(record, "header_hash").as_deref() == Some(hash.as_str()));
-            assert!(adopted, "missing tip.adopt seed={seed:#x} node={index} {hash}");
+            assert!(adopted, "missing block.adopted seed={seed:#x} node={index} {hash}");
         }
         previous = hash;
     }
