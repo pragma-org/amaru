@@ -299,7 +299,8 @@ impl LatestSnapshot {
     /// In both cases, the stake distribution and rewards computation is cancelled, and the stake
     /// distributions in memory are published again.
     pub fn roll_back(&mut self, volatile_epoch: Epoch, keeps_last_block: bool) -> BeforeRollback {
-        let before = |candidate| BeforeRollback { candidate, computed: self.computed };
+        let before = |candidate| BeforeRollback { candidate, computed: self.computed, final_epoch: self.final_epoch() };
+
         let Some(snapshot) = self.candidate_snapshot() else {
             return before(Before::NoCandidate);
         };
@@ -344,6 +345,21 @@ impl LatestSnapshot {
         if let Some(replayed) = replayed {
             replayed.remove(store);
             self.publish_stake_distributions();
+        }
+    }
+
+    /// True when the replay flushed an epoch transition to the stable store. The snapshot
+    /// before the rollback cannot be restored over it.
+    pub fn is_finalized_since(&self, before: &BeforeRollback) -> bool {
+        self.final_epoch() > before.final_epoch
+    }
+
+    /// The epoch of the most recent snapshot taken from the stable store.
+    fn final_epoch(&self) -> Epoch {
+        match &self.kind {
+            Kind::Final(epoch) => *epoch,
+            Kind::Settled(snapshot) => snapshot.epoch,
+            Kind::Candidate(snapshot) => snapshot.epoch - 1,
         }
     }
 
@@ -504,6 +520,8 @@ pub(super) struct BeforeRollback {
     candidate: Before,
     /// Whether the computation was done, before the rollback.
     computed: bool,
+    /// The epoch of the most recent snapshot taken from the stable store, before the rollback.
+    final_epoch: Epoch,
 }
 
 #[derive(Debug)]

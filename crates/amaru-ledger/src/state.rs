@@ -1048,7 +1048,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         // Try to apply each block in the fork, and stop at the first failure.
         for block in blocks {
             let block_tip = block.point();
-            match self.roll_forward(&block, arena_pool) {
+
+            let result = self.roll_forward(&block, arena_pool);
+            let stable_modified = self.immutable_tip() != initial_immutable_tip
+                || self.latest_snapshot.is_finalized_since(&state_recovery.candidate);
+
+            match result {
                 BlockValidation::Valid(new_metrics) => {
                     if keep_blocks {
                         deferred_blocks.push(block);
@@ -1064,7 +1069,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     // so a failed replay is always recoverable — unless an epoch transition was
                     // forced to the stable store mid-replay, which only happens when the chain
                     // violates the Chain Growth property (see `apply_transition`).
-                    if self.immutable_tip() == initial_immutable_tip {
+                    if !stable_modified {
                         info_record!(ledger::state::SWITCH_TO_FORK, outcome = "failed");
                         // The invalid block is the cause: keep it as the error, and the failed
                         // recovery as its context.
@@ -1089,7 +1094,6 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                     self.observers.on_block = real_on_block;
                     // Restore the pre-switch state while nothing has reached the stable store.
                     // If the error is a `RewardsSummaryNotReady` we might want to retry.
-                    let stable_modified = self.immutable_tip() != initial_immutable_tip;
                     let error = if stable_modified {
                         self.latest_snapshot.commit(state_recovery.candidate, &self.stable);
                         error

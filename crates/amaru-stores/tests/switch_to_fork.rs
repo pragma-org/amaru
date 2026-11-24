@@ -68,14 +68,17 @@
 //!
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::state::{BackwardError, StateError};
-use amaru_ouroboros_traits::ForkSwitchOutcome;
+use amaru_ledger::{
+    state::{BackwardError, ForkSwitchOutcome, StateError},
+    store::HistoricalStores,
+};
+use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use amaru_uplc::arena_pool::ArenaPool;
 
 use crate::{
     MockStore, StateAcrossEpochBoundary, assert_invalid_switch_to_fork_from, empty_block_at, epoch_of, forward_to,
     invalid_block_at, make_state_across_epoch_boundary, make_state_in_epoch, make_state_in_epoch_with_snapshots,
-    make_state_in_epoch_with_store, point, roll_forward,
+    make_state_in_epoch_with_snapshots_and_store, make_state_in_epoch_with_store, point, roll_forward,
 };
 
 // ASSERTIONS
@@ -526,5 +529,71 @@ fn a_switch_is_partial_when_an_invalid_block_follows_a_forced_flush_of_the_last_
     assert!(
         stable.lock().unwrap().contains(&block_before.point()),
         "the forced flush wrote block1 to the stable store"
+    );
+}
+
+/// A fork from the immutable tip whose first block opens the next epoch flushes the epoch
+/// transition to the stable store at once: the volatile window has no block of the closing epoch.
+///
+/// This flush takes the snapshot of the closing epoch, but writes no block, so the immutable tip
+/// does not move. The pre-switch ledger cannot be restored after it: an invalid block that follows
+/// makes the switch partial.
+///
+/// During the recover phase of the switch, we detect that a new snapshot has been flushed and
+/// we consider the switch as Partial.
+///
+///                  epoch e                    │            epoch e+1
+///  ───────────────────────────────────────────┼─────────────────────────────────────
+///   stable   volatile (k blocks)              │
+///   b-k-1 ── b-k ── … ── b-1                  │                  the replaced chain
+///     │                                       │
+///     └── fork ───────────────────────────────┼─ b ── b+1 ── …   the fork (k blocks)
+///                                             │  ▲     ▲
+///                                             │  │     └ invalid: the switch stops here
+///                                             │  └ the volatile window has no block of epoch e:
+///                                             │    flush_overlay takes snapshot e, writes no block
+///
+/// b is the first slot of epoch e+1. The rollback to b-k-1, the immutable tip, clears the volatile
+/// window. The blocks of the fork after b+1 are never applied: they only give the fork the length
+/// of the replaced chain.
+#[test]
+fn a_switch_is_partial_when_an_invalid_block_follows_a_flush_of_the_epoch_transition() {
+    let k = PREPROD_GLOBAL_PARAMETERS.consensus_security_param;
+    let first_slot = 69_200_000; // inside epoch 163
+    let epoch = epoch_of(first_slot);
+    let boundary_slot = (first_slot..).find(|slot| epoch_of(*slot) != epoch).unwrap_or_default();
+
+    let mock_store = MockStore::new();
+    let cfg = mock_store.cfg.clone();
+    let (mut state, stable) =
+        make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch - 3, epoch - 2, epoch - 1], mock_store);
+
+    for slot in (boundary_slot - k - 1)..(boundary_slot - 1) {
+        forward_to(&mut state, point(slot));
+    }
+    roll_forward(&mut state, &empty_block_at(boundary_slot - 1));
+    let immutable_tip = point(boundary_slot - k - 1);
+    assert_eq!(*stable.lock().unwrap(), vec![immutable_tip], "the first block left the volatile window");
+
+    let block1 = empty_block_at(boundary_slot);
+    let block2 = invalid_block_at(boundary_slot + 1);
+    let (block1_tip, block2_tip) = (block1.point(), block2.point());
+    let mut blocks = vec![block1, block2];
+    blocks.extend((boundary_slot + 2..boundary_slot + k).map(empty_block_at));
+
+    match state.switch_to_fork(&immutable_tip, blocks, &ArenaPool::new(1024, 0)) {
+        Ok(ForkSwitchOutcome::Partial { applied_tip, failure, .. }) => {
+            assert_eq!(applied_tip, block1_tip, "the ledger keeps the block that flushed the epoch transition");
+            assert_eq!(failure.tip, block2_tip);
+        }
+        other => panic!("expected a partial switch, got: {other:?}"),
+    }
+
+    assert_eq!(*state.tip(), block1_tip, "the ledger stays on the valid prefix of the fork");
+    assert_eq!(state.epoch(), epoch + 1, "the ledger stays in the epoch that the flush opened");
+    assert_eq!(
+        RocksDBHistoricalStores::new(&cfg, 0).snapshots().expect("listing snapshots succeeds"),
+        vec![epoch - 2, epoch - 1, epoch],
+        "the flush took the snapshot of the closing epoch"
     );
 }
