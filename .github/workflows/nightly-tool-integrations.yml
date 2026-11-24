@@ -188,7 +188,8 @@ jobs:
               curl -fsSL -o guild-deploy.sh \
                 https://raw.githubusercontent.com/cardano-community/guild-operators/cntools-rebuild/scripts/cnode-helper-scripts/guild-deploy.sh
               chmod 755 guild-deploy.sh
-              ./guild-deploy.sh -b cntools-rebuild -i amaru -n preprod -s pd
+              # The test uses the Amaru artifact and the collector started by this job.
+              ./guild-deploy.sh -b cntools-rebuild -i amaru -n preprod -s p
             test: .github/scripts/test-gliveview 2>&1 | tee tool-output.txt
 
     steps:
