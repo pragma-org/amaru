@@ -46,12 +46,15 @@ use tokio::sync::{mpsc, oneshot};
 /// How often [`LedgerThreadStop::join_timeout`] polls [`JoinHandle::is_finished`].
 const JOIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// Upper bound on requests waiting for the ledger thread. Sized by counting the request
-/// producers — block validation (serialized by `SelectChain`), fork switches, mempool
-/// transaction validation, the submission API, and occasional tip or relay lookups —
-/// and doubling the estimate. Exceeding it means a producer went out of bounds, which is
-/// treated as a bug rather than a back-pressure condition.
-const REQUEST_QUEUE_BOUND: usize = 16;
+/// Queue capacity reserved for node operations. Sized by counting the request
+/// producers — block validation (serialized by `SelectChain`), fork
+/// switches, mempool transaction validation, the submission API, and occasional tip or
+/// relay lookups — and doubling the estimate.
+const NODE_REQUEST_QUEUE_BOUND: usize = 16;
+
+/// Additional queue capacity shared by registration queries and other requests.
+const REGISTRATION_QUEUE_BOUND: usize = 16;
+const REQUEST_QUEUE_BOUND: usize = NODE_REQUEST_QUEUE_BOUND + REGISTRATION_QUEUE_BOUND;
 
 /// Requests serviced by the ledger thread, each carrying the oneshot channel through which
 /// its response travels back to the requester.
@@ -68,6 +71,11 @@ enum LedgerRequest {
     BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
     RegistrationContext(RegistrationQuery, oneshot::Sender<Result<RegistrationContext, ContextHydratationError>>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
+}
+
+enum LedgerRequestSendError {
+    Full,
+    Terminated,
 }
 
 /// Worker activity reported when ledger cleanup is still pending.
@@ -156,6 +164,8 @@ fn panic_message(payload: Box<dyn Any + Send>) -> String {
 /// A registration context could not be read from the live ledger.
 #[derive(Debug, Error)]
 pub enum RegistrationQueryError {
+    #[error("ledger request queue has no room for registration queries")]
+    Overloaded,
     #[error("ledger worker has terminated")]
     Terminated(#[from] LedgerThreadTerminated),
     #[error("could not resolve registration context")]
@@ -211,11 +221,17 @@ impl BlockValidator {
     }
 
     /// Read a consistent registration context between ledger mutations.
+    /// Returns [`RegistrationQueryError::Overloaded`] when the queue has no room for registration queries.
     pub async fn registration_context(
         &self,
         query: RegistrationQuery,
     ) -> Result<RegistrationContext, RegistrationQueryError> {
-        Ok(self.request(|reply| LedgerRequest::RegistrationContext(query, reply)).await??)
+        let (reply, response) = oneshot::channel();
+        self.try_send(LedgerRequest::RegistrationContext(query, reply)).map_err(|error| match error {
+            LedgerRequestSendError::Full => RegistrationQueryError::Overloaded,
+            LedgerRequestSendError::Terminated => LedgerThreadTerminated.into(),
+        })?;
+        Ok(response.await.map_err(|_| LedgerThreadTerminated)??)
     }
 
     /// Shared stop-and-join handle for the ledger worker.
@@ -230,15 +246,29 @@ impl BlockValidator {
     }
 
     fn send(&self, request: LedgerRequest) -> Result<(), LedgerThreadTerminated> {
-        let sender = self.sender.lock();
-        let sender = sender.as_ref().ok_or(LedgerThreadTerminated)?;
-        match sender.try_send(request) {
+        match self.try_send(request) {
             Ok(()) => Ok(()),
             #[expect(clippy::panic)]
-            Err(mpsc::error::TrySendError::Full(_)) => {
+            Err(LedgerRequestSendError::Full) => {
                 panic!("the ledger request queue exceeded its bound of {REQUEST_QUEUE_BOUND}")
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(LedgerThreadTerminated),
+            Err(LedgerRequestSendError::Terminated) => Err(LedgerThreadTerminated),
+        }
+    }
+
+    fn try_send(&self, request: LedgerRequest) -> Result<(), LedgerRequestSendError> {
+        let sender = self.sender.lock();
+        let sender = sender.as_ref().ok_or(LedgerRequestSendError::Terminated)?;
+        if matches!(&request, LedgerRequest::RegistrationContext(..))
+            && sender.capacity() <= NODE_REQUEST_QUEUE_BOUND
+            && !sender.is_closed()
+        {
+            return Err(LedgerRequestSendError::Full);
+        }
+        match sender.try_send(request) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => Err(LedgerRequestSendError::Full),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(LedgerRequestSendError::Terminated),
         }
     }
 

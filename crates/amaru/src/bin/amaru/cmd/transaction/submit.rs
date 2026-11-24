@@ -174,15 +174,14 @@ fn history(
     cancel: &CancellationToken,
 ) -> Result<Status> {
     let db = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger.to_owned()))?;
-    let tip = db.tip()?;
-    let mut state = Status { tip: Some(tip), inclusion: None, fork: 0 };
+    let store = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain.to_owned()))?;
+    let mut point = store.load_point(&db.tip()?.hash()).context("ledger tip header not found in chain store")?;
+    let mut state = Status { tip: Some(point), inclusion: None, fork: 0 };
     for input in tx.body.inputs.iter() {
         if db.utxo(input)?.is_some() && tx.body.collateral.is_none() {
             return Ok(state);
         }
     }
-    let store = RocksDBStore::open_for_readonly(&RocksDbConfig::new(chain.to_owned()))?;
-    let mut point = tip;
     let id = tx.tx_id();
     while point != Point::Origin && tx.body.validity_interval_start.is_none_or(|start| point.slot() >= start) {
         ensure!(!cancel.is_cancelled() && Instant::now() < deadline, "confirmation history scan interrupted");

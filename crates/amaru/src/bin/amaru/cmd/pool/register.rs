@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -30,7 +30,8 @@ use amaru_kernel::{
 use amaru_ledger::store::ReadStore;
 use amaru_metrics::Meter;
 use amaru_node::{
-    LedgerObservers, NodeRunning, RegistrationContext, RegistrationError, RegistrationQuery, build_registration,
+    LedgerBlockEvent, LedgerObservers, NodeRunning, RegistrationContext, RegistrationError, RegistrationQuery,
+    build_registration,
 };
 use amaru_stores::rocksdb::{ReadOnlyRocksDB, RocksDbConfig};
 use anyhow::{Context, Result, anyhow, ensure};
@@ -223,9 +224,12 @@ impl Registration {
     ) -> Result<(RegistrationContext, Transaction)> {
         loop {
             if let Some(candidates) = &candidates {
-                self.query.inputs = candidates.lock().clone();
+                self.query.inputs = candidates.take_candidates();
             }
-            let context = running.registration_context(self.query.clone()).await?;
+            let mut context = running.registration_context(self.query.clone()).await?;
+            if let Some(candidates) = &candidates {
+                candidates.retain_eligible(&mut context.inputs);
+            }
             if temporary_node::live(network, context.point)? {
                 let expires = context.point.slot().as_u64().checked_add(validity).context("validity overflow")?;
                 if candidates.is_some() {
@@ -282,41 +286,65 @@ impl Registration {
     }
 }
 
-type FundingInputs = Arc<Mutex<BTreeSet<TransactionInput>>>;
+struct FundingInputs {
+    address: Address,
+    candidates: Arc<Mutex<BTreeSet<TransactionInput>>>,
+}
 
-/// Keep candidate references across forks. The ledger rechecks unspentness at the
-/// same point used to balance the transaction, including spends and rollbacks.
+impl FundingInputs {
+    fn observer(&self) -> LedgerObservers {
+        let observed = Arc::clone(&self.candidates);
+        let address = self.address.clone();
+        LedgerObservers::new().on_block(move |event| match event {
+            LedgerBlockEvent::Adopted(block) => observed.lock().extend(
+                block
+                    .utxo
+                    .produced
+                    .iter()
+                    .filter_map(|(input, output)| eligible_funding(&address, output).then_some(*input)),
+            ),
+            // Undos carry consumed references. Resolve their outputs at the current ledger tip.
+            LedgerBlockEvent::Undone(block) => observed.lock().extend(block.utxo.consumed.iter().copied()),
+        })
+    }
+
+    fn take_candidates(&self) -> BTreeSet<TransactionInput> {
+        std::mem::take(&mut *self.candidates.lock())
+    }
+
+    fn retain_eligible(&self, inputs: &mut BTreeMap<TransactionInput, MemoizedTransactionOutput>) {
+        inputs.retain(|_, output| eligible_funding(&self.address, output));
+        // Merge with observer updates that arrived while the query was in flight.
+        self.candidates.lock().extend(inputs.keys().copied());
+    }
+}
+
+fn eligible_funding(address: &Address, output: &MemoizedTransactionOutput) -> bool {
+    &output.address == address && matches!(output.value, Value::Coin(_)) && output.script.is_none()
+}
+
 async fn funding_inputs(
     ledger: PathBuf,
     address: Address,
     cancel: CancellationToken,
     deadline: tokio::time::Instant,
 ) -> Result<(FundingInputs, LedgerObservers)> {
-    let eligible = move |output: &MemoizedTransactionOutput| {
-        output.address == address && matches!(output.value, Value::Coin(_)) && output.script.is_none()
-    };
-    let scan = eligible.clone();
+    let scan_address = address.clone();
     let inputs = tokio::task::spawn_blocking(move || -> Result<_> {
         let db = ReadOnlyRocksDB::new(&RocksDbConfig::new(ledger))?;
         let mut inputs = BTreeSet::new();
         for (input, output) in db.iter_utxos()? {
             ensure!(!cancel.is_cancelled(), "pool registration cancelled");
             ensure!(tokio::time::Instant::now() < deadline, "funding address scan timed out");
-            if scan(&output) {
+            if eligible_funding(&scan_address, &output) {
                 inputs.insert(input);
             }
         }
-        Ok(Arc::new(Mutex::new(inputs)))
+        Ok(inputs)
     })
     .await??;
-    let observed = Arc::clone(&inputs);
-    let observer = LedgerObservers::new().on_adopted_block(move |block| {
-        for (input, output) in &block.utxo.produced {
-            if eligible(output) {
-                observed.lock().insert(*input);
-            }
-        }
-    });
+    let inputs = FundingInputs { address, candidates: Arc::new(Mutex::new(inputs)) };
+    let observer = inputs.observer();
     Ok((inputs, observer))
 }
 

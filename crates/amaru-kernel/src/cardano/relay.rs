@@ -36,7 +36,7 @@ pub enum Relay {
 /// A TCP port.
 pub type Port = u16;
 
-/// An IPv4 address stored as a little-endian 32-bit word, as in the ledger encoding.
+/// An IPv4 address stored in network byte order, as in the ledger encoding.
 pub type IPv4 = FixedBytes<4>;
 /// An IPv6 address stored as four little-endian 32-bit words, as in the ledger encoding.
 pub type IPv6 = FixedBytes<16>;
@@ -109,18 +109,16 @@ fn deserialize_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result
 
 fn deserialize_ipv4<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<IPv4>, D::Error> {
     let address: Ipv4Addr = serde::Deserialize::deserialize(deserializer)?;
-    let mut bytes = address.octets();
-    bytes.reverse();
-    Ok(Some(bytes.into()))
+    Ok(Some(address.octets().into()))
 }
 
 fn serialize_ipv4<S: serde::Serializer>(address: &Option<IPv4>, serializer: S) -> Result<S::Ok, S::Error> {
-    let address = address.map(|ip| {
-        let mut bytes = *ip.as_array();
-        bytes.reverse();
-        Ipv4Addr::from(bytes)
-    });
+    let address = address.as_ref().map(ipv4_from_ledger_bytes);
     serde::Serialize::serialize(&address, serializer)
+}
+
+fn ipv4_from_ledger_bytes(address: &IPv4) -> Ipv4Addr {
+    Ipv4Addr::from_octets(*address.as_array())
 }
 
 fn deserialize_ipv6<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<IPv6>, D::Error> {
@@ -162,11 +160,8 @@ impl fmt::Display for Relay {
                 if let Some(ipv4) = ipv4 {
                     write!(
                         f,
-                        "{}.{}.{}.{}{}",
-                        ipv4[0],
-                        ipv4[1],
-                        ipv4[2],
-                        ipv4[3],
+                        "{}{}",
+                        ipv4_from_ledger_bytes(ipv4),
                         if let Some(port) = port { format!(":{port}") } else { String::new() }
                     )?;
                 }
@@ -262,7 +257,7 @@ pub fn serialize<S: serde::Serializer>(relay: &Relay, serializer: S) -> Result<S
             //
             // This instance is used for canonical ledger state comparisons.
             if let Some(ipv4) = ipv4 {
-                s.serialize_field("ipv4", &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]))?;
+                s.serialize_field("ipv4", &ipv4_from_ledger_bytes(ipv4).to_string())?;
             }
             if let Some(ipv6) = ipv6 {
                 let bytes: [u8; 16] = [
@@ -331,18 +326,21 @@ impl Arbitrary for Relay {
 mod tests {
     use serde_json::json;
 
-    use super::Relay;
+    use super::{AsJson, Relay};
 
     #[test]
-    fn dual_address_json_preserves_ledger_encoding() {
+    fn dual_address_relay_preserves_ledger_encoding() {
+        let cbor = hex::decode("8400190bb944c000020150d041012040ce08000000000001000000").unwrap();
+        let relay = crate::cbor::from_cbor::<Relay>(&cbor).unwrap();
         let json = json!({
             "port": 3001, "ipv4": "192.0.2.1", "ipv6": "2001:41d0:8:ce40::1"
         });
-        let relay: Relay = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(&relay).unwrap(), json);
-        let cbor = hex::decode("8400190bb944010200c050d041012040ce08000000000001000000").unwrap();
-        assert_eq!(crate::cbor::to_cbor(&relay), cbor);
-        assert_eq!(crate::cbor::from_cbor::<Relay>(&cbor), Some(relay));
+        assert_eq!(relay.to_string(), "192.0.2.1:3001|2001:41d0:8:ce40::1:3001");
+        assert_eq!(serde_json::to_value(AsJson(&relay)).unwrap()["ipv4"], json["ipv4"]);
+        let from_json: Relay = serde_json::from_value(json).unwrap();
+        assert_eq!(from_json, relay);
+        assert_eq!(crate::cbor::to_cbor(&from_json), cbor);
     }
 
     #[test]
@@ -357,7 +355,7 @@ mod tests {
     fn ip_relay_json_rejects_unsupported_formats() {
         for json in [
             json!({"SingleHostAddr": [3001, "192.0.2.1", "2001:41d0:8:ce40::1"]}),
-            json!({"port": 3001, "ipv4": [1, 2, 0, 192]}),
+            json!({"port": 3001, "ipv4": [192, 0, 2, 1]}),
             json!({"port": 3001, "ipv6": "d041012040ce08000000000001000000"}),
             json!({"port": 3001, "ipv4": null, "ipv6": "::1"}),
             json!({"port": 3001, "ipv4": "192.0.2.1", "ipv6": null}),
