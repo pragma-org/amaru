@@ -107,7 +107,7 @@ impl<R: Send + 'static> BackgroundTask<R> {
     /// The result of a task whose thread ended, kept until [`Self::join`] takes it. `None` while
     /// the thread still executes, and without a task.
     pub fn finished(&mut self) -> Option<&mut Result<R, StateError>> {
-        if !self.is_executing()
+        if matches!(&self.state, State::Running { handle, .. } if handle.is_finished())
             && let State::Running { epoch, handle, .. } = mem::take(&mut self.state)
         {
             self.state = State::Finished { epoch, result: Self::wait(&self.name, handle) };
@@ -213,6 +213,22 @@ mod tests {
 
         assert!(matches!(task.finished(), Some(Ok(42))));
         assert!(task.is_running(), "the task is not joined yet");
+        assert!(matches!(task.join(EPOCH), Ok(Some(42))));
+        assert!(!task.is_running());
+    }
+
+    #[test]
+    fn a_finished_task_finished_twice_keeps_its_result() {
+        let (sender, receiver) = mpsc::channel();
+        let mut task = BackgroundTask::new("test");
+        task.start(EPOCH, WaitFor(receiver));
+        sender.send(42).unwrap();
+        while task.is_executing() {
+            std::thread::yield_now();
+        }
+
+        assert!(matches!(task.finished(), Some(Ok(42))));
+        assert!(matches!(task.finished(), Some(Ok(42))));
         assert!(matches!(task.join(EPOCH), Ok(Some(42))));
         assert!(!task.is_running());
     }
