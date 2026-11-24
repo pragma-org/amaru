@@ -1157,13 +1157,19 @@ mod tests {
     use std::{fs::File, sync::Mutex, time::Duration};
 
     use amaru_consensus::{
-        effects::{ConsensusMode, ResourceBlockValidation, ResourceEraHistory},
+        effects::{
+            ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory,
+            ResourcePoolSummaries,
+        },
         performance::{Performance, ResourcePerformance},
     };
-    use amaru_kernel::{Epoch, EraHistory, Header, IsHeader, cardano::network_block::EncodedTestBlock, make_header};
+    use amaru_kernel::{
+        ConsensusParameters, Epoch, EraHistory, Header, IsHeader, PREPROD_GLOBAL_PARAMETERS,
+        cardano::network_block::EncodedTestBlock, make_header,
+    };
     use amaru_ledger::store::ReadStore;
     use amaru_ouroboros::{
-        BaseReadChainStore, MockBlockValidator, Nonces, StoreError, WriteChainStore,
+        BaseReadChainStore, MockBlockValidator, Nonces, PoolSummaries, StoreError, WriteChainStore,
         in_memory_chain_store::InMemoryChainStore, overriding_chain_store::OverridingChainStore,
     };
     use amaru_protocols::store_effects::ResourceHeaderStore;
@@ -1784,6 +1790,51 @@ mod tests {
                 block.header.point().block_height(),
             )
         );
+        running.request_abort();
+        assert!(running.join().await.unwrap().unexpected_exits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn replay_requests_a_stake_distribution_that_a_parked_block_waits_for() {
+        // The block is in epoch 2, so its header needs the stake distribution of epoch 0, which the
+        // ledger does not hold yet.
+        let era_history = EraHistory::default();
+        let parent = make_header(1, 1, None);
+
+        // The default era history has epochs of 86 400 slots. We make a slot in the next epoch
+        let slot = 2 * 86_400;
+        let block = EncodedTestBlock::from_seed(&make_header(2, slot, Some(parent.hash())), &era_history);
+        let store = Arc::new(InMemoryChainStore::new());
+
+        // The nonces cross an epoch boundary, so they need the last header of the epoch before.
+        store.store_validated_header(&parent, &Nonces { tail: parent.hash(), ..Nonces::for_tests() }).unwrap();
+        store.roll_forward_chain(&parent.point()).unwrap();
+        store.set_anchor_point(&parent.point()).unwrap();
+
+        let mut builder = TokioBuilder::default();
+        builder.resources().put::<ResourceHeaderStore>(store.clone());
+        let validator = Arc::new(MockBlockValidator::new(parent.point()));
+        builder.resources().put::<ResourceBlockValidation>(validator.clone());
+        builder.resources().put::<ResourcePerformance>(Arc::new(Performance::new()));
+        builder.resources().put::<ResourceConsensusParameters>(Arc::new(ConsensusParameters::new(
+            PREPROD_GLOBAL_PARAMETERS.clone(),
+            &era_history,
+        )));
+        builder.resources().put::<ResourcePoolSummaries>(Arc::new(PoolSummaries::default()));
+        builder.resources().put::<ResourceEraHistory>(era_history);
+        builder.resources().put(ConsensusMode::Sync);
+        let (source, _events) = wire_mithril_stages(&mut builder, parent.point(), 2, None);
+        let running = builder.run(tokio::runtime::Handle::current());
+        let prepared = validator.watch_prepared_stake_distributions();
+        source.send(MithrilInput::Block(block.raw)).await.unwrap();
+
+        // A parked block sends no event: the call on the ledger is the only result to wait for.
+        let slot = tokio::task::spawn_blocking(move || prepared.recv_timeout(Duration::from_secs(5)))
+            .await
+            .unwrap()
+            .expect("the ledger is asked to prepare the stake distribution");
+        assert_eq!(slot, block.header.point().slot_or_default());
+
         running.request_abort();
         assert!(running.join().await.unwrap().unexpected_exits.is_empty());
     }

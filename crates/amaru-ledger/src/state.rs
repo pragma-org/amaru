@@ -22,7 +22,8 @@ use std::{
 
 use amaru_kernel::{
     Block, Epoch, EraHistory, EraHistoryError, GlobalParameters, Hash, Hasher, IsHeader, NetworkName, Point, PoolId,
-    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer, protocol_version, size::SCRIPT,
+    ProtocolParameters, Slot, Transaction, TransactionId, TransactionPointer,
+    cardano::era_history::unsafe_slot_to_epoch, protocol_version, size::SCRIPT,
 };
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{
@@ -282,7 +283,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// so that the computation publishes its results. A second call has no effect while the
     /// computation runs.
     pub fn start(&mut self) -> Result<(), StateError> {
-        self.try_compute_stake_distribution_and_rewards()
+        self.try_compute_stake_distribution_and_rewards(self.tip().slot_or_default())
     }
 
     /// Install embedder observers (adopted blocks and optional full stake summaries).
@@ -556,8 +557,8 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         })
     }
 
-    /// If we are in the stability window for the current epoch start computing the stake distribution
-    /// and rewards applicable to the next epoch.
+    /// If `slot` is past the stability window of the epoch of the tip, start the stake
+    /// distribution and rewards computation on the latest snapshot.
     ///
     /// NOTE: Epochs used by the stake distribution and rewards computation
     ///
@@ -584,8 +585,8 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     ///            │                       └ snapshot e−1: the blocks of each pool in epoch e−1, the pots,
     ///            │                         and the stake distribution of epoch e−1 for the headers of epoch e+1
     ///            └ snapshot e−3: the stake that the rewards are shared on
-    fn try_compute_stake_distribution_and_rewards(&mut self) -> Result<(), StateError> {
-        if !self.is_epoch_stable() {
+    pub fn try_compute_stake_distribution_and_rewards(&mut self, slot: Slot) -> Result<(), StateError> {
+        if !self.is_epoch_stable_at(slot) {
             return Ok(());
         }
         self.compute_stake_distribution_and_rewards()
@@ -608,9 +609,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         )
     }
 
-    /// Return true if the current state tip is in the stable window of the current epoch
-    fn is_epoch_stable(&self) -> bool {
-        self.era_history.is_stable(self.tip().slot_or_default())
+    /// Whether `slot` is past the stability window of the epoch of the tip: 3·k/f slots or more
+    /// into that epoch, or in a later epoch.
+    fn is_epoch_stable_at(&self, slot: Slot) -> bool {
+        self.era_history.is_slot_stable_for(slot, &self.current_epoch())
     }
 
     /// Return the current epoch according to the state tip
@@ -651,14 +653,18 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         })
     }
 
-    fn apply_transition(&mut self) -> Result<(), StateError> {
-        if !self.volatile.is_epoch_transition_stable(self.era_history()) {
+    /// Once `slot` is past the stability window of the epoch of the tip, or once the closing epoch
+    /// has no volatile block left: flush the epoch transition to the stable store, which takes the
+    /// final snapshot of the closing epoch. If its last blocks are still volatile, take a candidate
+    /// snapshot of it instead. Does nothing when that snapshot exists already.
+    pub fn try_take_snapshot(&mut self, slot: Slot) -> Result<(), StateError> {
+        if !self.volatile.has_pending_epoch_transition() {
             return Ok(());
         }
 
         if self.volatile.is_draining_empty() {
             self.flush_overlay()?;
-        } else if self.latest_snapshot.is_final() {
+        } else if self.latest_snapshot.is_final() && self.is_epoch_stable_at(slot) {
             self.make_candidate_snapshot()?;
         }
 
@@ -927,11 +933,12 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 BlockValidation::from(self.apply_block(now_stable))?;
             }
 
-            // 6. Flush the epoch transition
-            BlockValidation::from(self.apply_transition())?;
+            // 6. Flush the epoch transition, or take a candidate snapshot
+            let slot = point.slot_or_default();
+            BlockValidation::from(self.try_take_snapshot(slot))?;
 
             // 7. Stake distribution and rewards calculation, from the latest snapshot after this block
-            BlockValidation::from(self.try_compute_stake_distribution_and_rewards())?;
+            BlockValidation::from(self.try_compute_stake_distribution_and_rewards(slot))?;
 
             if self.observers.wants_block_events() {
                 // Borrow UTxO DiffSet from the fragment we just pushed (still at the tip).
@@ -939,7 +946,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
                 let anchored =
                     self.volatile.view_back().expect("roll_forward pushed a fragment before notifying observers");
                 debug_assert_eq!(anchored.point(), point);
-                let epoch = unsafe_slot_to_epoch(&self.era_history, point.slot_or_default());
+                let epoch = unsafe_slot_to_epoch(&self.era_history, slot);
                 let adopted = crate::observers::AdoptedBlock::from_block(epoch, block, &anchored.fragment);
                 self.observers.notify_adopted(adopted);
             }
@@ -1170,7 +1177,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
 
         // In case the computations for stake distribution and rewards were stopped, start them again.
         // This won't do anything if they are currently running.
-        self.try_compute_stake_distribution_and_rewards()?;
+        self.try_compute_stake_distribution_and_rewards(self.tip().slot_or_default())?;
 
         Ok(())
     }
@@ -1306,18 +1313,6 @@ fn save_block(
 
         Ok(())
     })
-}
-
-// NOTE: calculating current epoch from slot on block application.
-//
-// This is only safe provided the next_tip is within the foreseeable window. If this isn't
-// the case, it's a clear signal of something going very wrong in the consensus/networking
-// pipeline feeding blocks to the ledger since they'd be attempting to feed a block that is
-// many day after the last applied block!
-fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
-    era_history
-        .slot_to_epoch_unchecked_horizon(slot)
-        .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({slot:?}): {e:?}"))
 }
 
 // Rollback

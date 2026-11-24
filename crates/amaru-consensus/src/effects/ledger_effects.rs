@@ -64,6 +64,10 @@ pub trait LedgerOps: Send + Sync {
     /// 2025), so it should be called with care. Please cache the result, it
     /// only changes meaningfully once per epoch.
     fn registered_relay_candidates(&self) -> BoxFuture<'_, Result<BTreeSet<PeerCandidate>, BlockValidationError>>;
+
+    /// Ask the ledger to prepare the stake distribution that a header at `slot` waits for. See
+    /// [`CanValidateBlocks::request_stake_distribution`]. This does not wait for the ledger.
+    fn request_stake_distribution(&self, slot: Slot) -> BoxFuture<'static, Result<(), BlockValidationError>>;
 }
 
 /// Implementation of LedgerOps using amaru_pure_stage::Effects.
@@ -139,6 +143,10 @@ impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
 
     fn registered_relay_candidates(&self) -> BoxFuture<'_, Result<BTreeSet<PeerCandidate>, BlockValidationError>> {
         self.effects.external(RegisteredRelayCandidatesEffect)
+    }
+
+    fn request_stake_distribution(&self, slot: Slot) -> BoxFuture<'static, Result<(), BlockValidationError>> {
+        self.effects.external(RequestStakeDistributionEffect::new(slot))
     }
 }
 
@@ -395,6 +403,34 @@ impl ExternalEffectAPI for VolatileTipEffect {
                 Some(tip) => tip,
                 None => ledger.tip().await,
             }
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RequestStakeDistributionEffect {
+    slot: Slot,
+}
+
+impl RequestStakeDistributionEffect {
+    pub fn new(slot: Slot) -> Self {
+        Self { slot }
+    }
+}
+
+impl ExternalEffectAPI for RequestStakeDistributionEffect {
+    type Response = Result<(), BlockValidationError>;
+
+    #[expect(clippy::expect_used)]
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
+        self.wrap_sync({
+            let ledger = resources
+                .get::<ResourceBlockValidation>()
+                .expect("RequestStakeDistributionEffect requires a ResourceBlockValidation resource")
+                .clone();
+            ledger
+                .request_stake_distribution(self.slot)
+                .map_err(|error| BlockValidationError::new(anyhow::Error::new(error)))
         })
     }
 }

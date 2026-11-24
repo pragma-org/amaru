@@ -14,7 +14,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use amaru_kernel::{Block, Point};
+use amaru_kernel::{Block, Point, Slot};
 use amaru_metrics::ledger::LedgerMetrics;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -33,6 +33,11 @@ pub trait CanValidateBlocks: Send + Sync {
     /// The chain tip of the volatile in-memory ledger view, if any (`VolatileDB::view_back`).
     /// When `None`, the applied ledger tip is entirely in stable storage.
     async fn volatile_tip(&self) -> Option<Point>;
+
+    /// Ask the ledger to take the snapshot of the current epoch, and to start the stake
+    /// distribution and rewards computation on it, if `slot` is past the stability window of the
+    /// current epoch.
+    fn request_stake_distribution(&self, slot: Slot) -> Result<(), LedgerThreadTerminated>;
 }
 
 /// Error returned when the thread owning the ledger state is no longer running, so requests can

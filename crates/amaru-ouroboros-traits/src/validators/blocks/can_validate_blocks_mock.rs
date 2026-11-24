@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::mpsc,
+};
 
-use amaru_kernel::{BlockBuilderConstraints, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point};
+use amaru_kernel::{BlockBuilderConstraints, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, Slot};
 use amaru_metrics::ledger::LedgerMetrics;
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -44,6 +47,8 @@ struct MockBlockValidatorInner {
     partial_switches: BTreeMap<Point, (Point, Point)>,
     /// If set, switch_to_fork to this point is rolled back, blaming the given block.
     rolled_back_switches: BTreeMap<Point, Point>,
+    /// Receives each slot passed to request_stake_distribution, once a test watches them.
+    requested_stake_distributions: Option<mpsc::Sender<Slot>>,
 }
 
 impl MockBlockValidatorInner {
@@ -87,8 +92,16 @@ impl MockBlockValidator {
                 ledger_fails: BTreeSet::default(),
                 partial_switches: BTreeMap::default(),
                 rolled_back_switches: BTreeMap::default(),
+                requested_stake_distributions: None,
             }),
         }
+    }
+
+    /// Receive each slot passed to prepare_stake_distribution from now on, in order.
+    pub fn watch_prepared_stake_distributions(&self) -> mpsc::Receiver<Slot> {
+        let (sender, receiver) = mpsc::channel();
+        self.inner.lock().requested_stake_distributions = Some(sender);
+        receiver
     }
 
     pub fn with_contains(&self, point: Point) -> &Self {
@@ -191,6 +204,13 @@ impl CanValidateBlocks for MockBlockValidator {
         inner.rollback_to(fork_point);
         inner.apply(*to);
         Ok(ForkSwitchOutcome::Completed { metrics: Default::default() })
+    }
+
+    fn request_stake_distribution(&self, slot: Slot) -> Result<(), LedgerThreadTerminated> {
+        if let Some(sender) = &self.inner.lock().requested_stake_distributions {
+            let _ = sender.send(slot);
+        }
+        Ok(())
     }
 
     async fn tip(&self) -> Point {

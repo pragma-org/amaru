@@ -261,6 +261,68 @@ fn the_last_blocks_of_an_epoch_are_forced_to_the_stable_store_after_a_whole_epoc
 }
 
 #[test]
+fn a_slot_reached_after_the_stability_window_takes_a_candidate_snapshot_without_a_block() {
+    let StateAcrossEpochBoundary { mut state, stable, boundary_slot, block_before, block_after } =
+        make_state_across_epoch_boundary();
+    let closing_epoch = epoch_of(block_before.slot_or_default().into());
+    let published = record_publications(&mut state);
+
+    // Epoch e+1 has no block after the stability window. The next block, block3, is the first block
+    // of epoch e+2, and its header needs the stake distribution of epoch e. No block can start that
+    // computation before block3 is applied, so the slot of block3 starts it:
+    //
+    //             epoch e            ╎             epoch e+1              ╎   epoch e+2
+    //     -------------------------- ╎ ---------------------------------- ╎ -------------
+    //     fragment ── block1         ╎ block2                             ╎ block3 (not applied)
+    //     slots                      ╎ b                b+w               ╎ b'
+    //                                ╎ └─ stability window ──┘            ╎
+    //
+    // b is `boundary_slot`, w is the stability window (3·k/f slots), and b' is the first slot of
+    // epoch e+2.
+    let next_boundary_slot = boundary_slot + PREPROD_GLOBAL_PARAMETERS.epoch_length();
+    assert_eq!(epoch_of(next_boundary_slot), closing_epoch + 2, "b' is the first slot of epoch e+2");
+    let slot = next_boundary_slot.into();
+    state.try_take_snapshot(slot).unwrap();
+    state.try_compute_stake_distribution_and_rewards(slot).unwrap();
+
+    assert_eq!(*state.tip(), block_after.point(), "no block was applied");
+    assert_eq!(
+        state.candidate_snapshot(),
+        Some((closing_epoch, block_before.point())),
+        "the candidate snapshot of epoch e ends at block1"
+    );
+    assert!(stable.lock().unwrap().is_empty(), "no block was written to the stable store");
+
+    let summaries = next_publication(&published);
+    assert!(summaries.by_epoch.contains_key(&closing_epoch), "the stake distribution of epoch e is available");
+    assert_eq!(
+        summaries.candidates.get(&closing_epoch),
+        Some(&block_before.point()),
+        "the stake distribution of epoch e is valid only for headers that descend from block1"
+    );
+}
+
+#[test]
+fn a_slot_reached_before_the_stability_window_takes_no_snapshot() {
+    let StateAcrossEpochBoundary { mut state, boundary_slot, block_before, .. } = make_state_across_epoch_boundary();
+    let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());
+    let closing_epoch = epoch_of(block_before.slot_or_default().into());
+
+    // The last slot of the stability window of epoch e+1 is not past it yet:
+    //
+    //             epoch e            ╎             epoch e+1
+    //     -------------------------- ╎ ----------------------------------
+    //     fragment ── block1         ╎ block2 ── ... ── (slot b+w-1)
+    //                                ╎ └─ stability window ──┘
+    let slot = (boundary_slot + stability_window - 1).into();
+    state.try_take_snapshot(slot).unwrap();
+    state.try_compute_stake_distribution_and_rewards(slot).unwrap();
+
+    assert_eq!(state.candidate_snapshot(), None, "no candidate snapshot is taken");
+    assert_eq!(state.most_recent_snapshot(), closing_epoch - 1, "no snapshot of epoch e is taken");
+}
+
+#[test]
 fn the_ledger_snapshot_observer_sees_a_candidate_snapshot_as_a_candidate() {
     let StateAcrossEpochBoundary { mut state, boundary_slot, block_before, .. } = make_state_across_epoch_boundary();
     let stability_window = u64::from(PREPROD_GLOBAL_PARAMETERS.stability_window());

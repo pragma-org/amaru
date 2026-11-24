@@ -14,7 +14,9 @@
 
 use std::{self, slice, time::Duration};
 
-use amaru_kernel::{BlockHeight, Epoch, EraHistory, EraName, HeaderHash, IsHeader, Peer, Point, num::CheckedSub};
+use amaru_kernel::{
+    BlockHeight, Epoch, EraHistory, EraName, Header, HeaderHash, IsHeader, Peer, Point, num::CheckedSub,
+};
 use amaru_observability::tracing::Level;
 use amaru_ouroboros::ConnectionId;
 use amaru_ouroboros_traits::{Nonces, has_stake_distribution::GetPoolError};
@@ -24,12 +26,12 @@ use amaru_protocols::{
 };
 use amaru_pure_stage::{
     Instant, assert_trace_contains, assert_trace_does_not_contain, assert_trace_no_clock,
-    simulation::running::OverrideResult, tm_send,
+    simulation::running::OverrideResult, tm_external_effect_match, tm_send,
 };
 
 use crate::{
     consensus_mode::{Behind, ChainLagMonitor, PromptingHeader, tip_lateness},
-    effects::{ValidateHeaderEffect, VolatileTipEffect},
+    effects::{RequestStakeDistributionEffect, ValidateHeaderEffect, VolatileTipEffect},
     errors::ConsensusError,
     stages::{
         peer_selection::PeerSelectionMsg,
@@ -37,12 +39,13 @@ use crate::{
         track_peers::{
             TrackPeers, TrackPeersMsg,
             test_setup::{
-                SIM_INITIAL_CLOCK_SECS, build_store, build_store_with_nonces, height_recheck_schedule_id,
-                make_block_header, new_tip, setup, setup_base, setup_with_ledger_tip_until_sleeping,
-                slot_start_to_header_micros, te_clear_peer_availability, te_clock_suspend, te_get_best_chain_tip,
-                te_get_nonces, te_header_rejected, te_load_header, te_load_point, te_record_header_announcement,
-                te_record_rollback, te_record_uninteresting, te_schedule, te_store_validated_header,
-                te_sync_adoption_is_fast, te_validate_header, test_prep, test_prep_with_max_peer_lead, tm_volatile_tip,
+                SIM_INITIAL_CLOCK_SECS, TestPrep, build_store, build_store_with_nonces, height_recheck_schedule_id,
+                make_block_header, new_tip, setup, setup_base, setup_base_until_sleeping,
+                setup_with_ledger_tip_until_sleeping, slot_start_to_header_micros, te_clear_peer_availability,
+                te_clock_suspend, te_get_best_chain_tip, te_get_nonces, te_header_rejected, te_load_header,
+                te_load_point, te_record_header_announcement, te_record_rollback, te_record_uninteresting, te_schedule,
+                te_store_validated_header, te_sync_adoption_is_fast, te_validate_header, test_prep,
+                test_prep_with_max_peer_lead, tm_volatile_tip,
             },
         },
     },
@@ -1797,6 +1800,79 @@ fn test_recheck_deferred_survives_purge_shrinking_the_list() {
     .assert_no_remaining_at([Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR]);
 }
 
+/// A header that waits for a stake distribution and is the next block for the ledger asks the ledger
+/// to prepare that distribution: on a sparse chain, no other block can start its computation. The
+/// ledger is asked once for that height, even when a recheck defers the header again.
+#[test]
+fn test_the_next_header_waiting_for_stake_distribution_requests_the_ledger_once_for_it() {
+    let prep = test_prep();
+    let peer = Peer::for_test(3001);
+    let parent = &prep.headers[0];
+    let h1 = prep.headers[1].clone();
+    let msg1 = prep.roll_forward_from_upstream(&peer, &h1);
+
+    let mut state = prep.state.clone();
+    state.insert_peer(peer, prep.conn_id, parent.point(), h1.point());
+
+    // The stake distribution that h1 waits for, one epoch ahead of max_epoch (start-2).
+    let missing_epoch = prep.start_times.epoch.checked_sub(Epoch::ONE).unwrap();
+
+    // After that distribution arrives, the recheck reports the next one as missing.
+    let missing_epoch_after_recheck = prep.start_times.epoch;
+
+    // The stake distribution is updated but the header stays deferred.
+
+    // The ledger has applied the parent of h1, so h1 is its next block.
+    state.ledger_applied_block_height = parent.block_height();
+
+    let slot1 = h1.slot();
+    let stake_dist_updated = TrackPeersMsg::StakeDistUpdated(missing_epoch);
+    let parent_point = parent.point();
+
+    let (running, _guards, _logs) = setup_base(
+        &prep.rt_handle(),
+        state,
+        [msg1.clone(), stake_dist_updated.clone()],
+        build_store(slice::from_ref(parent)),
+        |running| {
+            let mut n = 0u8;
+            running.override_external_effect::<ValidateHeaderEffect>(usize::MAX, move |_| {
+                n += 1;
+                let target = if n == 1 { missing_epoch } else { missing_epoch_after_recheck };
+                OverrideResult::handled(Err(ValidateHeaderError::Consensus(ConsensusError::GetPoolError(
+                    GetPoolError::StakeDistributionNotAvailable(slot1, Some(target)),
+                ))))
+            });
+            running.override_external_effect::<VolatileTipEffect>(usize::MAX, move |_| {
+                OverrideResult::handled(parent_point)
+            });
+        },
+    );
+
+    let prepare = |slot| {
+        tm_external_effect_match::<RequestStakeDistributionEffect>(
+            "tp-1",
+            move |effect| *effect == RequestStakeDistributionEffect::new(slot),
+            amaru_pure_stage::Detached::Either,
+        )
+    };
+    assert_trace_contains(
+        &running,
+        &[
+            te_input("tp-1", &msg1).into(),
+            prepare(slot1),
+            tm_state::<TrackPeers>(
+                "tp-1",
+                |s| s.deferred.len() == 1 && s.recheck_timer.is_none(),
+                "h1 is deferred, and no timer polls the ledger once it is asked to prepare the distribution",
+            ),
+            te_input("tp-1", &stake_dist_updated.clone()).into(),
+            tm_state::<TrackPeers>("tp-1", |s| s.deferred.len() == 1, "h1 is deferred again"),
+        ],
+    );
+    assert_trace_does_not_contain(&running, &[te_input("tp-1", &stake_dist_updated).into(), prepare(slot1)]);
+}
+
 /// A deferred header that is still deferred on recheck must keep blocking its follow-ups.
 /// The peer tip has not advanced, so validating a follow-up would wrongly flag the peer as adversarial.
 #[test]
@@ -1807,18 +1883,9 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
     let h1 = prep.headers[1].clone();
     let h2 = make_block_header(3, h1.slot().as_u64() + 1, Some(h1.hash()));
 
-    let msg1 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer,
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h1, EraName::Conway), h1.point()),
-    });
-    let msg2 = TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
-        peer,
-        conn_id: prep.conn_id,
-        handler: prep.handler.clone(),
-        msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(&h2, EraName::Conway), h2.point()),
-    });
+    let msg1 = prep.roll_forward_from_upstream(&peer, &h1);
+    let msg2 = prep.roll_forward_from_upstream(&peer, &h2);
+
     // One epoch ahead of known max_epoch (start-2). We defer the header.
     let first_target = prep.start_times.epoch.checked_sub(Epoch::ONE).unwrap();
     // The stake distribution is updated but the header stays deferred.
@@ -1829,7 +1896,9 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
     state.insert_peer(peer, prep.conn_id, parent.point(), h2.point());
 
     let slot1 = h1.slot();
-    let (running, _guards, mut logs) = setup_base(
+    // The ledger stays at the origin, so h1 is not its next block, and the recheck timer would poll
+    // the ledger height forever: stop at that timer.
+    let (running, _guards, mut logs) = setup_base_until_sleeping(
         &prep.rt_handle(),
         state.clone(),
         [msg1.clone(), msg2.clone(), stake_distribution_update.clone()],
@@ -1875,4 +1944,17 @@ fn test_redeferred_header_keeps_blocking_follow_ups() {
         ],
     );
     assert_trace_does_not_contain(&running, &[tm_send("tp-1", "peer_selection", PeerSelectionMsg::adversarial(peer))]);
+}
+
+// HELPERS
+
+impl TestPrep {
+    fn roll_forward_from_upstream(&self, peer: &Peer, header: &Header) -> TrackPeersMsg {
+        TrackPeersMsg::FromUpstream(ChainSyncInitiatorMsg {
+            peer: *peer,
+            conn_id: self.conn_id,
+            handler: self.handler.clone(),
+            msg: chainsync::InitiatorResult::RollForward(HeaderContent::new(header, EraName::Conway), header.point()),
+        })
+    }
 }

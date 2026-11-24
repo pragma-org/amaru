@@ -18,8 +18,8 @@ use std::{
 };
 
 use amaru_kernel::{
-    Credential, Epoch, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS,
-    Point, PoolId, Pots, ProposalId, ProposalsRoots, ProtocolParameters, TransactionInput, size::SCRIPT,
+    Credential, Epoch, Hash, Lovelace, MemoizedTransactionOutput, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, Point, PoolId,
+    Pots, ProposalId, ProposalsRoots, ProtocolParameters, TransactionInput, size::SCRIPT,
 };
 
 use crate::{
@@ -411,6 +411,11 @@ impl VolatileDB {
         self.draining.is_empty()
     }
 
+    /// Whether an epoch transition has been computed but not yet flushed to the stable store.
+    pub fn has_pending_epoch_transition(&self) -> bool {
+        !self.overlay.is_empty()
+    }
+
     /// Return the blocks of the closing epoch that are still volatile, oldest first.
     pub fn epoch_tail_view(&self) -> impl Iterator<Item = &AnchoredVolatileFragment> {
         self.draining.iter()
@@ -420,15 +425,6 @@ impl VolatileDB {
     /// proposals. A candidate snapshot gets these writes first, then the stable store at the flush.
     pub fn end_epoch<'store>(&self, batch: &impl TransactionalContext<'store>) -> Result<(), StateError> {
         self.overlay.end_epoch(batch)
-    }
-
-    /// Whether an epoch transition has been computed but not yet flushed to the stable store.
-    pub fn is_epoch_transition_stable(&self, era_history: &EraHistory) -> bool {
-        !self.overlay.is_empty()
-            && self.draining.view_front().is_none_or(|_| {
-                let absolute_slot = self.current.view_back().map(|fragment| fragment.slot()).unwrap_or_default();
-                era_history.is_stable(absolute_slot)
-            })
     }
 
     /// Flush the pending epoch transition to the stable store, refreshing the cached globals from
