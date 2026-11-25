@@ -1,19 +1,5 @@
 github_checks: false
 coverage:
   status:
-    project:
-      default:
-        informational: true
-        flags: [ledger-rules]
-    patch:
-      default:
-        informational: true
-        flags: [ledger-rules]
-comment:
-  layout: "diff, flags, files"
-flag_management:
-  individual_flags:
-    - name: ledger-rules
-      paths:
-        - crates/amaru-ledger/src/rules
-      carryforward: true
+    project: off
+    patch: off

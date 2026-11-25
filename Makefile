@@ -192,10 +192,6 @@ coverage-ledger-rules: check-llvm-cov ## &test Run test coverage of the ledger t
 		--ignore-filename-regex 'amaru-ledger/src/([^r]|r[^u]|ru[^l]|rul[^e]|rule[^s])' \
 		--html \
 		--output-dir $(COVERAGE_DIR)
-	cargo llvm-cov report -p amaru-ledger \
-		--ignore-filename-regex 'amaru-ledger/src/([^r]|r[^u]|ru[^l]|rul[^e]|rule[^s])' \
-		--lcov \
-		--output-path $(COVERAGE_DIR)/lcov.info
 
 clean-dist:
 	@for path in "$(DIST_DIR)/bin" "$(DIST_DIR)/share"; do \
