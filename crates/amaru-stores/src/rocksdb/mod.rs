@@ -483,7 +483,9 @@ fn remove_all_candidate_snapshots(dirname: &Path) -> Result<(), StoreError> {
 
     for entry in entries {
         let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(dirname, err)))?;
-        if is_candidate_dirname(entry.file_name().to_str().unwrap_or_default()) {
+        let is_dir =
+            entry.file_type().map_err(|err| StoreError::Open(OpenErrorKind::io_with_file(entry.path(), err)))?.is_dir();
+        if is_dir && is_candidate_dirname(entry.file_name().to_str().unwrap_or_default()) {
             remove_dir_if_exists(&entry.path())?;
         }
     }
