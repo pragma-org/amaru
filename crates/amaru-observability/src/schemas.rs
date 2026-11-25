@@ -1250,7 +1250,8 @@ define_schemas! {
                     required outcome: String
                 }
                 /// The directory of a candidate snapshot that no longer serves could not be deleted.
-                /// Nothing reads it, and the node deletes it again when it starts.
+                /// Nothing reads it. The node tries to delete it again when it starts, and does not
+                /// start if it still cannot delete it.
                 public event REMOVE_FAILED {
                     levels: warn
                     required epoch: amaru_kernel::Epoch

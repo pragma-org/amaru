@@ -5650,7 +5650,7 @@
       "name": "remove_failed",
       "kind": "event",
       "target": "amaru::ledger::candidate_snapshot",
-      "description": "The directory of a candidate snapshot that no longer serves could not be deleted. Nothing reads it, and the node deletes it again when it starts.",
+      "description": "The directory of a candidate snapshot that no longer serves could not be deleted. Nothing reads it. The node tries to delete it again when it starts, and does not start if it still cannot delete it.",
       "public": true,
       "levels": [
         "warn"
