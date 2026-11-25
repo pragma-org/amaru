@@ -723,7 +723,7 @@ fn first_header_announcer_peer_is_retained() {
 fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
-    headers.apply_header_received(alice, tip(1, 1), t(1), 500, Duration::ZERO, false);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 500, Duration::from_micros(999_500), false);
     headers.apply_blocks_requested(&[hash(1)], t(2));
     let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(3));
     assert!(matches!(
@@ -748,14 +748,20 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     assert!(matches!(&telemetry[1], super::HeaderTelemetry::Adopted { peer: Some(peer), .. } if *peer == alice));
 }
 
-#[test_case::test_case(500, &[t(3)], vec![2_000_500] ; "first body of an on-time block")]
-#[test_case::test_case(21_000_000, &[t(3)], vec![] ; "catch-up block before any on-time block")]
-#[test_case::test_case(500, &[t(3), t(4)], vec![2_000_500] ; "repeat delivery")]
-#[test_case::test_case(500, &[], vec![] ; "body never received")]
-fn block_delay_is_measured_on_the_first_body(slot_start_to_header: u64, downloads: &[Instant], expected: Vec<u64>) {
+#[test_case::test_case(500, Duration::from_micros(999_500), &[t(3)], vec![2_000_500] ; "first body of an on-time block")]
+#[test_case::test_case(0, Duration::ZERO, &[t(22)], vec![] ; "catch-up block before any on-time block")]
+#[test_case::test_case(500, Duration::from_micros(999_500), &[t(3), t(4)], vec![2_000_500] ; "repeat delivery")]
+#[test_case::test_case(500, Duration::from_micros(999_500), &[], vec![] ; "body never received")]
+#[test_case::test_case(0, Duration::from_millis(2_500), &[t(3)], vec![500_000] ; "header received before its slot onset")]
+fn block_delay_is_measured_on_the_first_body(
+    slot_start_to_header: u64,
+    slot_onset: Duration,
+    downloads: &[Instant],
+    expected: Vec<u64>,
+) {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
-    headers.apply_header_received(alice, tip(1, 1), t(1), slot_start_to_header, Duration::ZERO, false);
+    headers.apply_header_received(alice, tip(1, 1), t(1), slot_start_to_header, slot_onset, false);
     let delays: Vec<u64> = downloads
         .iter()
         .flat_map(|at| headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, *at))
@@ -815,7 +821,7 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
         &first[..],
         [
             super::HeaderTelemetry::Received { rank: 1, peer, .. },
-            super::HeaderTelemetry::BlockDelay { delay_micros: 2_000_000, .. },
+            super::HeaderTelemetry::BlockDelay { delay_micros: 3_000_000, .. },
         ] if *peer == peers[2]
     ));
     assert!(matches!(&second[..], [super::HeaderTelemetry::Received { rank: 2, peer, .. }] if *peer == peers[0]));

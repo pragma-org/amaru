@@ -110,6 +110,8 @@ struct HeaderLifecycle {
     peer: Peer,
     /// Interval from virtual slot start to header reception, computed by the announcing stage.
     slot_start_to_header_micros: u64,
+    /// Slot onset as a duration since the global epoch.
+    slot_onset: Duration,
     /// Block height of the header (for immutable-horizon pruning).
     height: BlockHeight,
     /// Time when the header was first received from an upstream peer.
@@ -121,8 +123,22 @@ struct HeaderLifecycle {
 }
 
 impl HeaderLifecycle {
-    fn new(peer: Peer, slot_start_to_header_micros: u64, height: BlockHeight, received_at: Instant) -> Self {
-        Self { peer, slot_start_to_header_micros, height, received_at, requested_at: None, downloaded_at: None }
+    fn new(
+        peer: Peer,
+        slot_start_to_header_micros: u64,
+        slot_onset: Duration,
+        height: BlockHeight,
+        received_at: Instant,
+    ) -> Self {
+        Self {
+            peer,
+            slot_start_to_header_micros,
+            slot_onset,
+            height,
+            received_at,
+            requested_at: None,
+            downloaded_at: None,
+        }
     }
 }
 
@@ -523,9 +539,9 @@ impl HeaderPerformance {
         if already_stored {
             return self.extend_announcement(peer, hash, height, slot, received_at, slot_onset).into_iter().collect();
         }
-        self.lifecycles
-            .entry(hash)
-            .or_insert_with(|| HeaderLifecycle::new(peer, slot_start_to_header_micros, height, received_at));
+        self.lifecycles.entry(hash).or_insert_with(|| {
+            HeaderLifecycle::new(peer, slot_start_to_header_micros, slot_onset, height, received_at)
+        });
         self.note_announcement(peer, hash, height, slot, received_at, slot_onset).into_iter().collect()
     }
 
@@ -798,7 +814,7 @@ impl HeaderPerformance {
         }
         lifecycle.downloaded_at = Some(downloaded_at);
         let delay_micros =
-            lifecycle.slot_start_to_header_micros.saturating_add(duration_micros(lifecycle.received_at, downloaded_at));
+            downloaded_at.duration_since_global_epoch().saturating_sub(lifecycle.slot_onset).as_micros() as u64;
         match self.block_delays.observe(Duration::from_micros(delay_micros)) {
             BlockDelayObservation::CatchingUp => None,
             BlockDelayObservation::Counted { recent } => Some(HeaderTelemetry::BlockDelay { delay_micros, recent }),
