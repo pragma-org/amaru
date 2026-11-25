@@ -34,7 +34,6 @@ use std::{
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
-    thread,
 };
 
 use amaru_kernel::{Block, Epoch, PREPROD_GLOBAL_PARAMETERS, Point};
@@ -115,7 +114,8 @@ struct Ledger {
     stable: Arc<Mutex<Vec<Point>>>,
     boundary: u64,
     chain: Vec<i64>,
-    directory: RemovedOnDrop,
+    /// The directory of the store, removed with the store.
+    directory: PathBuf,
 }
 
 impl Ledger {
@@ -127,7 +127,7 @@ impl Ledger {
         assert_eq!(epoch_of(boundary + EPOCH_LENGTH as u64), epoch + 2);
 
         let store = MockStore::new();
-        let directory = RemovedOnDrop(store.cfg.dir.clone());
+        let directory = store.cfg.dir.clone();
         let (mut state, stable) =
             make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch - 3, epoch - 2, epoch - 1], store);
         forward_to(&mut state, empty_block_at(boundary - 3).point());
@@ -231,7 +231,7 @@ impl Ledger {
     /// (either because a computation is running it or because it hasn't been finalized yet),
     /// is indeed the only one staying on disk.
     fn check_candidate_directories(&self) {
-        let actual_candidate_snapshots_on_disk: BTreeSet<String> = fs::read_dir(&self.directory.0)
+        let actual_candidate_snapshots_on_disk: BTreeSet<String> = fs::read_dir(&self.directory)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .filter(|name| name.contains(".candidate-"))
@@ -247,18 +247,5 @@ impl Ledger {
             expected_candidate_snapshot_on_disk.into_iter().collect(),
             "the candidate snapshot referenced as the latest snapshot is exactly the one remaining on disk if it exists"
         );
-    }
-}
-
-/// Declared after the state in [`Ledger`], so that the store is closed before its directory goes.
-struct RemovedOnDrop(PathBuf);
-
-impl Drop for RemovedOnDrop {
-    fn drop(&mut self) {
-        if let Err(error) = fs::remove_dir_all(&self.0)
-            && !thread::panicking()
-        {
-            panic!("removing {:?}: {error}", self.0);
-        }
     }
 }

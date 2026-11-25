@@ -16,8 +16,11 @@ use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{Debug, Display},
+    fs,
+    path::PathBuf,
     str::FromStr,
     sync::{Arc, Mutex},
+    thread,
 };
 
 use amaru_kernel::{
@@ -324,6 +327,24 @@ pub struct MockStore {
     progress: Arc<Mutex<Option<EpochTransitionProgress>>>,
 
     fail_transition_progress: bool,
+
+    /// Declared last, so that the database is closed before its directory goes. The ledger state
+    /// joins its background tasks before it drops its store, so no task uses the directory either.
+    _directory: RemovedOnDrop,
+}
+
+/// A directory that is removed when this value is dropped.
+struct RemovedOnDrop(PathBuf);
+
+impl Drop for RemovedOnDrop {
+    #[expect(clippy::panic)]
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0)
+            && !thread::panicking()
+        {
+            panic!("removing {:?}: {error}", self.0);
+        }
+    }
 }
 
 impl Default for MockStore {
@@ -336,10 +357,18 @@ impl MockStore {
     #[expect(clippy::expect_used)]
     pub fn new() -> Self {
         let ledger_dir = tempfile::tempdir().expect("tempdir creation succeeds").keep();
+        let directory = RemovedOnDrop(ledger_dir.clone());
         let cfg = RocksDbConfig::new(ledger_dir);
         let db = RocksDB::empty(&cfg).expect("RocksDB::empty succeeds");
         let stable = Arc::new(Mutex::new(Vec::new()));
-        Self { cfg, db, stable, progress: Arc::new(Mutex::new(None)), fail_transition_progress: false }
+        Self {
+            cfg,
+            db,
+            stable,
+            progress: Arc::new(Mutex::new(None)),
+            fail_transition_progress: false,
+            _directory: directory,
+        }
     }
 
     pub fn failing_transition_progress() -> Self {
