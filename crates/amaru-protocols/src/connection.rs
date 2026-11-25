@@ -357,7 +357,7 @@ async fn do_initialize(
     // Same flags as the version table below. A responder always serves; an initiator serves
     // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
     let initiator_only = false;
-    let advertisable = true;
+    let advertisable = config.peer_sharing;
     let muxer = eff.stage_with_mailbox_size("mux", mux::stage, mux::MUX_MAILBOX_SIZE).await;
     let muxer = eff.supervise(muxer, ConnectionMessage::ChildDied(ChildId::Mux));
     let early = early_mini_protocol_buffers(advertisable);

@@ -264,6 +264,7 @@ pub mod env_vars {
     pub const PEERS_MAX_UPSTREAM: &str = "AMARU_PEERS_MAX_UPSTREAM";
     pub const PEERS_MIX: &str = "AMARU_PEERS_MIX";
     pub const PEERS_REMOVAL_COOLDOWN: &str = "AMARU_PEERS_REMOVAL_COOLDOWN";
+    pub const PEERS_SHARING_OFF: &str = "AMARU_PEERS_SHARING_OFF";
     pub const PEERS_SNAPSHOT: &str = "AMARU_PEERS_SNAPSHOT";
     pub const PID_EXPORT: &str = "AMARU_PID_EXPORT";
     pub const S3_BUCKET: &str = "AMARU_S3_BUCKET";

@@ -229,6 +229,21 @@ pub struct Args {
     )]
     peers_removal_cooldown: Duration,
 
+    /// Do not share peer addresses with peers, nor ask them for theirs.
+    ///
+    /// For a block producer that connects only to its own relays (`--peer`). Sharing is turned
+    /// off in the handshake, so peers do not send share requests either.
+    #[arg(
+        long,
+        env = amaru::env_vars::PEERS_SHARING_OFF,
+        action = ArgAction::SetTrue,
+        default_value_t = false,
+        display_order = 0,
+        help_heading = "Peers options",
+        alias = "no-peer-sharing",
+    )]
+    peers_sharing_off: bool,
+
     /// Path to a Cardano ledger peer snapshot JSON file (`bigLedgerPools`).
     ///
     /// Supplies stake-weighted big-ledger relays for peer selection at cold start,
@@ -442,6 +457,7 @@ impl tui::RuntimeSettingsSource for Args {
             "peers_max_upstream" => Some(self.peers_max_upstream.to_string()),
             "peers_mix" => Some(self.peers_mix.clone()),
             "peers_removal_cooldown" => Some(duration::format(&self.peers_removal_cooldown)),
+            "peers_sharing_off" => Some(self.peers_sharing_off.to_string()),
             "peers_snapshot" => Some(peers_snapshot_value(self)),
             "pid_export" => Some(
                 self.pid_export
@@ -843,6 +859,7 @@ fn parse_args(args: Args) -> anyhow::Result<Config> {
         trace_buffer_max_size,
         trace_dump_path: args.trace_buffer_dump,
         peer_removal_cooldown: args.peers_removal_cooldown,
+        peer_sharing: !args.peers_sharing_off,
         peer_mix: args.peers_mix.parse().context("invalid --peers-mix")?,
         mempool,
         tx_submission_responder_params: tx_submission_params,
