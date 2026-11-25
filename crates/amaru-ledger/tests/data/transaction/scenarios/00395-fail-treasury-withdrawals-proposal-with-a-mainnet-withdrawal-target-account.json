@@ -1,0 +1,44 @@
+{
+  "title": "treasury withdrawals proposal with a mainnet withdrawal target account",
+  "description": "A TreasuryWithdrawals proposal on preprod whose withdrawal target is a registered account with a mainnet address.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582079a11f44c466d0aee5839937192a9e305093f4d1fc3dfa96fb9034fdfd4e773900",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011b00000017489879c0"
+      }
+    ],
+    "pools": [],
+    "accounts": [
+      {
+        "credential": "8200581cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "deposit": 2000000,
+        "rewards": 0
+      },
+      {
+        "credential": "8200581caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deposit": 2000000,
+        "rewards": 0
+      }
+    ],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a500d901028182582079a11f44c466d0aee5839937192a9e305093f4d1fc3dfa96fb9034fdfd4e7739000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e8480021a00030d400f0014d9010281841b000000174876e800581de0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb8302a1581de1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1a000f4240f6827368747470733a2f2f6578616d706c652e636f6d58200000000000000000000000000000000000000000000000000000000000000000a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840913335b825af9102e38385f03a20007e9f27e44437c528a8d9a374a3971a5650468358e1c33058bd877c52f329cda1e21cc588bb92090818d05475c16fabd808f5f6",
+  "expected": {
+    "predicate": "TreasuryWithdrawalsNetworkIdMismatch"
+  }
+}

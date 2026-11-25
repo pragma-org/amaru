@@ -1,0 +1,29 @@
+{
+  "title": "spend of a native script input whose script is supplied by a reference input",
+  "description": "A transaction spending an input locked by a native script requiring the dev key, with that script supplied as a reference script on a reference input.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820b1d413fffa02b2bdd1d9e73592a42d871a2fc1aeaf0fe8de1b7d24cb086976ec00",
+        "output": "a200581d7064181b9e7679d1e818f28a285721b0a178f65ede7d7fc6e638bb8201011a004c4b40"
+      },
+      {
+        "input": "825820289504408cc79bf9279303362b3a05a74026150bf5e5913246435fb745f70f0f00",
+        "output": "a300581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a001e848003d818582282008200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a400d9010281825820b1d413fffa02b2bdd1d9e73592a42d871a2fc1aeaf0fe8de1b7d24cb086976ec000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00493e00021a00030d4012d9010281825820289504408cc79bf9279303362b3a05a74026150bf5e5913246435fb745f70f0f00a100d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258408156379118cbe271f7966f315ea7306ca7ef2d4f14bfefa7a495882f0f8f111b5be76e01646fbb847948814c9b098f500f526555f7d97624b606ac3680d4a804f5f6",
+  "expected": "Pass"
+}

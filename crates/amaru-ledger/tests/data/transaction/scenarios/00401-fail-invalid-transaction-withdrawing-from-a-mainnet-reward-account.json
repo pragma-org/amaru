@@ -1,0 +1,31 @@
+{
+  "title": "invalid transaction withdrawing from a mainnet reward account",
+  "description": "An is_valid=false transaction on preprod spending a failing Plutus V3 input, withdrawing zero from the dev key's mainnet reward account.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582081fd8b32bd6f5accb94c17cd8999b2739e01ea7d5656a0f35ee383000cb09eb300",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "8258202685b2b24d2fd9d81f7efe4de62a8bf5ad9be35d0ea6dc14d2f242fb6efe306b00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d901028182582081fd8b32bd6f5accb94c17cd8999b2739e01ea7d5656a0f35ee383000cb09eb3000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258202685b2b24d2fd9d81f7efe4de62a8bf5ad9be35d0ea6dc14d2f242fb6efe306b000f0005a1581de193c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd800a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840a07a751d885abc85c8d5f23292f4a2e736b3d349266a0b0c7233f1cd1ad4eb9d72f38f9b24e13472f479f6e536f644b7b665733dc97df81ed84012a0a2d90c0005a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": {
+    "predicate": "WrongNetworkWithdrawal"
+  }
+}

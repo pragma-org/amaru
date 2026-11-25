@@ -1,0 +1,29 @@
+{
+  "title": "invalid transaction with a legacy stake registration",
+  "description": "An is_valid=false transaction spending a Plutus V3 input whose script fails, carrying a legacy stake registration certificate whose deposit is accounted for by the outputs.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "8258204e8b2d6f0a3c9e1b7d5f2a8c4e0b6d3f9a1c7e5b2d8f4a0c6e3b9d1f7a5c2e8b00",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a00989680"
+      },
+      {
+        "input": "8258209c1f5a3e7b0d4c8a2f6e1b9d5a3c7f0e4b8d2a6c1f9e5b3d7a0c4f8e2b6d1a9c00",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d90102818258204e8b2d6f0a3c9e1b7d5f2a8c4e0b6d3f9a1c7e5b2d8f4a0c6e3b9d1f7a5c2e8b000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00764170021a0003d09004d901028182008200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd80b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258209c1f5a3e7b0d4c8a2f6e1b9d5a3c7f0e4b8d2a6c1f9e5b3d7a0c4f8e2b6d1a9c000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840540046afc5505dbd3f7708ccec020377562752d2d0d219f50244bb1d9a2f662b7b5c4e1363e5bfc7807e074d7eabd2269f465d70270212bd827c2e0fca0a7d0a05a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

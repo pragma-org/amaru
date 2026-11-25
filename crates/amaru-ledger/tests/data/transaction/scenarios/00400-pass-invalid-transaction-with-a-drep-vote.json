@@ -1,0 +1,53 @@
+{
+  "title": "invalid transaction with a drep vote",
+  "description": "An is_valid=false transaction spending a failing Plutus V3 input, carrying a vote from a registered key-hash DRep on an existing proposal.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "82582026fab8160b1d11e6de2fd6dcb25992bd53efe3567ea9f55e57bdd175a80d026800",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011a004c4b40"
+      },
+      {
+        "input": "825820566e12221f6deb4d69a622f1d8d55eb4b5cb4b0f9878aa125261e5dcc8da9e7400",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a002dc6c0"
+      }
+    ],
+    "dreps": [
+      {
+        "credential": "8200581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8",
+        "deposit": 500000000,
+        "registered_at": {
+          "transaction": {
+            "slot": 0,
+            "transaction_index": 0
+          },
+          "certificate_index": 0
+        },
+        "valid_until": 1000
+      }
+    ],
+    "proposals": [
+      [
+        {
+          "transaction_id": "7e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b",
+          "proposal_index": 0
+        },
+        "Orphan",
+        6
+      ]
+    ]
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a700d901028182582026fab8160b1d11e6de2fd6dcb25992bd53efe3567ea9f55e57bdd175a80d0268000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a00487ab0021a0003d0900b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd9010281825820566e12221f6deb4d69a622f1d8d55eb4b5cb4b0f9878aa125261e5dcc8da9e74000f0013a18202581c93c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8a18258207e2b9d5f1a3c7e5b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b008201f6a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db125840877d78b103e3c8abb724e701297ed30a2c903b5badbb7698abbb3509a6e455765541111e24bae4b3cb23bfd545ce94d8246ba3f20947a1cdf491e8851ae99e0605a18200008200821907d01a000f424007d9010281454401010061f4f6",
+  "expected": "Pass"
+}

@@ -15,6 +15,7 @@
 // EDR-010 - Ledger Validation Context
 // <https://github.com/pragma-org/amaru/blob/main/engineering-decision-records/010-ledger-validation-context.md>
 #![feature(try_trait_v2, try_trait_v2_residual)]
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 #[cfg(all(not(target_family = "wasm"), not(target_arch = "riscv32")))]
 const _: () = amaru_deps::AMARU_DEPS_USED;

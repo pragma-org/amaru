@@ -36,13 +36,6 @@ pub(super) enum ProvidedScript<'a> {
     PlutusV3,
 }
 
-impl<'a> Deref for ProvidedScript<'a> {
-    type Target = ProvidedScript<'a>;
-    fn deref(&self) -> &Self::Target {
-        self
-    }
-}
-
 impl TryFrom<&ProvidedScript<'_>> for PlutusVersion {
     type Error = ();
     fn try_from(script: &ProvidedScript<'_>) -> Result<Self, Self::Error> {
@@ -478,6 +471,7 @@ fn collect_plutus_witness_scripts<const V: usize>(
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use amaru_kernel::WitnessSet;
 

@@ -1,0 +1,37 @@
+{
+  "title": "near-maximum fee with insufficient collateral",
+  "description": "A Plutus transaction spends a 2^64 - 1 lovelace input into a 1 ADA output and a fee of 2^64 - 1 lovelace minus 1 ADA, backed by a single 1 ADA collateral input.",
+  "network": "preprod",
+  "era_history": {
+    "$ref": "common/era-history/preprod-conway.json"
+  },
+  "protocol_parameters": {
+    "$ref": "common/protocol-parameters/preprod-conway-v10.json"
+  },
+  "initial_state": {
+    "utxo": [
+      {
+        "input": "825820111111111111111111111111111111111111111111111111111111111111111100",
+        "output": "a200581d70994b345acef955ada938b01e9f0405ab57743d41f0b398de604d0969011bffffffffffffffff"
+      },
+      {
+        "input": "825820555555555555555555555555555555555555555555555555555555555555555500",
+        "output": "a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a000f4240"
+      }
+    ],
+    "pools": [],
+    "accounts": [],
+    "dreps": [],
+    "governance_activity": {
+      "consecutive_dormant_epochs": 0
+    }
+  },
+  "point": {
+    "slot": 0,
+    "transaction_index": 0
+  },
+  "transaction": "84a600d90102818258201111111111111111111111111111111111111111111111111111111111111111000181a200581d6093c191b1094746961f6f00fba27f3d8eff6a66490baf806d4e179fd8011a000f4240021bfffffffffff0bdbf0b58200ddcceb08dbb394c29ef7fa4c16f8e738daf1333cafe4d28ba9e0f67aeaf97bb0dd90102818258205555555555555555555555555555555555555555555555555555555555555555000f00a300d90102818258202152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db1258408be8a5271dfa7a32ed806cda7bb81124ce8b85d34edd578105d1f0e814cef727e4380444ca64931ebc4c4e75ccb58f06ce8ad8d5a5949b76811906d2f338e70007d901028145440101006105a18200008200821907d01a000f4240f4f6",
+  "expected": {
+    "predicate": "InsufficientCollateral"
+  }
+}
