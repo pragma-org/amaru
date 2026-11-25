@@ -160,8 +160,12 @@ impl Ledger {
         self.chain.extend(slots);
     }
 
-    /// Roll forward a block in epoch e+2.
+    /// Roll forward a block in epoch e+2. A fork switch can leave the tip in epoch e: then a block
+    /// at slot 0 goes first, so that the chain always crosses epoch e+1.
     fn cross_the_boundary(&mut self) {
+        if self.chain.last().is_some_and(|slot| *slot < 0) {
+            self.extend(&[0]);
+        }
         self.extend(&[EPOCH_LENGTH + 1]);
     }
 
