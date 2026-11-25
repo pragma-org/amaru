@@ -32,10 +32,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     rules::block::BlockValidation,
-    state::{
-        ForkSwitchOutcome, State, tasks::compute_stake_distribution::initialize_stake_distributions,
-        volatile::VolatileFragment,
-    },
+    state::{State, tasks::compute_stake_distribution::initialize_stake_distributions, volatile::VolatileFragment},
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
         columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},

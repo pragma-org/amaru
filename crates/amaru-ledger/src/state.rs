@@ -29,7 +29,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{
     debug_span, error_record, info, info_record, info_span, trace, trace_record, warn, warn_record,
 };
-use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, PoolSummary, ValidationMode};
+use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, ValidationMode};
 use amaru_uplc::arena_pool::ArenaPool;
 use thiserror::Error;
 use tracing::Span;

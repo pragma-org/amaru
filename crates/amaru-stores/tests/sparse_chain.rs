@@ -32,10 +32,8 @@ use std::{
 };
 
 use amaru_kernel::{Epoch, PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::{
-    LedgerObservers, LedgerStateSnapshot, SnapshotFinality,
-    state::{ForkSwitchOutcome, PoolSummaries, State},
-};
+use amaru_ledger::{LedgerObservers, LedgerStateSnapshot, SnapshotFinality, state::State};
+use amaru_ouroboros_traits::{ForkSwitchOutcome, PoolSummaries};
 use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use amaru_uplc::arena_pool::ArenaPool;
 

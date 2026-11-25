@@ -37,7 +37,8 @@ use std::{
 };
 
 use amaru_kernel::{Block, Epoch, PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::state::{ForkSwitchOutcome, State};
+use amaru_ledger::state::State;
+use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use amaru_uplc::arena_pool::ArenaPool;
 use proptest::{collection::vec, prelude::*, test_runner::RngSeed};

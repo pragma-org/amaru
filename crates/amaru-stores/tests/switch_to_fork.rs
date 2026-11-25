@@ -69,9 +69,10 @@
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
 use amaru_ledger::{
-    state::{BackwardError, ForkSwitchOutcome, StateError},
+    state::{BackwardError, StateError},
     store::HistoricalStores,
 };
+use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_stores::rocksdb::RocksDBHistoricalStores;
 use amaru_uplc::arena_pool::ArenaPool;
 
