@@ -43,6 +43,9 @@ Other guiding principles:
 - **amaru**: generate pool cold keys and an issue counter offline with `amaru pool cold create`, then create operational certificates with `amaru pool cert create`. Keys are raw bytes; counters and certificates are binary CBOR. Legacy cardano-cli envelopes remain accepted as inputs.
 - **amaru**: `amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.
 - **amaru-node**: embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.
+- **amaru-consensus**: `cardano_node_metrics_forks_counter` counts the times the adopted chain switched to a fork and rolled back at least one block. The metric appears after the first such switch.
+- **amaru-protocols**: the connection manager reports `cardano_node_metrics_connectionManager_duplexConns_int`, the number of connections whose handshake agreed on full duplex.
+- **amaru-consensus**: block propagation is reported with the cardano-node metric names. `cardano_node_metrics_blockfetchclient_blockdelay_real` is the time in seconds from a block's slot start to the reception of its body. `cardano_node_metrics_blockfetchclient_blockdelay_cdfOne_real`, `cdfThree_real` and `cdfFive_real` are the shares of recent blocks received within 1, 3 and 5 seconds. `cardano_node_metrics_blockfetchclient_lateblocks_counter` counts blocks received more than 5 seconds after their slot start. As in cardano-node, blocks are ignored after startup until one arrives within 20 seconds of its slot start, and every fetched block counts after that. The shares cover the last k/2 blocks. The shares appear once 45 blocks have been measured.
 
 ### Changed
 
@@ -56,6 +59,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-consensus**: only block producers report `cardano_node_metrics_currentKESPeriod_int`, from the wall-clock KES period of their forging key. Relays no longer export it, so monitoring tools no longer show KES information for a node that cannot forge.
 - **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))
 - **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
 - **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.

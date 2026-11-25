@@ -16,7 +16,7 @@
 const _: () = amaru_deps::AMARU_DEPS_USED;
 
 pub use crate::{
-    consensus::ConsensusMetrics,
+    consensus::{BlockDelayShares, ConsensusMetrics},
     kes::KesMetrics,
     ledger::LedgerMetrics,
     mempool::MempoolMetrics,

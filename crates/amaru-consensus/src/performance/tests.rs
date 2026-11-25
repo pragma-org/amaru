@@ -723,12 +723,15 @@ fn first_header_announcer_peer_is_retained() {
 fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     let mut headers = HeaderPerformance::new();
     let alice = peer("alice");
-    headers.apply_header_received(alice, tip(1, 1), t(1), 500, Duration::ZERO, false);
+    headers.apply_header_received(alice, tip(1, 1), t(1), 500, Duration::from_micros(999_500), false);
     headers.apply_blocks_requested(&[hash(1)], t(2));
     let received = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(3));
     assert!(matches!(
         &received[..],
-        [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == alice
+        [
+            super::HeaderTelemetry::Received { rank: 1, peer, .. },
+            super::HeaderTelemetry::BlockDelay { delay_micros: 2_000_500, .. },
+        ] if *peer == alice
     ));
     assert_eq!(headers.lifecycle_count(), 1);
     let telemetry = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(4), false);
@@ -745,13 +748,28 @@ fn blocks_requested_and_downloaded_then_valid_closes_lifecycle() {
     assert!(matches!(&telemetry[1], super::HeaderTelemetry::Adopted { peer: Some(peer), .. } if *peer == alice));
 }
 
-#[test]
-fn header_rejected_does_not_require_lifecycle_entry() {
-    let telemetry = HeaderPerformance::apply_header_rejected(HeaderLifecycleOutcome::DuplicateHeader);
-    assert!(matches!(
-        telemetry,
-        super::HeaderTelemetry::Lifecycle { outcome: HeaderLifecycleOutcome::DuplicateHeader, hash: None, .. }
-    ));
+#[test_case::test_case(500, Duration::from_micros(999_500), &[t(3)], vec![2_000_500] ; "first body of an on-time block")]
+#[test_case::test_case(0, Duration::ZERO, &[t(22)], vec![] ; "catch-up block before any on-time block")]
+#[test_case::test_case(500, Duration::from_micros(999_500), &[t(3), t(4)], vec![2_000_500] ; "repeat delivery")]
+#[test_case::test_case(500, Duration::from_micros(999_500), &[], vec![] ; "body never received")]
+#[test_case::test_case(0, Duration::from_millis(2_500), &[t(3)], vec![500_000] ; "header received before its slot onset")]
+fn block_delay_is_measured_on_the_first_body(
+    slot_start_to_header: u64,
+    slot_onset: Duration,
+    downloads: &[Instant],
+    expected: Vec<u64>,
+) {
+    let mut headers = HeaderPerformance::new();
+    let alice = peer("alice");
+    headers.apply_header_received(alice, tip(1, 1), t(1), slot_start_to_header, slot_onset, false);
+    let delays: Vec<u64> = downloads
+        .iter()
+        .flat_map(|at| headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, *at))
+        .filter_map(|event| {
+            if let super::HeaderTelemetry::BlockDelay { delay_micros, .. } = event { Some(delay_micros) } else { None }
+        })
+        .collect();
+    assert_eq!(delays, expected);
 }
 
 #[test]
@@ -799,7 +817,13 @@ fn announcement_logs_three_peers_and_deliveries_keep_arrival_order() {
         headers.apply_block_downloaded(peers[2], &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(4)).is_empty()
     );
     let second = headers.apply_block_downloaded(peers[0], &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
-    assert!(matches!(&first[..], [super::HeaderTelemetry::Received { rank: 1, peer, .. }] if *peer == peers[2]));
+    assert!(matches!(
+        &first[..],
+        [
+            super::HeaderTelemetry::Received { rank: 1, peer, .. },
+            super::HeaderTelemetry::BlockDelay { delay_micros: 3_000_000, .. },
+        ] if *peer == peers[2]
+    ));
     assert!(matches!(&second[..], [super::HeaderTelemetry::Received { rank: 2, peer, .. }] if *peer == peers[0]));
 
     let adopted = headers.apply_block_valid(&hash(1), BlockHeight::from(1), Slot::from(1), t(6), false);
@@ -874,7 +898,15 @@ fn blockperf_latencies_follow_slot_onset_and_the_peer_who_was_asked() {
     let from_alice = headers.apply_block_downloaded(alice, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
     assert!(matches!(
         &from_alice[..],
-        [super::HeaderTelemetry::Received { slot_latency_ms: Some(4_500), fetch_latency_ms: Some(2_000), rank: 1, .. }]
+        [
+            super::HeaderTelemetry::Received {
+                slot_latency_ms: Some(4_500),
+                fetch_latency_ms: Some(2_000),
+                rank: 1,
+                ..
+            },
+            super::HeaderTelemetry::BlockDelay { delay_micros: 4_500_000, .. },
+        ]
     ));
     let from_bob = headers.apply_block_downloaded(bob, &hash(1), BlockHeight::from(1), Slot::from(1), 100, t(5));
     assert!(matches!(&from_bob[..], [super::HeaderTelemetry::Received { fetch_latency_ms: Some(1_000), rank: 2, .. }]));
@@ -1699,7 +1731,8 @@ fn a_remote_share_request_keeps_the_same_addresses() {
 
     let resources = Resources::default();
     let _join =
-        Performance::with_peer_sources(static_peers, BTreeSet::new(), ledger_candidates, mix).install(&resources);
+        Performance::with_peer_sources(static_peers, BTreeSet::new(), ledger_candidates, mix, Default::default())
+            .install(&resources);
     let tracking = resources.get::<PeerTrackingResource>().expect("peer tracking").clone();
     tracking.record_connect_failed(failed, at);
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");

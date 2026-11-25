@@ -86,6 +86,8 @@ pub struct ConnectionManagerMetrics {
     /// Connections, in either direction, whose handshake did not agree on full duplex: only the side that opened
     /// them runs mini-protocols as initiator.
     pub unidirectional_connections: u64,
+    /// Connections, in either direction, whose handshake agreed on full duplex.
+    pub duplex_connections: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -127,6 +129,7 @@ impl MetricRecorder for ConnectionManagerMetrics {
         static INBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static OUTBOUND_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
         static UNIDIRECTIONAL_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
+        static DUPLEX_CONNECTIONS: OnceLock<Gauge<u64>> = OnceLock::new();
 
         let Some(meter) = meter.get() else {
             return;
@@ -153,10 +156,18 @@ impl MetricRecorder for ConnectionManagerMetrics {
                 .with_unit("int")
                 .build()
         });
+        let duplex_connections = DUPLEX_CONNECTIONS.get_or_init(|| {
+            meter
+                .u64_gauge("cardano_node_metrics_connectionManager_duplexConns_int")
+                .with_description("current number of duplex connections")
+                .with_unit("int")
+                .build()
+        });
 
         inbound_connections.record(self.inbound_connections, &[]);
         outbound_connections.record(self.outbound_connections, &[]);
         unidirectional_connections.record(self.unidirectional_connections, &[]);
+        duplex_connections.record(self.duplex_connections, &[]);
     }
 }
 
