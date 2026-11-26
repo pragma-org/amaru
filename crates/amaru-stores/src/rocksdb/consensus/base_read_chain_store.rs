@@ -108,20 +108,28 @@ where
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
         match point {
-            Point::Origin => {
-                let mut readopts = ReadOptions::default();
-                readopts.set_iterate_range(PrefixRange(CHAIN_PREFIX));
-                let prefix = [&CHAIN_PREFIX[..], &0u64.to_be_bytes()].concat();
-                let mut iter = self.db.iterator_opt(IteratorMode::From(&prefix, rocksdb::Direction::Forward), readopts);
-                iter.next()
-                    .and_then(|kv| kv.ok())
-                    .and_then(|(_k, v)| from_cbor::<NetworkTip>(v.as_ref()).map(Point::from))
-            }
+            Point::Origin => self.block_at_or_after(Slot::from(0)).ok().flatten(),
             Point::Specific(_, hash, _) => self.get_children(hash).into_iter().find_map(|child| {
                 let header = self.load_header(&child)?;
                 self.is_on_best_chain(header.point().into()).then_some(header.point())
             }),
         }
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError> {
+        let mut options = ReadOptions::default();
+        options.set_iterate_range(PrefixRange(CHAIN_PREFIX));
+        let key = [&CHAIN_PREFIX[..], &u64::from(slot).to_be_bytes()].concat();
+        self.db
+            .iterator_opt(IteratorMode::From(&key, Direction::Forward), options)
+            .next()
+            .map(|entry| {
+                let (_, value) = entry.map_err(|error| StoreError::ReadError { error: error.to_string() })?;
+                from_cbor::<NetworkTip>(&value)
+                    .map(Point::from)
+                    .ok_or_else(|| StoreError::ReadError { error: "malformed canonical chain point".to_owned() })
+            })
+            .transpose()
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {

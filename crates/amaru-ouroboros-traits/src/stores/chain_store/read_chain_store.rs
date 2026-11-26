@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{cmp::Reverse, collections::VecDeque, iter::successors, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::VecDeque,
+    iter::successors,
+    ops::ControlFlow::{self, Break, Continue},
+    sync::Arc,
+};
 
 use amaru_kernel::{
-    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock,
+    BlockHeight, Header, HeaderHash, IsHeader, NetworkPoint, NonEmptyVec, ORIGIN_HASH, Point, PoolId, RawBlock, Slot,
 };
+use thiserror::Error;
 
 use crate::{
     BaseReadChainStore, ChildTipsMode, FindAncestorOnBestChainResult, FindCommonAncestorResult, MissingBlocks,
@@ -340,6 +347,151 @@ pub trait ReadChainStore: BaseReadChainStore {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum CanonicalChainError {
+    #[error("canonical successor after {after} is unavailable before {through}")]
+    MissingSuccessor { after: NetworkPoint, through: NetworkPoint },
+    #[error("canonical header {hash} is unavailable")]
+    MissingHeader { hash: HeaderHash },
+    #[error("invalid canonical ancestry at {hash}")]
+    InvalidAncestry { hash: HeaderHash },
+    #[error(transparent)]
+    Store(StoreError),
+}
+
+/// Resolve the exact slot and hash on the canonical snapshot at or before a trusted `through` point.
+/// An inclusive range starts with this point. `None` means the point is outside that canonical prefix.
+/// `checkpoint` runs before each store read.
+pub fn canonical_point_at_or_before<E>(
+    snapshot: &dyn BaseReadChainStore,
+    point: NetworkPoint,
+    through: NetworkPoint,
+    mut checkpoint: impl FnMut() -> Result<(), E>,
+) -> Result<Option<Point>, E>
+where
+    E: From<CanonicalChainError>,
+{
+    if point == NetworkPoint::Origin {
+        return Ok(Some(Point::Origin));
+    }
+    let slot = point.slot_or_default();
+    if through == NetworkPoint::Origin || slot > through.slot_or_default() {
+        return Ok(None);
+    }
+    let start = if slot == through.slot_or_default() {
+        through
+    } else {
+        checkpoint()?;
+        let Some(indexed) = snapshot.block_at_or_after(slot).map_err(CanonicalChainError::Store)? else {
+            return Ok(None);
+        };
+        if indexed.slot() != slot {
+            return Ok(None);
+        }
+        indexed.into()
+    };
+    find_in_canonical_slot(snapshot, start, &mut checkpoint, |header| header.point().to_network_point() == point)
+}
+
+/// Find the immediate successor of the already processed `after` point, up to and including `through`.
+/// Both bounds must be validated against the same canonical snapshot. `None` means the endpoint
+/// was reached. `checkpoint` can enforce cancellation or a work budget before each store read.
+pub fn next_canonical_point<E>(
+    snapshot: &dyn BaseReadChainStore,
+    after: NetworkPoint,
+    through: NetworkPoint,
+    mut checkpoint: impl FnMut() -> Result<(), E>,
+) -> Result<Option<Point>, E>
+where
+    E: From<CanonicalChainError>,
+{
+    if after == through {
+        return Ok(None);
+    }
+
+    let missing = || CanonicalChainError::MissingSuccessor { after, through };
+    let mut seek = |slot| -> Result<Point, E> {
+        checkpoint()?;
+        snapshot.block_at_or_after(slot).map_err(CanonicalChainError::Store)?.ok_or_else(|| missing().into())
+    };
+    let mut candidate = seek(after.slot_or_default())?;
+    if candidate.to_network_point() == after {
+        let next_slot = u64::from(after.slot_or_default()).checked_add(1).ok_or_else(missing)?;
+        candidate = seek(next_slot.into())?;
+    }
+
+    let slot = candidate.slot();
+    if through == NetworkPoint::Origin || slot > through.slot_or_default() {
+        return Err(missing().into());
+    }
+    // The index holds only the last point at a slot. Start at the endpoint if it shares that slot.
+    let start = if slot == through.slot_or_default() { through } else { candidate.into() };
+    let next = find_in_canonical_slot(snapshot, start, &mut checkpoint, |header| {
+        header.parent().unwrap_or(ORIGIN_HASH) == after.hash()
+    })?;
+    next.map(Some).ok_or_else(|| missing().into())
+}
+
+fn find_in_canonical_slot<E>(
+    snapshot: &dyn BaseReadChainStore,
+    start: NetworkPoint,
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+    matches: impl Fn(&Header) -> bool,
+) -> Result<Option<Point>, E>
+where
+    E: From<CanonicalChainError>,
+{
+    let first = read_canonical_header(snapshot, start.hash(), checkpoint)?;
+    if first.point().to_network_point() != start {
+        return Err(CanonicalChainError::InvalidAncestry { hash: start.hash() }.into());
+    }
+
+    let slot = start.slot_or_default();
+    let step = |header: Header| {
+        if header.slot() != slot {
+            return Break(Ok(None));
+        }
+        if matches(&header) {
+            return Break(Ok(Some(header.point())));
+        }
+        match header.parent().filter(|hash| *hash != ORIGIN_HASH) {
+            Some(hash) if hash == header.hash() => Break(Err(CanonicalChainError::InvalidAncestry { hash }.into())),
+            Some(hash) => Continue(hash),
+            None => Break(Ok(None)),
+        }
+    };
+
+    successors(Some(step(first)), |state| match state {
+        Continue(hash) => Some(match read_canonical_header(snapshot, *hash, checkpoint) {
+            Ok(header) => step(header),
+            Err(error) => Break(Err(error)),
+        }),
+        Break(_) => None,
+    })
+    .find_map(ControlFlow::break_value)
+    .unwrap_or(Ok(None))
+}
+
+fn read_canonical_header<E>(
+    snapshot: &dyn BaseReadChainStore,
+    hash: HeaderHash,
+    checkpoint: &mut impl FnMut() -> Result<(), E>,
+) -> Result<Header, E>
+where
+    E: From<CanonicalChainError>,
+{
+    checkpoint()?;
+    if let Some(header) = snapshot.load_header(&hash) {
+        return Ok(header);
+    }
+    checkpoint()?;
+    snapshot
+        .load_block(&hash)
+        .map_err(CanonicalChainError::Store)?
+        .and_then(|block| block.decode_header().ok())
+        .ok_or_else(|| CanonicalChainError::MissingHeader { hash }.into())
+}
+
 /// Walk ancestors of `start` on a snapshot view, stopping past the anchor.
 /// Mirrors `ReadChainStore::ancestors` but takes the snapshot explicitly so it
 /// can be reused inside default impls that already hold one.
@@ -402,6 +554,10 @@ impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
         self.as_ref().next_best_chain(point)
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError> {
+        self.as_ref().block_at_or_after(slot)
     }
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError> {

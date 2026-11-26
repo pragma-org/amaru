@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock};
+use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkPoint, ORIGIN_HASH, Point, PoolId, RawBlock, Slot};
 
 use crate::{Nonces, StoreError};
 
@@ -55,6 +55,9 @@ pub trait BaseReadChainStore: Send + Sync {
     /// Return the next `Point` on the best chain following given
     /// `Point`, if it exists.
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
+
+    /// Seek the canonical slot index and return the last block at the first slot at or after `slot`.
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;
     fn has_block(&self, hash: &HeaderHash) -> Result<bool, StoreError>;
@@ -123,5 +126,9 @@ impl BaseReadChainStore for Box<dyn BaseReadChainStore + '_> {
 
     fn next_best_chain(&self, point: &Point) -> Option<Point> {
         self.as_ref().next_best_chain(point)
+    }
+
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError> {
+        self.as_ref().block_at_or_after(slot)
     }
 }

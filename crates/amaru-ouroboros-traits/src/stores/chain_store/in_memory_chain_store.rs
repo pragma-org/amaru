@@ -167,6 +167,11 @@ impl BaseReadChainStore for InMemoryChainStore {
     }
 
     #[expect(clippy::unwrap_used)]
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError> {
+        Ok(block_at_or_after(&self.inner.lock().unwrap().chain, slot))
+    }
+
+    #[expect(clippy::unwrap_used)]
     fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         let inner = self.inner.lock().unwrap();
         latest_opcert_sequence_number(
@@ -360,6 +365,10 @@ impl BaseReadChainStore for InMemConsensusSnapshot {
         successor_on_best_chain(&self.chain, point, |hash| self.headers.get(hash).and_then(Header::parent))
     }
 
+    fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError> {
+        Ok(block_at_or_after(&self.chain, slot))
+    }
+
     fn get_latest_opcert_sequence_number(&self, pool_id: &PoolId, header: &Header) -> Result<Option<u64>, StoreError> {
         latest_opcert_sequence_number(
             &self.headers,
@@ -448,6 +457,12 @@ fn get_next_best_chain(chain: &[Point], point: &Point) -> Option<Point> {
             Point::Specific(slot, _, _) => p.slot_or_default() > *slot,
         })
         .copied()
+}
+
+fn block_at_or_after(chain: &[Point], slot: Slot) -> Option<Point> {
+    let candidates = &chain[chain.partition_point(|point| point.slot() < slot)..];
+    let first_slot = candidates.first()?.slot();
+    candidates.iter().take_while(|point| point.slot() == first_slot).last().copied()
 }
 
 fn successor_on_best_chain(
