@@ -172,7 +172,7 @@ where
     }
 
     fn iter(&self) -> BoxFuture<'_, Vec<WithOriginalBytes<Transaction>>> {
-        let transactions = Mempool::read(self.as_ref()).iter().map(|(tx, _)| tx.clone()).collect();
+        let transactions = Mempool::read(self.as_ref()).iter().map(|entry| entry.tx.clone()).collect();
         Box::pin(async move { transactions })
     }
 
@@ -230,7 +230,7 @@ where
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let mempool = resources.get::<ResourceMempool<Transaction, State>>().expect("Iter requires a mempool");
-        let entries = mempool.read().iter().map(|(tx, state)| (tx.clone(), state.clone())).collect();
+        let entries = mempool.read().iter().map(|entry| (entry.tx.clone(), entry.state.clone())).collect();
         self.wrap_sync(entries)
     }
 }
@@ -333,7 +333,7 @@ where
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let mempool = resources.get::<ResourceMempool<Transaction, State>>().expect("Iter requires a mempool");
-        let transactions = mempool.read().iter().map(|(tx, _)| tx.clone()).collect();
+        let transactions = mempool.read().iter().map(|entry| entry.tx.clone()).collect();
         self.wrap_sync(transactions)
     }
 }

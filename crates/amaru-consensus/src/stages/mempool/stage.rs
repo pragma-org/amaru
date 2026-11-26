@@ -149,9 +149,9 @@ async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects<VolatileFragmen
 
     let mut invalid_tx_ids = vec![];
     let mut state = Vec::new();
-    for (tx, fragment) in entries {
+    for (tx, _) in entries {
         match ledger.validate_tx(&tx, &state).await {
-            Ok(_) => {
+            Ok(fragment) => {
                 state.push(fragment);
             }
             Err(_) => invalid_tx_ids.push(tx.tx_id()),

@@ -452,7 +452,7 @@ fn world_forge_does_not_include_conflicting_transactions() {
     forge.world.run_until_horizon(1_000_000_000);
     forge.submit(second.into());
     forge.world.run_until_horizon(2_000_000_000);
-    assert_eq!(forge.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(), vec![first_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![first_id]);
 
     forge.due_lead();
     forge.world.run_until_horizon(20_000_000_000);
@@ -507,7 +507,7 @@ fn world_forge_keeps_transaction_submitted_after_take() {
     let header = forge.store.load_headers().next().expect("lead must forge an empty block");
     let block = forge.load_block(&header.hash());
     assert!(block.into_iter().next().is_none(), "late submission must not enter the sealed block");
-    assert_eq!(forge.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
 }
 
 /// `forge.invalidated_transaction`: revalidation happens before the next forge lead.
@@ -557,7 +557,7 @@ fn world_forge_skips_transaction_expired_at_target_slot() {
     let header = forge.store.load_headers().next().expect("expired transaction must not prevent forging");
     let block = forge.load_block(&header.hash());
     assert!(block.into_iter().next().is_none(), "an expired transaction must not be included");
-    assert_eq!(forge.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
 }
 
 /// `forge.capacity_boundary`: transaction selection stops at an exact block constraint boundary.
@@ -587,7 +587,7 @@ fn world_forge_stops_at_block_capacity(dimension: CapacityDimension) {
     let block = forge.load_block(&header.hash());
 
     assert_eq!(block.into_iter().map(|(_, tx)| tx.tx_id()).collect::<Vec<_>>(), vec![first_id]);
-    assert_eq!(forge.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(), vec![second_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![second_id]);
 }
 
 /// `forge.failure_after_take`: signing fails after the body has been removed from the mempool.

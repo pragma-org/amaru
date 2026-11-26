@@ -122,7 +122,7 @@ fn accepted_transaction_state_is_passed_to_the_next_validation() {
     let (_running, _guards, _logs) = setup(&prep);
 
     assert_eq!(
-        mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(),
+        mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
         vec![first.tx_id(), second.tx_id()]
     );
 }
@@ -147,7 +147,10 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert_eq!(mempool.read().iter().map(|(tx, _)| tx).collect::<Vec<_>>(), vec![&tx_0, &tx_2]);
+    assert_eq!(
+        mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
+        vec![tx_0.tx_id(), tx_2.tx_id()]
+    );
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
     logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);

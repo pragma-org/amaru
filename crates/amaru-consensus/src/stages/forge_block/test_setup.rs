@@ -23,7 +23,7 @@ use amaru_mempool::InMemoryMempool;
 use amaru_metrics::{Meter, MetricsEvent};
 use amaru_ouroboros::ResourceMempool;
 use amaru_ouroboros_traits::{
-    ForgingCredentials, MockBlockValidator, Nonces, in_memory_chain_store::InMemoryChainStore,
+    ForgingCredentials, MockBlockValidator, MockCanValidateTxs, Nonces, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_protocols::{
     metrics_effects::{RecordMetricsEffect, ResourceMeter},
@@ -153,6 +153,7 @@ fn setup_with(
             prep.mempool.set_tip(ledger_tip);
             resources.put::<ResourceMempool<Transaction, VolatileFragment>>(prep.mempool.clone());
             resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::new(ledger_tip)));
+            resources.put::<crate::effects::ResourceTxValidation>(Arc::new(MockCanValidateTxs));
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),
             ));

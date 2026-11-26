@@ -115,7 +115,7 @@ fn world_mempool_rejects_invalid_and_duplicate_transactions() {
     assert_eq!(test.state().tx_count, 1);
     assert_eq!(test.mempool.last(), MempoolSeqNo(1));
     assert_eq!(
-        test.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(),
+        test.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
         vec![create_transaction(0).tx_id()]
     );
 }

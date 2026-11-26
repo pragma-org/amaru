@@ -15,7 +15,9 @@
 use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
 use amaru_kernel::{HasTransactionId, Point, TransactionId, cbor, to_cbor};
-use amaru_ouroboros_traits::{Mempool, MempoolRead, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros_traits::{
+    Mempool, MempoolEntry, MempoolRead, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason,
+};
 use parking_lot::RwLockReadGuard;
 use tokio::sync::broadcast;
 
@@ -183,33 +185,9 @@ impl<Tx: Send + Sync + 'static, State: Send + Sync + 'static> MempoolRead<Tx, St
         entries.into_iter().map(|entry| (&entry.tx, &entry.state)).collect()
     }
 
-    /// Iterate over the sequence-indexed map, so results are insertion-ordered without a second
-    /// lookup or cloning the transactions.
-    fn iter(&self) -> Box<dyn Iterator<Item = (&Tx, &State)> + '_> {
-        Box::new(self.inner.entries_by_seq.values().map(|entry| (&entry.tx, &entry.state)))
-    }
-}
-
-/// Stored transaction and admission metadata, shared by snapshots and insertion events.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MempoolEntry<Tx, State = ()> {
-    pub seq_no: MempoolSeqNo,
-    pub tx_id: TransactionId,
-    pub tx: Tx,
-    /// State produced while admitting the transaction.
-    pub state: State,
-    /// Serialized transaction size in bytes.
-    pub tx_size: u32,
-    /// The admitting origin. Duplicate offers do not update it.
-    pub origin: TxOrigin,
-    /// Wall-clock insertion time; use `seq_no` for ordering because wall-clock time can jump.
-    pub admitted_at: SystemTime,
-}
-
-impl<Tx: cbor::Encode<()>, State> MempoolEntry<Tx, State> {
-    /// CBOR encoding, preserved verbatim when the pool stores `WithOriginalBytes` transactions.
-    pub fn original_bytes(&self) -> Vec<u8> {
-        to_cbor(&self.tx)
+    /// Iterate over shared entries in insertion order without cloning their contents.
+    fn iter(&self) -> Box<dyn Iterator<Item = Arc<MempoolEntry<Tx, State>>> + '_> {
+        Box::new(self.inner.entries_by_seq.values().cloned())
     }
 }
 
@@ -326,7 +304,7 @@ mod tests {
         assert!(matches!(mempool.insert(first, (), TxOrigin::Local), TxInsertResult::Accepted { .. }));
         assert!(matches!(mempool.insert(second, (), TxOrigin::Local), TxInsertResult::Accepted { .. }));
 
-        let ids = mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>();
+        let ids = mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>();
         assert_eq!(ids, vec![first_id, second_id]);
     }
 
@@ -339,7 +317,10 @@ mod tests {
         mempool.set_tip(tip);
 
         assert!(mempool.read_at(Point::Origin).is_none());
-        assert_eq!(mempool.read_at(tip).unwrap().iter().map(|(tx, _)| tx).collect::<Vec<_>>(), vec![&tx]);
+        assert_eq!(
+            mempool.read_at(tip).unwrap().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
+            vec![tx.tx_id()]
+        );
     }
 
     #[test]

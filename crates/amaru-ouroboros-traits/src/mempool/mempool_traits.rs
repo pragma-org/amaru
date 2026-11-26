@@ -12,11 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
-use amaru_kernel::{Point, TransactionId, cbor::WithOriginalBytes};
+use amaru_kernel::{
+    Point, TransactionId,
+    cbor::{self, WithOriginalBytes},
+    to_cbor,
+};
 
 use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
+
+/// A transaction stored in a mempool together with its admission metadata and validation state.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MempoolEntry<Tx, State = ()> {
+    pub seq_no: MempoolSeqNo,
+    pub tx_id: TransactionId,
+    pub tx: Tx,
+    /// State produced while admitting the transaction.
+    pub state: State,
+    /// Serialized transaction size in bytes.
+    pub tx_size: u32,
+    /// The admitting origin. Duplicate offers do not update it.
+    pub origin: TxOrigin,
+    /// Wall-clock insertion time; use `seq_no` for ordering because wall-clock time can jump.
+    pub admitted_at: SystemTime,
+}
+
+impl<Tx: cbor::Encode<()>, State> MempoolEntry<Tx, State> {
+    /// Return the transaction's serialized bytes.
+    pub fn original_bytes(&self) -> Vec<u8> {
+        to_cbor(&self.tx)
+    }
+}
 
 /// A mempool interface to:
 ///
@@ -88,7 +115,7 @@ where
     fn get(&self, ids: &[TransactionId]) -> Vec<(&Tx, &State)>;
 
     /// Iterate over all active transactions and their state fragments in insertion order without cloning them.
-    fn iter(&self) -> Box<dyn Iterator<Item = (&Tx, &State)> + '_>;
+    fn iter(&self) -> Box<dyn Iterator<Item = Arc<MempoolEntry<Tx, State>>> + '_>;
 }
 
 pub type ResourceMempool<Tx, State = ()> = Arc<dyn Mempool<WithOriginalBytes<Tx>, State>>;

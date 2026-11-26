@@ -16,8 +16,8 @@
 //!
 //! Leader schedules are computed here from the credentials resource and
 //! [`EpochSchedule::compute`](super::schedule::EpochSchedule::compute). The body effect resolves
-//! the current ledger parameters and selects transactions from the registered mempool without
-//! cloning transactions that do not fit in the block.
+//! the current ledger parameters and revalidates transactions from the registered mempool in
+//! insertion order before selecting them for the block.
 
 use std::sync::Arc;
 
@@ -26,13 +26,15 @@ use amaru_kernel::{
     Transaction, maths::FixedDecimal,
 };
 use amaru_ledger::state::volatile::VolatileFragment;
-use amaru_observability::{info, info_span};
+use amaru_observability::{Instrument, info, info_span};
 use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
-use crate::effects::{ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourcePoolSummaries};
+use crate::effects::{
+    ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourcePoolSummaries, ResourceTxValidation,
+};
 
 /// `None` in the product binary. Tests (and, later, a configured pool) install `Some`.
 pub type ResourceForgingCredentials = Option<Arc<dyn ForgingCredentials>>;
@@ -170,6 +172,11 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             .expect("ResourceBlockBuilderConstraints must be registered before the forge stage is started")
             .clone();
 
+        let validator = resources
+            .get::<ResourceTxValidation>()
+            .expect("ResourceTxValidation must be registered before the forge stage is started")
+            .clone();
+
         self.wrap(|this| async move {
             let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
                 constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
@@ -182,27 +189,24 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
             };
 
-            info_span!(consensus::forge::BUILD_BLOCK, slot = this.slot).in_scope(|| {
+            let entries = mempool_view.iter().collect::<Vec<_>>();
+
+            drop(mempool_view);
+
+            let body = async {
                 let mut builder = BlockBodyBuilder::default();
                 let mut selected = Vec::new();
+                let mut state = Vec::new();
 
-                // FIXME: Assumptions of block forging iterating through mempool
-                //
-                // This simple construction works only because we assume transactions in the mempool to
-                // be independent; which is the case with the current strategy, but the underlying code
-                // here should not be able to make this assumption.
-                //
-                // In principle, we should be able to inform the iterator of us skipping a transaction;
-                // or reverse the problem and have the iterator return batches of dependent
-                // transactions. Skipping one transaction from the batch should skip all the subsequent
-                // one and move to the next batch.
-                for (transaction, _) in mempool_view.iter() {
-                    // The ledger tip can be older than the slot being forged. Revalidation at the
-                    // previous tip is therefore not sufficient to prove that the transaction is
-                    // still valid for this block.
-                    if transaction.body.validity_interval().includes(this.slot)
-                        && builder.try_push(transaction, &constraints)?
-                    {
+                for entry in &entries {
+                    let transaction = &entry.tx;
+
+                    let Ok(fragment) = validator.validate_tx(transaction, &state).await else {
+                        continue;
+                    };
+
+                    if builder.try_push(transaction, &constraints)? {
+                        state.push(fragment);
                         selected.push(transaction.tx_id());
                     }
                 }
@@ -216,13 +220,31 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                     ref_scripts_size = builder.ref_scripts_size(),
                 );
 
+                // Taking a transaction out of the mempool can temporarily leave its dependants
+                // without their predecessor until the forged block is applied:
+                //
+                //     mempool before:  A -> B -> C
+                //     forge:           [A]
+                //     mempool after:   B -> C
+                //
+                // B and C are still worth retaining. If A is applied, they become valid again; if it
+                // is not, revalidation at the next ledger tip will evict them. New transactions may
+                // even be admitted after them using the cached fragments.
+                //
+                // This is safe because cached admission state is not used to forge directly.
+                //
+                // Forge-time validation rebuilds the sequence from the canonical ledger tip and the
+                // transactions selected for this block, so B, C, and D are skipped until A is present
+                // in the ledger.
                 let body = builder.finalize()?;
-
-                drop(mempool_view);
                 mempool.remove(&selected);
 
-                Ok(body)
-            })
+                Ok::<_, TakeForForgeError>(body)
+            }
+            .instrument(info_span!(consensus::forge::BUILD_BLOCK, slot = this.slot).into())
+            .await?;
+
+            Ok(body)
         })
     }
 }
