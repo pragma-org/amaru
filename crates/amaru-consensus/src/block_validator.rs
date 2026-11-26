@@ -389,8 +389,15 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         tx: &Transaction,
         previous: &[VolatileFragment],
     ) -> Result<VolatileFragment, TransactionValidationError> {
+        // A transaction accepted into the mempool can only be included in a future block. We
+        // cannnot predict when the future block will happen exactly, but we know the earliest is
+        // the next slot.
+        //
+        // This has an influence on the transaction validity interval, and it allows including
+        // transactions that should be valid immediately after the tip.
+        let slot = self.state.tip().slot_or_default() + 1;
         self.state
-            .validate_tx(tx, self.state.tip().slot_or_default(), &self.vm_eval_pool, previous)
+            .validate_tx(tx, slot, &self.vm_eval_pool, previous)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }
