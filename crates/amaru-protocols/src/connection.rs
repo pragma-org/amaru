@@ -859,11 +859,7 @@ async fn notify_local_use<MempoolState>(
     PeerTrack::new(eff).record_local_use_applied(params.peer, params.conn_id, s.actual_use, at).await;
 }
 
-pub fn register_deserializers() -> DeserializerGuards {
-    register_deserializers_with_mempool_state::<()>()
-}
-
-pub fn register_deserializers_with_mempool_state<MempoolState>() -> DeserializerGuards
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
     MempoolState:
         Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,

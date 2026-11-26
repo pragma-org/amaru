@@ -20,7 +20,7 @@ use crate::simulator::{Args, RunConfig, generate_actions};
 
 /// Replay a previous run based on a trace
 pub fn replay(args: Args, traces: Vec<TraceEntry>) -> anyhow::Result<()> {
-    let _guards = register_deserializers();
+    let _guards = register_deserializers::<()>();
     let run_config = RunConfig::from(args.clone());
     let actions = generate_actions(&run_config);
     let anchor = actions.get_anchor();

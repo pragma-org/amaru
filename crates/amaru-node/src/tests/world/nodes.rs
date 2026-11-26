@@ -94,7 +94,7 @@ fn build_world_node_with_stages(
     let config = node_config.make_node_configuration()?;
     let global_parameters = config.global_parameters().clone();
 
-    let node_stages = build_node(&config, &global_parameters, Arc::new(Meter::default()), &mut stage_graph)?;
+    let (node_stages, _pool) = build_node(&config, &global_parameters, Arc::new(Meter::default()), &mut stage_graph)?;
     let dummy_ledger = node_config.dummy_ledger_dir();
     stage_graph.resources().put::<ConnectionsResource>(node_config.connections);
     if let Some(tmp) = dummy_ledger {

@@ -1031,11 +1031,7 @@ async fn close_terminated_connection(eff: &Effects<ManagerMessage>, peer: &Peer,
     }
 }
 
-pub fn register_deserializers() -> DeserializerGuards {
-    register_deserializers_with_mempool_state::<()>()
-}
-
-pub fn register_deserializers_with_mempool_state<MempoolState>() -> DeserializerGuards
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
     MempoolState:
         Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,

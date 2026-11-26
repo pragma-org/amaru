@@ -255,10 +255,9 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let (node_stages, pool) = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let sender = stage_builder.input(node_stages.mempool_stage());
-    let pool = stage_builder.resources().take::<Arc<Pool>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
     let (mempool, mempool_guard) = MempoolServices::new(&pool, sender, tokio_running.termination());
     Ok(NodeRunning { tokio_running, mempool, mempool_guard, lifecycle, listen_address })
@@ -428,7 +427,7 @@ pub fn build_node(
     global_parameters: &GlobalParameters,
     meter: Arc<Meter>,
     stage_builder: &mut impl StageGraph,
-) -> anyhow::Result<NodeStages> {
+) -> anyhow::Result<(NodeStages, Arc<Pool>)> {
     let listen_address = config
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
@@ -480,7 +479,7 @@ pub fn build_node(
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
-    register_resources(
+    let pool = register_resources(
         stage_builder,
         chain_store,
         global_parameters,
@@ -528,7 +527,7 @@ pub fn build_node(
         .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(listen_address)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
-    Ok(node_stages)
+    Ok((node_stages, pool))
 }
 
 /// Parent of `tip`, used to preload forging.
@@ -563,7 +562,7 @@ fn register_resources(
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
-) {
+) -> Arc<Pool> {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
@@ -619,6 +618,7 @@ fn register_resources(
     let join_performance = Box::new(performance.install(stage_graph.resources()));
 
     stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
+    mempool
 }
 
 /// This function migrates the database if necessary

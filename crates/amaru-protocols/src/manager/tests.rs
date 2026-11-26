@@ -61,7 +61,7 @@ fn harness() -> Harness {
 
 fn harness_with(config: ManagerConfig) -> Harness {
     let _guards = {
-        let mut guards = super::register_deserializers();
+        let mut guards = super::register_deserializers::<()>();
         guards.extend(crate::peer_tracking_effects::register_deserializers());
         guards.extend(crate::network_effects::register_deserializers());
         guards.push(amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed());

@@ -43,11 +43,7 @@ use crate::{
     protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT, ingress_limit},
 };
 
-pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
-    register_deserializers_with_state::<()>()
-}
-
-pub fn register_deserializers_with_state<MempoolState>() -> amaru_pure_stage::DeserializerGuards
+pub fn register_deserializers<MempoolState>() -> amaru_pure_stage::DeserializerGuards
 where
     MempoolState:
         Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
