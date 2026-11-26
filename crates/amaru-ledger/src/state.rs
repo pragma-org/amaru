@@ -34,7 +34,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{
     debug_span, error_record, info, info_record, info_span, trace, trace_record, warn, warn_record,
 };
-pub use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, PoolSummary};
+use amaru_ouroboros_traits::{ForkSwitchOutcome, InvalidBlock, PoolSummaries, PoolSummary, ValidationMode};
 use amaru_uplc::arena_pool::ArenaPool;
 use num::CheckedSub;
 use thiserror::Error;
@@ -726,6 +726,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         slot: Slot,
         arena_pool: &ArenaPool,
         previous_fragments: &[VolatileFragment],
+        mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         let transaction_id = transaction.tx_id();
         let mut context = self
@@ -743,6 +744,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             self.guardrail_script(),
             TransactionPointer { slot, transaction_index: 0 },
             transaction.tx_ref(),
+            mode,
         )
         .map(|_| VolatileFragment::from(context))
         .map_err(|violation| TransactionValidationError::Validation { transaction_id, violation: Box::new(violation) })

@@ -43,7 +43,7 @@ use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxOrigin, in_memory_chain_sto
 use amaru_ouroboros_traits::{
     BaseReadChainStore, BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateTxs,
     DiagnosticChainStore, ForgingCredentials, LedgerThreadTerminated, Mempool, MockBlockValidator, MockCanValidateTxs,
-    Nonces, TransactionValidationError,
+    Nonces, TransactionValidationError, ValidationMode,
 };
 use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
 use amaru_pure_stage::{StageGraph, StageRef, simulation::SimulationBuilder};
@@ -477,6 +477,7 @@ impl CanValidateTxs<VolatileFragment> for RejectConflictingInputs {
         &self,
         tx: &Transaction,
         previous: &[VolatileFragment],
+        _mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         let input = tx.body.inputs.iter().next().copied().expect("fixture transaction has an input");
         if previous.iter().any(|fragment| fragment.utxo.consumed.contains(&input)) {
@@ -545,11 +546,25 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
 /// transaction rather than producing a block that the ledger immediately rejects.
 #[test]
 fn world_forge_skips_transaction_expired_at_target_slot() {
-    let mut forge = ForgeWorld::new(Point::Origin);
+    let mempool = Arc::new(Pool::new(Default::default()));
+    mempool.set_tip(Point::Origin);
+    let validator: ResourceTxValidation = Arc::new(|tx: &Transaction, _previous: &[VolatileFragment]| {
+        if tx.body.validity_interval().includes(simulation_slot()) {
+            Ok(VolatileFragment::default())
+        } else {
+            Err(TransactionValidationError::from(anyhow::anyhow!("transaction expired at forge slot")))
+        }
+    });
+    let mut forge = ForgeWorld::new_with_mempool_and_tx_validator(
+        mempool,
+        Arc::new(MockBlockValidator::new(Point::Origin)),
+        validator,
+    );
     let mut tx = create_transaction(17).into_inner();
     tx.body.validity_interval_end = Some(simulation_slot());
     let tx_id = tx.tx_id();
-    forge.submit_and_settle(tx.into());
+    let _ = forge.mempool.insert(tx.into(), VolatileFragment::default(), TxOrigin::Local);
+    assert!(forge.mempool.contains(&tx_id));
 
     forge.due_lead();
     forge.world.run_until_horizon(20_000_000_000);

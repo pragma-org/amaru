@@ -60,7 +60,8 @@
 //!
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::state::{BackwardError, ForkSwitchOutcome, StateError};
+use amaru_ledger::state::{BackwardError, StateError};
+use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_uplc::arena_pool::ArenaPool;
 
 use crate::{

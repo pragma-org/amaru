@@ -20,7 +20,7 @@ use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
     BlockValidationError, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, FindCommonAncestorResult,
-    ForkSwitchOutcome, HasStakePools, Nonces, PoolSummaries, TransactionValidationError,
+    ForkSwitchOutcome, HasStakePools, Nonces, PoolSummaries, TransactionValidationError, ValidationMode,
 };
 use amaru_protocols::store_effects::ResourceHeaderStore;
 use amaru_pure_stage::{BoxFuture, Effects, ExternalEffectAPI, Resources, SendData, Void};
@@ -36,6 +36,7 @@ pub trait LedgerOps: Send + Sync {
         &self,
         tx: &Transaction,
         previous: &[VolatileFragment],
+        mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>>;
 
     /// Validate a header and return its evolved nonces, which the caller is expected to store
@@ -104,8 +105,9 @@ impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
         &self,
         tx: &Transaction,
         previous: &[VolatileFragment],
+        mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>> {
-        self.effects.external(ValidateTxEffect::new(tx, previous))
+        self.effects.external(ValidateTxEffect::new(tx, previous, mode))
     }
 
     fn validate_header(&self, header: &Header) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
@@ -153,17 +155,18 @@ pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 pub struct ValidateTxEffect {
     tx: Transaction,
     previous: Vec<VolatileFragment>,
+    mode: ValidationMode,
 }
 
 impl ValidateTxEffect {
-    pub fn new(tx: &Transaction, previous: &[VolatileFragment]) -> Self {
-        Self { tx: tx.clone(), previous: previous.to_vec() }
+    pub fn new(tx: &Transaction, previous: &[VolatileFragment], mode: ValidationMode) -> Self {
+        Self { tx: tx.clone(), previous: previous.to_vec(), mode }
     }
 }
 
 impl PartialEq for ValidateTxEffect {
     fn eq(&self, other: &Self) -> bool {
-        self.tx == other.tx && self.previous == other.previous
+        self.tx == other.tx && self.previous == other.previous && self.mode == other.mode
     }
 }
 
@@ -177,7 +180,7 @@ impl ExternalEffectAPI for ValidateTxEffect {
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&this.tx, &this.previous).await
+            validator.validate_tx(&this.tx, &this.previous, this.mode).await
         })
     }
 }

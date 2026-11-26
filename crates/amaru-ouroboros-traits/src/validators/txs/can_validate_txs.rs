@@ -21,6 +21,16 @@ use crate::mempool::TransactionValidationError;
 
 pub type ResourceTxValidation<State = ()> = Arc<dyn CanValidateTxs<State>>;
 
+/// Selects how much work a transaction validator performs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ValidationMode {
+    /// Validate all transaction witnesses and execute phase-two scripts.
+    #[default]
+    FullValidation,
+    /// Re-check state-dependent phase-one rules using the result of an earlier full validation.
+    Revalidation,
+}
+
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
 #[async_trait]
@@ -28,7 +38,12 @@ pub trait CanValidateTxs<State = ()>: Send + Sync
 where
     State: Send + Sync + 'static,
 {
-    async fn validate_tx(&self, tx: &Transaction, previous: &[State]) -> Result<State, TransactionValidationError>;
+    async fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[State],
+        mode: ValidationMode,
+    ) -> Result<State, TransactionValidationError>;
 }
 
 #[async_trait]
@@ -37,7 +52,12 @@ where
     F: Fn(&Transaction, &[State]) -> Result<State, TransactionValidationError> + Send + Sync,
     State: Send + Sync + 'static,
 {
-    async fn validate_tx(&self, tx: &Transaction, previous: &[State]) -> Result<State, TransactionValidationError> {
+    async fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[State],
+        _mode: ValidationMode,
+    ) -> Result<State, TransactionValidationError> {
         self(tx, previous)
     }
 }
@@ -48,7 +68,12 @@ pub struct MockCanValidateTxs;
 
 #[async_trait]
 impl<State: Default + Send + Sync + 'static> CanValidateTxs<State> for MockCanValidateTxs {
-    async fn validate_tx(&self, _tx: &Transaction, _previous: &[State]) -> Result<State, TransactionValidationError> {
+    async fn validate_tx(
+        &self,
+        _tx: &Transaction,
+        _previous: &[State],
+        _mode: ValidationMode,
+    ) -> Result<State, TransactionValidationError> {
         Ok(State::default())
     }
 }

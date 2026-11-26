@@ -29,12 +29,13 @@ use amaru_kernel::{
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
     rules::block::BlockValidation,
-    state::{ForkSwitchOutcome, State, volatile::VolatileFragment},
+    state::{State, volatile::VolatileFragment},
     store::{
         Columns, EpochTransitionProgress, HistoricalStores, ReadStore, Store, StoreError, TransactionalContext,
         columns::{accounts, cc_members, dreps, pools, pots, proposals, recently_unregistered_accounts, utxo, votes},
     },
 };
+use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores, RocksDbConfig};
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;

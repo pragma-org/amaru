@@ -34,6 +34,16 @@ pub struct VolatileMempool<'a> {
 }
 
 impl<'a> VolatileMempool<'a> {
+    // TODO: Allow rebuilding mempool view incrementally
+    //
+    // We build new VolatileMempool each time we need to validate new incoming transactions. We also
+    // use that same model when re-validating the mempool, where the volatile db is fixed, and the
+    // fragments are stacked on top of each other. That means we end up re-building the same base +
+    // fragment sequence for each transaction we re-validate, instead of simply applying the next
+    // fragment to the previous aggregate.
+    //
+    // This is only "okay" because our mempool is small, but it is a somewhat quadratic operation
+    // which we should definitely avoid in the final mempool design.
     pub fn new(base: &'a VolatileDB, fragments: impl IntoIterator<Item = &'a VolatileFragment>) -> Self {
         let mut aggregate = VolatileAggregate::default();
         for fragment in fragments {

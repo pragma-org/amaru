@@ -19,7 +19,7 @@ use std::{
 
 use amaru_kernel::{Hash, Hasher, Point, Transaction, cbor::WithOriginalBytes};
 use amaru_ledger::state::volatile::VolatileFragment;
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
+use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason, ValidationMode};
 use amaru_protocols::{
     mempool_effects::{AsyncMempool, MempoolEffects},
     store_effects::Store,
@@ -131,7 +131,7 @@ async fn validate_and_insert(
         return result.clone();
     }
     let state = mempool.iter().await.into_iter().map(|(_, state)| state).collect::<Vec<_>>();
-    match ledger.validate_tx(&tx, &state).await {
+    match ledger.validate_tx(&tx, &state, ValidationMode::FullValidation).await {
         Ok(fragment) => mempool.insert(tx, fragment, origin.clone()).await,
         Err(error) => {
             let result = TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error));
@@ -150,7 +150,7 @@ async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects<VolatileFragmen
     let mut invalid_tx_ids = vec![];
     let mut state = Vec::new();
     for (tx, _) in entries {
-        match ledger.validate_tx(&tx, &state).await {
+        match ledger.validate_tx(&tx, &state, ValidationMode::Revalidation).await {
             Ok(fragment) => {
                 state.push(fragment);
             }

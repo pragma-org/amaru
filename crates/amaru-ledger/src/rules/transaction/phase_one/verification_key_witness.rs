@@ -18,6 +18,7 @@ use amaru_kernel::{
     BootstrapWitness, ByronAddress, Hash, Hasher, InvalidEd25519Signature, TransactionId, VerificationKeyWitness,
     size::KEY, utils::string::display_collection, verify_ed25519_signature,
 };
+use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::{context::WitnessSlice, rules::WithPosition};
@@ -43,11 +44,15 @@ pub fn execute(
     let empty_vec = vec![];
     let bootstrap_witnesses = bootstrap_witnesses.unwrap_or(&empty_vec);
 
+    let mut key_witnesses = vec![];
     let mut provided_keys_or_roots = BTreeSet::new();
+
     verification_key_witnesses.iter().for_each(|witness| {
+        key_witnesses.push((&witness.verification_key, &witness.signature));
         provided_keys_or_roots.insert(Hasher::<224>::hash(&witness.verification_key));
     });
     bootstrap_witnesses.iter().for_each(|witness| {
+        key_witnesses.push((&witness.public_key, &witness.signature));
         provided_keys_or_roots.insert(ByronAddress::root(witness));
     });
 
@@ -55,27 +60,20 @@ pub fn execute(
     required_keys_or_roots.append(&mut context.required_bootstrap_roots());
 
     let missing_keys_or_roots = required_keys_or_roots.difference(&provided_keys_or_roots).copied().collect::<Vec<_>>();
-
     if !missing_keys_or_roots.is_empty() {
         // TODO: (Maybe?) return distinct errors for missing keys and for missing roots.
         return Err(InvalidVerificationKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots });
     }
 
-    let mut invalid_witnesses = vec![];
-    verification_key_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.verification_key, &witness.signature, transaction_id.as_slice())
-            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
-    });
-
-    if !invalid_witnesses.is_empty() {
-        return Err(InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses });
-    }
-
-    let mut invalid_witnesses = vec![];
-    bootstrap_witnesses.iter().enumerate().for_each(|(position, witness)| {
-        verify_ed25519_signature(&witness.public_key, &witness.signature, transaction_id.as_slice())
-            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
-    });
+    let invalid_witnesses = key_witnesses
+        .par_iter()
+        .enumerate()
+        .filter_map(|(position, (key, sig))| {
+            verify_ed25519_signature(key, sig, transaction_id.as_slice())
+                .err()
+                .map(|element| WithPosition { position, element })
+        })
+        .collect::<Vec<_>>();
 
     if !invalid_witnesses.is_empty() {
         return Err(InvalidVerificationKeyWitness::InvalidSignatures { invalid_witnesses });

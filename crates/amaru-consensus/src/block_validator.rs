@@ -31,7 +31,7 @@ use amaru_observability::warn;
 use amaru_ouroboros_traits::{
     BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateBlocks, CanValidateTxs, ChainStore,
     ForkSwitchOutcome, HasStakePools, LedgerThreadTerminated, PoolSummaries, TransactionValidationError,
-    can_validate_blocks::BlockValidationError,
+    ValidationMode, can_validate_blocks::BlockValidationError,
 };
 use amaru_uplc::arena_pool::ArenaPool;
 use anyhow::anyhow;
@@ -62,6 +62,7 @@ enum LedgerRequest {
     ValidateTx(
         Box<Transaction>,
         Vec<VolatileFragment>,
+        ValidationMode,
         oneshot::Sender<Result<VolatileFragment, TransactionValidationError>>,
     ),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
@@ -243,8 +244,9 @@ impl CanValidateTxs<VolatileFragment> for BlockValidator {
         &self,
         tx: &Transaction,
         previous: &[VolatileFragment],
+        mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
-        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), previous.to_vec(), reply))
+        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), previous.to_vec(), mode, reply))
             .await
             .map_err(|e| TransactionValidationError::from(anyhow::Error::new(e)))?
     }
@@ -348,9 +350,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                 *phase.lock() = LedgerThreadPhase::ReadingVolatileTip;
                 let _ = reply.send(self.state.volatile_tip());
             }
-            LedgerRequest::ValidateTx(tx, previous, reply) => {
+            LedgerRequest::ValidateTx(tx, previous, mode, reply) => {
                 *phase.lock() = LedgerThreadPhase::ValidatingTransaction;
-                let _ = reply.send(self.validate_tx(&tx, &previous));
+                let _ = reply.send(self.validate_tx(&tx, &previous, mode));
             }
             LedgerRequest::RegisteredRelayCandidates(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
@@ -388,6 +390,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         &self,
         tx: &Transaction,
         previous: &[VolatileFragment],
+        mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         // A transaction accepted into the mempool can only be included in a future block. We
         // cannnot predict when the future block will happen exactly, but we know the earliest is
@@ -397,7 +400,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         // transactions that should be valid immediately after the tip.
         let slot = self.state.tip().slot_or_default() + 1;
         self.state
-            .validate_tx(tx, slot, &self.vm_eval_pool, previous)
+            .validate_tx(tx, slot, &self.vm_eval_pool, previous, mode)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }

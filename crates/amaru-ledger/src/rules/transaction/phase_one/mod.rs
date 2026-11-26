@@ -23,7 +23,7 @@ use thiserror::Error;
 
 use crate::{
     context::ValidationContext,
-    rules::transaction::{Environment, phase_two::PreparationError},
+    rules::transaction::{Environment, ValidationMode, phase_two::PreparationError},
 };
 
 pub mod certificates;
@@ -246,22 +246,24 @@ where
 
     let witness_set = transaction.witnesses.deref();
 
-    verification_key_witness::execute(
-        context,
-        transaction_id,
-        witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
-    )?;
-    span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
+    if matches!(environment.mode, ValidationMode::FullValidation) {
+        verification_key_witness::execute(
+            context,
+            transaction_id,
+            witness_set.bootstrap_witness.as_deref(),
+            witness_set.verification_key_witness.as_deref(),
+        )?;
+        span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 
-    scripts::execute(
-        context,
-        witness_set,
-        transaction_body.validity_interval(),
-        protocol_parameters,
-        transaction_body.script_data_hash,
-    )?;
-    span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
+        scripts::execute(
+            context,
+            witness_set,
+            transaction_body.validity_interval(),
+            protocol_parameters,
+            transaction_body.script_data_hash,
+        )?;
+        span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
+    }
 
     let transaction_balance = context.balance();
     if !transaction_balance.is_zero() {
@@ -374,22 +376,24 @@ where
 
     let witness_set = transaction.witnesses.deref();
 
-    verification_key_witness::execute(
-        context,
-        transaction_id,
-        witness_set.bootstrap_witness.as_deref(),
-        witness_set.verification_key_witness.as_deref(),
-    )?;
-    span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
+    if matches!(environment.mode, ValidationMode::FullValidation) {
+        verification_key_witness::execute(
+            context,
+            transaction_id,
+            witness_set.bootstrap_witness.as_deref(),
+            witness_set.verification_key_witness.as_deref(),
+        )?;
+        span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
 
-    scripts::execute(
-        context,
-        witness_set,
-        transaction_body.validity_interval(),
-        protocol_parameters,
-        transaction_body.script_data_hash,
-    )?;
-    span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
+        scripts::execute(
+            context,
+            witness_set,
+            transaction_body.validity_interval(),
+            protocol_parameters,
+            transaction_body.script_data_hash,
+        )?;
+        span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
+    }
 
     let transaction_balance = context.balance();
     if !transaction_balance.is_zero() {

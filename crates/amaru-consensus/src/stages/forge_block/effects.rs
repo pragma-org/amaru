@@ -28,7 +28,9 @@ use amaru_kernel::{
 use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_observability::{Instrument, info, info_span};
 use amaru_ouroboros::{ResourceMempool, vrf};
-use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
+use amaru_ouroboros_traits::{
+    BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError, ValidationMode,
+};
 use amaru_pure_stage::{BoxFuture, DurationDist, ExternalEffectAPI, Resources, SendData};
 
 use super::schedule::EpochSchedule;
@@ -201,7 +203,8 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 for entry in &entries {
                     let transaction = &entry.tx;
 
-                    let Ok(fragment) = validator.validate_tx(transaction, &state).await else {
+                    let Ok(fragment) = validator.validate_tx(transaction, &state, ValidationMode::Revalidation).await
+                    else {
                         continue;
                     };
 

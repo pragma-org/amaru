@@ -20,7 +20,7 @@ use amaru_kernel::{
 use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
-use amaru_ouroboros_traits::MockBlockValidator;
+use amaru_ouroboros_traits::{MockBlockValidator, ValidationMode};
 use amaru_protocols::store_effects::ResourceParameters;
 use amaru_pure_stage::{
     DeserializerGuards, Effect, ExternalEffect, StageGraph, UnknownExternalEffect,
@@ -92,7 +92,10 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 }
 
 pub fn te_validate_tx(at_stage: &str, tx: &Transaction, previous: &[VolatileFragment]) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx, previous))))
+    TraceEntry::suspend(Effect::external(
+        at_stage,
+        Box::new(ValidateTxEffect::new(tx, previous, ValidationMode::FullValidation)),
+    ))
 }
 
 pub fn te_insert(
