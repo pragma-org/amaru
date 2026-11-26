@@ -254,16 +254,16 @@ where
             witness_set.verification_key_witness.as_deref(),
         )?;
         span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
-
-        scripts::execute(
-            context,
-            witness_set,
-            transaction_body.validity_interval(),
-            protocol_parameters,
-            transaction_body.script_data_hash,
-        )?;
-        span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
     }
+
+    scripts::execute(
+        context,
+        witness_set,
+        transaction_body.validity_interval(),
+        protocol_parameters,
+        transaction_body.script_data_hash,
+    )?;
+    span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
 
     let transaction_balance = context.balance();
     if !transaction_balance.is_zero() {
@@ -384,16 +384,16 @@ where
             witness_set.verification_key_witness.as_deref(),
         )?;
         span.record(PHASE_ONE::FIELD_SIGNATURES_MICROS, elapsed_and_reset(&mut meter));
-
-        scripts::execute(
-            context,
-            witness_set,
-            transaction_body.validity_interval(),
-            protocol_parameters,
-            transaction_body.script_data_hash,
-        )?;
-        span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
     }
+
+    scripts::execute(
+        context,
+        witness_set,
+        transaction_body.validity_interval(),
+        protocol_parameters,
+        transaction_body.script_data_hash,
+    )?;
+    span.record(PHASE_ONE::FIELD_SCRIPTS_MICROS, elapsed_and_reset(&mut meter));
 
     let transaction_balance = context.balance();
     if !transaction_balance.is_zero() {

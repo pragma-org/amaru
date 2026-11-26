@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use amaru_kernel::Transaction;
+use amaru_kernel::{Slot, Transaction};
 use async_trait::async_trait;
 
 use crate::mempool::TransactionValidationError;
@@ -41,6 +41,7 @@ where
     async fn validate_tx(
         &self,
         tx: &Transaction,
+        slot: Slot,
         previous: &[State],
         mode: ValidationMode,
     ) -> Result<State, TransactionValidationError>;
@@ -55,6 +56,7 @@ where
     async fn validate_tx(
         &self,
         tx: &Transaction,
+        _slot: Slot,
         previous: &[State],
         _mode: ValidationMode,
     ) -> Result<State, TransactionValidationError> {
@@ -71,6 +73,7 @@ impl<State: Default + Send + Sync + 'static> CanValidateTxs<State> for MockCanVa
     async fn validate_tx(
         &self,
         _tx: &Transaction,
+        _slot: Slot,
         _previous: &[State],
         _mode: ValidationMode,
     ) -> Result<State, TransactionValidationError> {

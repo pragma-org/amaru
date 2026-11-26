@@ -130,11 +130,30 @@ async fn validate_and_insert(
     if let Some(result) = invalid_txs_cache.get(&digest) {
         return result.clone();
     }
-    let state = mempool.iter().await.into_iter().map(|(_, state)| state).collect::<Vec<_>>();
-    match ledger.validate_tx(&tx, &state, ValidationMode::FullValidation).await {
+
+    let incoming_tx_id = tx.tx_id();
+
+    let mut state = vec![];
+    for (tx, fragment) in mempool.iter().await.into_iter() {
+        let tx_id = tx.tx_id();
+        if incoming_tx_id == tx_id {
+            return TxInsertResult::Rejected { tx_id, reason: TxRejectReason::Duplicate };
+        }
+        state.push(fragment);
+    }
+    // NOTE: mempool validation slot
+    //
+    // A transaction accepted into the mempool can only be included in a future block. We
+    // cannnot predict when the future block will happen exactly, but we know the earliest is
+    // the next slot.
+    //
+    // This has an influence on the transaction validity interval, and it allows including
+    // transactions that should be valid immediately after the tip.
+    let slot = ledger.volatile_tip().await.slot_or_default() + 1;
+    match ledger.validate_tx(&tx, slot, &state, ValidationMode::FullValidation).await {
         Ok(fragment) => mempool.insert(tx, fragment, origin.clone()).await,
         Err(error) => {
-            let result = TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error));
+            let result = TxInsertResult::rejected(incoming_tx_id, TxRejectReason::Invalid(error));
             invalid_txs_cache.remember(digest, &result);
             result
         }
@@ -149,8 +168,12 @@ async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects<VolatileFragmen
 
     let mut invalid_tx_ids = vec![];
     let mut state = Vec::new();
+    // NOTE: mempool validation slot
+    //
+    // See above note.
+    let slot = tip.slot_or_default() + 1;
     for (tx, _) in entries {
-        match ledger.validate_tx(&tx, &state, ValidationMode::Revalidation).await {
+        match ledger.validate_tx(&tx, slot, &state, ValidationMode::Revalidation).await {
             Ok(fragment) => {
                 state.push(fragment);
             }

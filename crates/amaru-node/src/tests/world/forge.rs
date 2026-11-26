@@ -22,7 +22,10 @@
 use std::{ops::Range, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    effects::{ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourceEraHistory, ResourceTxValidation},
+    effects::{
+        ResourceBlockBuilderConstraints, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory,
+        ResourceTxValidation,
+    },
     performance::{Performance, ResourcePerformance},
     stages::{
         forge_block::{
@@ -169,6 +172,7 @@ impl ForgeWorld {
             builder.wire_up(submit_stage, SubmitterState { mempool: mempool_stage.clone().without_state() });
         builder.resources().put::<ResourceHeaderStore>(store.clone());
         builder.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(mempool.clone());
+        builder.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::new(Point::Origin)));
         builder.resources().put::<ResourceBlockBuilderConstraints>(validator);
         builder.resources().put::<ResourceConsensusParameters>(Arc::new(consensus_parameters));
         builder.resources().put::<ResourceParameters>(PREPROD_GLOBAL_PARAMETERS.clone());
@@ -476,6 +480,7 @@ impl CanValidateTxs<VolatileFragment> for RejectConflictingInputs {
     async fn validate_tx(
         &self,
         tx: &Transaction,
+        _slot: Slot,
         previous: &[VolatileFragment],
         _mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {

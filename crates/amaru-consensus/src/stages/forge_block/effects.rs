@@ -203,7 +203,8 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 for entry in &entries {
                     let transaction = &entry.tx;
 
-                    let Ok(fragment) = validator.validate_tx(transaction, &state, ValidationMode::Revalidation).await
+                    let Ok(fragment) =
+                        validator.validate_tx(transaction, this.slot, &state, ValidationMode::Revalidation).await
                     else {
                         continue;
                     };

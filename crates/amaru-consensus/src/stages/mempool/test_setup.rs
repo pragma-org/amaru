@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Transaction, TransactionBody, TransactionInput, WitnessSet,
+    Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Slot, Transaction, TransactionBody, TransactionInput,
+    WitnessSet,
     cbor::{WithOriginalBytes, WithSize},
     size::TRANSACTION_BODY,
 };
@@ -34,6 +35,7 @@ use super::*;
 use crate::{
     effects::{
         RecordMetricsEffect, ResourceBlockValidation, ResourceEraHistory, ResourceTxValidation, ValidateTxEffect,
+        VolatileTipEffect,
     },
     stages::test_utils::{BufferWriter, Logs, install_test_log_capture, start_in_era},
 };
@@ -59,6 +61,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<MempoolMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<Vec<TxInsertResult>>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<ValidateTxEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<RecordMetricsEffect>().boxed(),
     ]
 }
@@ -94,8 +97,12 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 pub fn te_validate_tx(at_stage: &str, tx: &Transaction, previous: &[VolatileFragment]) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(ValidateTxEffect::new(tx, previous, ValidationMode::FullValidation)),
+        Box::new(ValidateTxEffect::new(tx, Slot::from(1), previous, ValidationMode::FullValidation)),
     ))
+}
+
+pub fn te_volatile_tip(at_stage: &str) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(VolatileTipEffect)))
 }
 
 pub fn te_insert(
