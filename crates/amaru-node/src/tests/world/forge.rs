@@ -35,8 +35,8 @@ use amaru_consensus::{
 use amaru_kernel::{
     Block, BlockBodyBuilder, BlockBuilderConstraints, ConsensusParameters, Epoch, HasTransactionId, HeaderHash,
     IsHeader, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point,
-    ProtocolVersion, Redeemers, ReferenceInputs, Slot, Transaction, WitnessSet, cbor::WithOriginalBytes,
-    maths::FixedDecimal,
+    ProtocolVersion, Redeemers, ReferenceInputs, Slot, Transaction, TransactionBody, WitnessSet,
+    cbor::WithOriginalBytes, maths::FixedDecimal,
 };
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxOrigin, in_memory_chain_store::InMemoryChainStore};
@@ -422,6 +422,43 @@ fn world_forge_includes_transaction_submitted_before_take() {
 
     assert_eq!(block.into_iter().map(|(_, tx)| tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
     assert!(forge.mempool.read().iter().next().is_none(), "selected transaction must leave the mempool");
+}
+
+/// `forge.conflicting_transactions`: two admitted transactions spend the same input.
+///
+/// Both submissions go through the local submission stage and are therefore admitted by the
+/// production mempool. The oracle is the forged block: a block must not contain both transactions,
+/// because they cannot both spend the same UTxO. This currently fails because the mempool has no
+/// input-conflict index and body selection iterates every admitted transaction independently.
+#[test]
+fn world_forge_does_not_include_conflicting_transactions() {
+    let mut forge = ForgeWorld::new(Point::Origin);
+    let first = create_transaction(10).into_inner();
+    let input = first.body.inputs.iter().next().copied().expect("fixture transaction has an input");
+    let second = Transaction { body: TransactionBody::new([input], [], 1), ..first.clone() };
+    let first_id = first.tx_id();
+    let second_id = second.tx_id();
+
+    forge.submit_and_settle(first.into());
+    forge.world.run_until_horizon(1_000_000_000);
+    forge.submit(second.into());
+    forge.world.run_until_horizon(2_000_000_000);
+    assert_eq!(
+        forge.mempool.read().iter().map(HasTransactionId::tx_id).collect::<Vec<_>>(),
+        vec![first_id, second_id],
+        "the regression requires both conflicting transactions to reach the mempool"
+    );
+
+    forge.due_lead();
+    forge.world.run_until_horizon(20_000_000_000);
+
+    let header = forge.store.load_headers().next().expect("conflicting submissions must trigger a forge");
+    let block = forge.load_block(&header.hash());
+    assert_eq!(
+        block.into_iter().map(|(_, tx)| tx.tx_id()).collect::<Vec<_>>(),
+        vec![first_id],
+        "a forged block must not contain two transactions spending the same input"
+    );
 }
 
 /// `forge.submit_after_take`: a submission arriving after body selection belongs to a later block.
