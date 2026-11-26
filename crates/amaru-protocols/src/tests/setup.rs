@@ -22,13 +22,13 @@ use std::{
     time::Duration,
 };
 
-use amaru_kernel::{NonEmptyBytes, Peer, Transaction, cbor::WithOriginalBytes};
+use amaru_kernel::{NonEmptyBytes, Peer, Transaction};
 use amaru_network::connection::TokioConnections;
 use amaru_observability::tracing;
 use amaru_ouroboros_traits::{
     BaseReadChainStore, CanValidateBlocks, CanValidateTxs, ConnectionId, ConnectionProvider, ConnectionsResource,
-    DiagnosticChainStore, HasStakePools, Mempool, MockBlockValidator, MockCanValidateTxs, PeerTrackingResource,
-    ResourceMempool, has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
+    DiagnosticChainStore, HasStakePools, MockBlockValidator, MockCanValidateTxs, PeerTrackingResource, ResourceMempool,
+    has_stake_pools::MockHasStakePools, in_memory_chain_store::InMemoryChainStore,
 };
 use amaru_pure_stage::{BoxFuture, StageGraph, tokio::TokioBuilder};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -60,7 +60,7 @@ pub(super) type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
 /// In particular set up an in-memory chain store with different chain lengths for the initiator and responder.
 pub(super) fn set_resources(
     chain_store: Arc<InMemoryChainStore>,
-    mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+    mempool: ResourceMempool<Transaction>,
     network: &mut TokioBuilder,
     connections: TokioConnections,
 ) -> anyhow::Result<Arc<InMemoryPeerTracking>> {
@@ -70,7 +70,7 @@ pub(super) fn set_resources(
 /// Add resources for each role with a custom connection provider.
 pub(super) fn set_resources_with_connections(
     chain_store: Arc<InMemoryChainStore>,
-    mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+    mempool: ResourceMempool<Transaction>,
     network: &mut TokioBuilder,
     connections: ConnectionsResource,
 ) -> anyhow::Result<Arc<InMemoryPeerTracking>> {

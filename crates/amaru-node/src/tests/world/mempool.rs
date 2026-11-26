@@ -25,21 +25,25 @@ use std::sync::Arc;
 
 use amaru_consensus::effects::ResourceTxValidation;
 use amaru_kernel::{Hash, Point, Slot, Transaction, cbor::WithOriginalBytes, to_cbor};
-use amaru_mempool::{InMemoryMempool, MempoolConfig};
-use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, ResourceMempool, TxInsertResult, TxOrigin};
+use amaru_ledger::state::volatile::VolatileFragment;
+use amaru_mempool::MempoolConfig;
+use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, ResourceMempool, TxOrigin};
 use amaru_ouroboros_traits::TransactionValidationError;
 use amaru_pure_stage::StageRef;
 use parking_lot::Mutex;
 use tokio::runtime::Runtime;
 
 use super::{WorldConnectionProvider, WorldLoop, build_world_node_with_mempool_stage};
-use crate::tests::{configuration::NodeTestConfig, test_data::create_transaction};
+use crate::{
+    mempool::Pool,
+    tests::{configuration::NodeTestConfig, test_data::create_transaction},
+};
 
 struct MempoolWorld {
     world: WorldLoop,
     _runtime: Runtime,
     mempool_stage: StageRef<MempoolMsg>,
-    mempool: ResourceMempool<Transaction>,
+    mempool: ResourceMempool<Transaction, VolatileFragment>,
     ledger_tip: Arc<Mutex<Point>>,
 }
 
@@ -53,16 +57,17 @@ impl MempoolWorld {
             .with_seed(0x004D_454D_504F_4F4C);
         let (running, mempool_stage) =
             build_world_node_with_mempool_stage(&config, provider.clone(), runtime.handle()).expect("world node");
-        let mempool = running.resources().get::<ResourceMempool<Transaction>>().expect("mempool").clone();
+        let mempool =
+            running.resources().get::<ResourceMempool<Transaction, VolatileFragment>>().expect("mempool").clone();
         let world = WorldLoop::new(provider, vec![running]);
         Self { world, _runtime: runtime, mempool_stage, mempool, ledger_tip: Arc::new(Mutex::new(Point::Origin)) }
     }
 
     fn validate_expected_validity(&self) {
         let ledger_tip = self.ledger_tip.clone();
-        let validator: ResourceTxValidation = Arc::new(move |tx: &Transaction| {
+        let validator: ResourceTxValidation = Arc::new(move |tx: &Transaction, _previous: &[VolatileFragment]| {
             if tx.is_expected_valid && tx.body.validity_interval().includes(ledger_tip.lock().slot()) {
-                Ok(())
+                Ok(VolatileFragment::default())
             } else {
                 Err(TransactionValidationError::from(anyhow::anyhow!("transaction rejected by test validator")))
             }
@@ -75,7 +80,7 @@ impl MempoolWorld {
     }
 
     fn reject_everything(&self) {
-        let validator: ResourceTxValidation = Arc::new(|_: &Transaction| {
+        let validator: ResourceTxValidation = Arc::new(|_: &Transaction, _previous: &[VolatileFragment]| {
             Err(TransactionValidationError::from(anyhow::anyhow!("transaction invalid after tip")))
         });
         self.world.graph(0).resources().put(validator);
@@ -110,7 +115,7 @@ fn world_mempool_rejects_invalid_and_duplicate_transactions() {
     assert_eq!(test.state().tx_count, 1);
     assert_eq!(test.mempool.last(), MempoolSeqNo(1));
     assert_eq!(
-        test.mempool.read().iter().map(|tx| tx.tx_id()).collect::<Vec<_>>(),
+        test.mempool.read().iter().map(|(tx, _)| tx.tx_id()).collect::<Vec<_>>(),
         vec![create_transaction(0).tx_id()]
     );
 }
@@ -122,8 +127,8 @@ fn world_mempool_duplicate_storm_does_not_consume_capacity_or_sequence_numbers()
 
     let tx = create_transaction(5);
     let max_bytes = to_cbor(&tx).len() as u64;
-    let limited: ResourceMempool<Transaction> =
-        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
+    let limited: ResourceMempool<Transaction, VolatileFragment> =
+        Arc::new(Pool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
     test.world.graph(0).resources().put(limited.clone());
     test.mempool = limited;
 
@@ -141,8 +146,8 @@ fn world_mempool_rejects_transactions_after_capacity_without_partial_overflow() 
 
     let first = create_transaction(2);
     let max_bytes = to_cbor(&first).len() as u64;
-    let limited: ResourceMempool<Transaction> =
-        Arc::new(InMemoryMempool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
+    let limited: ResourceMempool<Transaction, VolatileFragment> =
+        Arc::new(Pool::new(MempoolConfig::default().with_max_bytes(max_bytes)));
     test.world.graph(0).resources().put(limited.clone());
     test.mempool = limited;
 
@@ -156,7 +161,7 @@ fn world_mempool_rejects_transactions_after_capacity_without_partial_overflow() 
 fn world_mempool_revalidation_evicts_transactions_invalidated_by_the_new_tip() {
     let mut test = MempoolWorld::new();
     let tx = create_transaction(4);
-    assert!(matches!(test.mempool.insert(tx, TxOrigin::Local), TxInsertResult::Accepted { .. }));
+    test.insert_batch(vec![tx]);
     test.reject_everything();
 
     test.world.enqueue_msg(0, &test.mempool_stage, MempoolMsg::NewTip(Point::Origin));

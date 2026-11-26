@@ -19,7 +19,7 @@ use std::{iter, ops::Deref};
 ///
 /// A key can be registered at most once and then re-registered once more in the same reduced
 /// state, so this stores the current registration together with an optional replacement.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Registrations<V>((V, Option<V>));
 
 impl<V> Registrations<V> {

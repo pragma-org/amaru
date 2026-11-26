@@ -44,7 +44,18 @@ use crate::{
 };
 
 pub fn register_deserializers() -> amaru_pure_stage::DeserializerGuards {
-    vec![initiator::register_deserializers(), responder::register_deserializers()].into_iter().flatten().collect()
+    register_deserializers_with_state::<()>()
+}
+
+pub fn register_deserializers_with_state<MempoolState>() -> amaru_pure_stage::DeserializerGuards
+where
+    MempoolState:
+        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+{
+    vec![initiator::register_deserializers::<MempoolState>(), responder::register_deserializers::<MempoolState>()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 pub fn spec<R: RoleT>() -> crate::protocol::ProtoSpec<State, Message, R>
@@ -88,10 +99,46 @@ pub async fn register_tx_submission(
     era_history: Arc<EraHistory>,
     tombstone: ConnectionMessage,
 ) -> Option<StageRef<initiator::InitiatorLocalIn>> {
+    register_tx_submission_with_state::<()>(
+        role,
+        peer,
+        conn_id,
+        muxer,
+        eff,
+        origin,
+        mempool_stage,
+        params,
+        era_history,
+        tombstone,
+    )
+    .await
+}
+
+#[expect(clippy::too_many_arguments)]
+pub async fn register_tx_submission_with_state<MempoolState>(
+    role: Role,
+    peer: Peer,
+    conn_id: ConnectionId,
+    muxer: StageRef<mux::MuxMessage>,
+    eff: &Effects<ConnectionMessage>,
+    origin: TxOrigin,
+    mempool_stage: StageRef<MempoolMsg>,
+    params: ResponderParams,
+    era_history: Arc<EraHistory>,
+    tombstone: ConnectionMessage,
+) -> Option<StageRef<initiator::InitiatorLocalIn>>
+where
+    MempoolState:
+        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+{
     let (handler, close) = if role == Role::Initiator {
-        let (state, stage) =
-            initiator::TxSubmissionInitiator::new(peer, muxer.clone(), mempool_stage.clone(), era_history);
-        let tx_submission = eff.stage("tx_submission", initiator::initiator()).await;
+        let (state, stage) = initiator::TxSubmissionInitiator::<MempoolState>::new(
+            peer,
+            muxer.clone(),
+            mempool_stage.clone(),
+            era_history,
+        );
+        let tx_submission = eff.stage("tx_submission", initiator::initiator::<MempoolState>()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
         (
@@ -99,7 +146,7 @@ pub async fn register_tx_submission(
             Some(tx_submission.contramap(Inputs::<initiator::InitiatorLocalIn>::Local)),
         )
     } else {
-        let (state, stage) = responder::TxSubmissionResponder::new(
+        let (state, stage) = responder::TxSubmissionResponder::<MempoolState>::new(
             peer,
             conn_id,
             muxer.clone(),
@@ -108,7 +155,7 @@ pub async fn register_tx_submission(
             mempool_stage,
             era_history,
         );
-        let tx_submission = eff.stage("tx_submission-responder", responder::responder()).await;
+        let tx_submission = eff.stage("tx_submission-responder", responder::responder::<MempoolState>()).await;
         let tx_submission = eff.supervise(tx_submission, tombstone);
         let tx_submission = eff.wire_up(tx_submission, (state, stage)).await;
         (tx_submission.contramap(Inputs::<ResponderLocalIn>::Network), None)

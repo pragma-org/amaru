@@ -18,6 +18,7 @@ use amaru_kernel::{
     ConsensusParameters, KesPeriod, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, PoolId, ProtocolVersion,
     Transaction, cbor::WithOriginalBytes,
 };
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::{Meter, MetricsEvent};
 use amaru_ouroboros::ResourceMempool;
@@ -58,7 +59,7 @@ pub struct TestPrep {
     pub rt: tokio::runtime::Runtime,
     pub store: Arc<InMemoryChainStore>,
     pub credentials: Option<Arc<TestCredentials>>,
-    pub mempool: ResourceMempool<Transaction>,
+    pub mempool: ResourceMempool<Transaction, VolatileFragment>,
     /// Metric events the stage recorded, in order.
     pub metrics: Arc<Mutex<Vec<MetricsEvent>>>,
 }
@@ -80,7 +81,7 @@ pub fn test_prep() -> TestPrep {
         rt: crate::stages::test_utils::test_runtime(),
         store: Arc::new(InMemoryChainStore::new()),
         credentials: Some(Arc::new(credentials)),
-        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default())),
         metrics: Arc::new(Mutex::new(Vec::new())),
     }
 }
@@ -150,7 +151,7 @@ fn setup_with(
         |resources| {
             resources.put::<ResourceHeaderStore>(prep.store.clone());
             prep.mempool.set_tip(ledger_tip);
-            resources.put::<ResourceMempool<Transaction>>(prep.mempool.clone());
+            resources.put::<ResourceMempool<Transaction, VolatileFragment>>(prep.mempool.clone());
             resources.put::<ResourceBlockBuilderConstraints>(Arc::new(MockBlockValidator::new(ledger_tip)));
             resources.put::<crate::performance::ResourcePerformance>(std::sync::Arc::new(
                 crate::performance::Performance::new(),

@@ -24,14 +24,14 @@ pub fn create_transactions(number: u16) -> Vec<WithOriginalBytes<Transaction>> {
 }
 
 pub fn create_transactions_in_mempool(
-    mempool: &dyn Mempool<WithOriginalBytes<Transaction>>,
+    mempool: &dyn Mempool<WithOriginalBytes<Transaction>, ()>,
     number: u16,
 ) -> Vec<WithOriginalBytes<Transaction>> {
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
         txs.push(tx.clone());
-        mempool.insert(tx, TxOrigin::Local);
+        mempool.insert(tx, (), TxOrigin::Local);
     }
     txs
 }

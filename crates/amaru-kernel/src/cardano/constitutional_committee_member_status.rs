@@ -19,7 +19,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Just, Strategy, any, prop_oneo
 
 use crate::{Credential, cbor, utils::cbor::SerialisedAsArray};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum ConstitutionalCommitteeMemberStatus {
     DelegatedToHotCredential(Credential),
 

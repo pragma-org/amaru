@@ -25,6 +25,7 @@ use amaru_kernel::{
     BlockBodyBuilder, BlockBodyParts, Epoch, HeaderHash, KesPeriod, KesSignature, Nonce, Point, PoolId, Slot,
     Transaction, maths::FixedDecimal,
 };
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_observability::{info, info_span};
 use amaru_ouroboros::{ResourceMempool, vrf};
 use amaru_ouroboros_traits::{BlockBuilderConstraintsResponse, ForgingCredentials, ForgingCredentialsError};
@@ -160,7 +161,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         let mempool = resources
-            .get::<ResourceMempool<Transaction>>()
+            .get::<ResourceMempool<Transaction, VolatileFragment>>()
             .expect("ResourceMempool must be registered before the forge stage is started")
             .clone();
 
@@ -195,7 +196,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 // or reverse the problem and have the iterator return batches of dependent
                 // transactions. Skipping one transaction from the batch should skip all the subsequent
                 // one and move to the next batch.
-                for transaction in mempool_view.iter() {
+                for (transaction, _) in mempool_view.iter() {
                     // The ledger tip can be older than the slot being forged. Revalidation at the
                     // previous tip is therefore not sufficient to prove that the transaction is
                     // still valid for this block.

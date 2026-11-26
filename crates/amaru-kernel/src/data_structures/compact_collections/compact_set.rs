@@ -122,6 +122,19 @@ impl<T: Ord, const N: usize> Default for CompactSet<T, N> {
     }
 }
 
+impl<T: Ord + serde::Serialize, const N: usize> serde::Serialize for CompactSet<T, N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.iter())
+    }
+}
+
+impl<'de, T: Ord + serde::Deserialize<'de>, const N: usize> serde::Deserialize<'de> for CompactSet<T, N> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let values = Vec::<T>::deserialize(deserializer)?;
+        Ok(values.into_iter().collect())
+    }
+}
+
 impl<T: Ord, const N: usize> FromIterator<T> for CompactSet<T, N> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();

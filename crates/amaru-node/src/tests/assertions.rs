@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use amaru_kernel::{Transaction, utils::string::ListToString};
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_ouroboros::{DiagnosticChainStore, ResourceMempool};
 use amaru_pure_stage::Resources;
 
@@ -28,10 +29,10 @@ use crate::tests::configuration::get_tx_ids;
 ///
 pub fn check_state(initiator_resources: &Resources, responder_resources: &Resources) -> anyhow::Result<()> {
     let responder_chain_store = responder_resources.get::<Arc<dyn DiagnosticChainStore>>()?.clone();
-    let responder_mempool = responder_resources.get::<ResourceMempool<Transaction>>()?.clone();
+    let responder_mempool = responder_resources.get::<ResourceMempool<Transaction, VolatileFragment>>()?.clone();
 
     let initiator_chain_store = initiator_resources.get::<Arc<dyn DiagnosticChainStore>>()?.clone();
-    let initiator_mempool = initiator_resources.get::<ResourceMempool<Transaction>>()?.clone();
+    let initiator_mempool = initiator_resources.get::<ResourceMempool<Transaction, VolatileFragment>>()?.clone();
 
     // Verify that the 2 nodes have the same best chain
     let initiator_best_chain =

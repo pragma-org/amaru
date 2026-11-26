@@ -53,7 +53,8 @@ use crate::{
     },
     startup::{StartupContext, StartupHook},
     state::volatile::{
-        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileSequence, VolatileView,
+        AnchoredVolatileFragment, StoreUpdate, VolatileDB, VolatileFragment, VolatileMempool, VolatileSequence,
+        VolatileView,
     },
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::{
@@ -695,16 +696,18 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     fn create_transaction_validation_context(
         &self,
         transaction: &Transaction,
+        previous_fragments: &[VolatileFragment],
     ) -> Result<DefaultValidationContext, StateError> {
         let transaction_id = transaction.tx_id();
         debug_span!(ledger::transaction_validation_context::CREATE, id = transaction_id).in_scope(|| {
             let mut ctx = DefaultPreparationContext::new();
             rules::prepare_transaction(&mut ctx, &transaction.body);
             let db = &self.stable;
+            let volatile = VolatileMempool::new(&self.volatile, previous_fragments.iter());
             ctx.into_validation_context(
                 UnresolvedInputPolicy::Reject,
                 self.volatile.proposals_roots().cloned().unwrap_or(db.proposals_roots().map_err(StateError::Storage)?),
-                &self.volatile,
+                &volatile,
                 db,
             )
             .map_err(StateError::ContextHydratation)
@@ -722,11 +725,11 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         transaction: &Transaction,
         slot: Slot,
         arena_pool: &ArenaPool,
-    ) -> Result<(), TransactionValidationError> {
+        previous_fragments: &[VolatileFragment],
+    ) -> Result<VolatileFragment, TransactionValidationError> {
         let transaction_id = transaction.tx_id();
-
         let mut context = self
-            .create_transaction_validation_context(transaction)
+            .create_transaction_validation_context(transaction, previous_fragments)
             .map_err(|error| TransactionValidationError::Preparation { transaction_id, error })?;
 
         rules::block::validate_transaction(
@@ -741,6 +744,7 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
             TransactionPointer { slot, transaction_index: 0 },
             transaction.tx_ref(),
         )
+        .map(|_| VolatileFragment::from(context))
         .map_err(|violation| TransactionValidationError::Validation { transaction_id, violation: Box::new(violation) })
     }
 

@@ -24,7 +24,7 @@ use crate::state::volatile::Existence;
 ///
 /// `PRODUCED` and `CONSUMED` are the promotion thresholds of the backing compact collections; the
 /// defaults promote immediately, behaving like plain B-trees.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DiffSet<K: Ord, V, const PRODUCED: usize = 0, const CONSUMED: usize = 0> {
     /// Keys consumed by this diff.
     pub consumed: CompactSet<K, CONSUMED>,

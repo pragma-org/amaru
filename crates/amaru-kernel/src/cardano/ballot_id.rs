@@ -17,7 +17,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{ProposalId, Voter, cbor};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct BallotId {
     pub proposal: ProposalId,
     pub voter: Voter,

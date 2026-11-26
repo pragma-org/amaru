@@ -20,19 +20,27 @@ use crate::{
 };
 
 pub fn register_deserializers() -> DeserializerGuards {
+    register_deserializers_with_mempool_state::<()>()
+}
+
+pub fn register_deserializers_with_mempool_state<MempoolState>() -> DeserializerGuards
+where
+    MempoolState:
+        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+{
     let mut guards: DeserializerGuards = Vec::new();
     guards.extend(accept::register_deserializers());
     guards.extend(blockfetch::register_deserializers());
     guards.extend(chainsync::register_deserializers());
-    guards.extend(connection::register_deserializers());
+    guards.extend(connection::register_deserializers_with_mempool_state::<MempoolState>());
     guards.extend(handshake::register_deserializers());
     guards.extend(keepalive::register_deserializers());
-    guards.extend(manager::register_deserializers());
+    guards.extend(manager::register_deserializers_with_mempool_state::<MempoolState>());
     guards.extend(mux::register_deserializers());
     guards.extend(network_effects::register_deserializers());
     guards.extend(peer_sharing::register_deserializers());
     guards.extend(peer_tracking_effects::register_deserializers());
     guards.extend(store_effects::register_deserializers());
-    guards.extend(tx_submission::register_deserializers());
+    guards.extend(tx_submission::register_deserializers_with_state::<MempoolState>());
     guards
 }

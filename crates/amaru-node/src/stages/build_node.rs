@@ -30,7 +30,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
-    state::State,
+    state::{State, volatile::VolatileFragment},
     store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
@@ -62,7 +62,7 @@ use tokio::runtime::Handle;
 use crate::{
     ClearValidity,
     chain_realign::ensure_store_consistency,
-    mempool::MempoolServices,
+    mempool::{MempoolServices, Pool},
     realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
@@ -258,7 +258,7 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
     let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let sender = stage_builder.input(node_stages.mempool_stage());
-    let pool = stage_builder.resources().take::<Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>>()?;
+    let pool = stage_builder.resources().take::<Arc<Pool>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
     let (mempool, mempool_guard) = MempoolServices::new(&pool, sender, tokio_running.termination());
     Ok(NodeRunning { tokio_running, mempool, mempool_guard, lifecycle, listen_address })
@@ -578,10 +578,9 @@ fn register_resources(
     let connections =
         Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
-    let mempool = Arc::new(InMemoryMempool::new(mempool_config));
+    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(mempool_config));
     mempool.set_tip(ledger_tip);
-    stage_graph.resources().put(mempool.clone());
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
+    stage_graph.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(mempool.clone());
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);

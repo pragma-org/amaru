@@ -15,7 +15,7 @@
 use crate::state::volatile::Resettable;
 
 /// An empty struct to indicate unused left or right delegations in a `Bind`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Empty;
 
 /// A structure that captures:
@@ -23,7 +23,7 @@ pub struct Empty;
 /// 1. An optional value `V`
 /// 2. An optional left-delegation `L`
 /// 3. An optional right-delegation `R`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Bind<L, R, V> {
     /// Pending update for the left binding.
     pub left: Resettable<L>,

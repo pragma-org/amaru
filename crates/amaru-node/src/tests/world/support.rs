@@ -15,6 +15,7 @@
 //! Shared trace matchers for `generated` and `real_data` world tests.
 
 use amaru_kernel::IsHeader;
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_pure_stage::{
     Effect, TraceMatch, register_data_deserializer, register_effect_deserializer, tm_external_effect_any,
     trace_buffer::TraceEntry,
@@ -67,7 +68,7 @@ pub(super) fn derive_seed(master: u64, tag: u64) -> u64 {
 
 /// Hydrate production-graph traces as typed chainsync / header-validation values.
 pub(super) fn fragment_trace_guards() -> amaru_pure_stage::DeserializerGuards {
-    let mut guards = amaru_protocols::deserializers::register_deserializers();
+    let mut guards = amaru_protocols::deserializers::register_deserializers_with_mempool_state::<VolatileFragment>();
     guards.push(register_data_deserializer::<amaru_consensus::stages::track_peers::TrackPeersMsg>().boxed());
     guards.push(register_data_deserializer::<amaru_protocols::chainsync::ChainSyncInitiatorMsg>().boxed());
     guards.push(register_effect_deserializer::<amaru_consensus::effects::ValidateHeaderEffect>().boxed());

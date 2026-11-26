@@ -15,6 +15,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use amaru_kernel::{ConsensusParameters, EraHistory, Header, PeerCandidate, Point, Transaction};
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_metrics::ledger::LedgerMetrics;
 use amaru_observability::{AttachedSpan, NoParent, TraceContext, amaru::consensus::block::VALIDATE};
 use amaru_ouroboros_traits::{
@@ -31,7 +32,11 @@ use crate::validate_header::ValidateHeaderError;
 /// Ledger operations available to a stage.
 /// This trait can have mock implementations for unit testing a stage.
 pub trait LedgerOps: Send + Sync {
-    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>>;
+    fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[VolatileFragment],
+    ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>>;
 
     /// Validate a header and return its evolved nonces, which the caller is expected to store
     /// atomically with the header itself.
@@ -95,8 +100,12 @@ impl Ledger<VALIDATE> {
 }
 
 impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
-    fn validate_tx(&self, tx: &Transaction) -> BoxFuture<'_, Result<(), TransactionValidationError>> {
-        self.effects.external(ValidateTxEffect::new(tx))
+    fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[VolatileFragment],
+    ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>> {
+        self.effects.external(ValidateTxEffect::new(tx, previous))
     }
 
     fn validate_header(&self, header: &Header) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
@@ -134,7 +143,7 @@ impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
 /// Resource types for ledger operations.
 pub type ResourceBlockValidation = Arc<dyn CanValidateBlocks + Send + Sync>;
 pub type ResourceBlockBuilderConstraints = Arc<dyn CanReadBlockBuilderConstraints + Send + Sync>;
-pub type ResourceTxValidation = Arc<dyn CanValidateTxs + Send + Sync>;
+pub type ResourceTxValidation = Arc<dyn CanValidateTxs<VolatileFragment> + Send + Sync>;
 pub type ResourceHasStakePools = Arc<dyn HasStakePools + Send + Sync>;
 pub type ResourceEraHistory = EraHistory;
 pub type ResourceConsensusParameters = Arc<ConsensusParameters>;
@@ -143,22 +152,23 @@ pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ValidateTxEffect {
     tx: Transaction,
+    previous: Vec<VolatileFragment>,
 }
 
 impl ValidateTxEffect {
-    pub fn new(tx: &Transaction) -> Self {
-        Self { tx: tx.clone() }
+    pub fn new(tx: &Transaction, previous: &[VolatileFragment]) -> Self {
+        Self { tx: tx.clone(), previous: previous.to_vec() }
     }
 }
 
 impl PartialEq for ValidateTxEffect {
     fn eq(&self, other: &Self) -> bool {
-        self.tx == other.tx
+        self.tx == other.tx && self.previous == other.previous
     }
 }
 
 impl ExternalEffectAPI for ValidateTxEffect {
-    type Response = Result<(), TransactionValidationError>;
+    type Response = Result<VolatileFragment, TransactionValidationError>;
 
     #[expect(clippy::expect_used)]
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
@@ -167,7 +177,7 @@ impl ExternalEffectAPI for ValidateTxEffect {
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&this.tx).await
+            validator.validate_tx(&this.tx, &this.previous).await
         })
     }
 }

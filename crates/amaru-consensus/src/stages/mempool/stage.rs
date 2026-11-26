@@ -18,6 +18,7 @@ use std::{
 };
 
 use amaru_kernel::{Hash, Hasher, Point, Transaction, cbor::WithOriginalBytes};
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_ouroboros::{MempoolMsg, MempoolSeqNo, TxInsertResult, TxOrigin, TxRejectReason};
 use amaru_protocols::{
     mempool_effects::{AsyncMempool, MempoolEffects},
@@ -60,7 +61,7 @@ use crate::{
 ///   when `NewTip` frees some pool capacity.
 ///
 pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<MempoolMsg>) -> MempoolStageState {
-    let mempool = MempoolEffects::new(eff.clone());
+    let mempool = MempoolEffects::<VolatileFragment>::new(eff.clone());
     let ledger = Ledger::new(eff.clone());
     let metrics_ops = Metrics::new(&eff);
     let mut state = state;
@@ -120,7 +121,7 @@ pub async fn stage(state: MempoolStageState, msg: MempoolMsg, eff: Effects<Mempo
 /// `invalid_txs_cache` is a cache that is used to avoid re-validating invalid transactions.
 async fn validate_and_insert(
     ledger: &Ledger,
-    mempool: &MempoolEffects,
+    mempool: &MempoolEffects<VolatileFragment>,
     invalid_txs_cache: &mut InvalidTxsCache,
     tx: WithOriginalBytes<Transaction>,
     origin: &TxOrigin,
@@ -129,8 +130,9 @@ async fn validate_and_insert(
     if let Some(result) = invalid_txs_cache.get(&digest) {
         return result.clone();
     }
-    match ledger.validate_tx(&tx).await {
-        Ok(()) => mempool.insert(tx, origin.clone()).await,
+    let state = mempool.iter().await.into_iter().map(|(_, state)| state).collect::<Vec<_>>();
+    match ledger.validate_tx(&tx, &state).await {
+        Ok(fragment) => mempool.insert(tx, fragment, origin.clone()).await,
         Err(error) => {
             let result = TxInsertResult::rejected(tx.tx_id(), TxRejectReason::Invalid(error));
             invalid_txs_cache.remember(digest, &result);
@@ -140,15 +142,19 @@ async fn validate_and_insert(
 }
 
 /// Revalidate all the mempool transactions when a new tip has been adopted.
-async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects, tip: Point) -> RevalidationOutcome {
+async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects<VolatileFragment>, tip: Point) -> RevalidationOutcome {
     let started = Instant::now();
-    let txs = mempool.iter().await;
-    let total_before = txs.len() as u64;
+    let entries = mempool.iter().await;
+    let total_before = entries.len() as u64;
 
     let mut invalid_tx_ids = vec![];
-    for tx in txs {
-        if ledger.validate_tx(&tx).await.is_err() {
-            invalid_tx_ids.push(tx.tx_id());
+    let mut state = Vec::new();
+    for (tx, fragment) in entries {
+        match ledger.validate_tx(&tx, &state).await {
+            Ok(_) => {
+                state.push(fragment);
+            }
+            Err(_) => invalid_tx_ids.push(tx.tx_id()),
         }
     }
 

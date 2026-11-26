@@ -59,6 +59,7 @@ Other guiding principles:
 
 ### Fixed
 
+- **amaru-node**: mempool validation now carries each accepted transaction's ledger state into the next validation, preventing conflicting transactions from being admitted together and allowing valid transaction chains.
 - **amaru-consensus**: only block producers report `cardano_node_metrics_currentKESPeriod_int`, from the wall-clock KES period of their forging key. Relays no longer export it, so monitoring tools no longer show KES information for a node that cannot forge.
 - **amaru**: `node run` can start on macOS when the system DNS configuration includes an IPv6 nameserver with an interface suffix such as `%en0`.
 - **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))

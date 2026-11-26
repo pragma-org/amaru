@@ -124,6 +124,7 @@ mod tests {
         Block, Transaction, cardano::network_block::NetworkBlock, cbor::WithOriginalBytes, from_cbor, include_cbor,
         to_cbor,
     };
+    use amaru_ledger::state::volatile::VolatileFragment;
     use amaru_mempool::MempoolConfig;
     use amaru_ouroboros::ResourceMempool;
     use amaru_ouroboros_traits::{Mempool, MockBlockValidator, MockCanValidateTxs, TransactionValidationError};
@@ -182,7 +183,7 @@ mod tests {
     /// byte-identical to what was submitted rather than to our own re-encoding of it.
     #[tokio::test]
     async fn test_submission_preserves_original_transaction_bytes() -> anyhow::Result<()> {
-        let mempool = Arc::new(Pool::default());
+        let mempool = Arc::new(Pool::new(Default::default()));
         let (addr, _guard) = start_test_server_with_mempool(mempool.clone()).await?;
 
         let tx = create_transaction(0);
@@ -196,7 +197,7 @@ mod tests {
 
         let read = mempool.read();
         let stored_transactions = read.get(&[expected_tx_id]);
-        let stored = stored_transactions.first().expect("the submitted transaction in the mempool");
+        let stored = stored_transactions.first().map(|(tx, _)| tx).expect("the submitted transaction in the mempool");
         assert_eq!(to_cbor(&stored), body);
         Ok(())
     }
@@ -263,7 +264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mempool_unavailable() -> anyhow::Result<()> {
-        let mempool = Arc::new(Pool::default());
+        let mempool = Arc::new(Pool::new(Default::default()));
         let (services, running, _guard) = make_mempool_services(mempool, Arc::new(MockCanValidateTxs));
         running.request_abort();
         assert!(running.join().await?.unexpected_exits.is_empty());
@@ -312,7 +313,7 @@ mod tests {
     }
 
     async fn start_test_server() -> anyhow::Result<(SocketAddr, DropGuard)> {
-        let mempool = Arc::new(Pool::default());
+        let mempool = Arc::new(Pool::new(Default::default()));
         start_test_server_with_mempool(mempool).await
     }
 
@@ -346,7 +347,7 @@ mod tests {
         stage_graph.resources().put::<ResourceParameters>(config.global_parameters().clone());
         stage_graph.resources().put::<ResourceEraHistory>(config.era_history().clone());
         stage_graph.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::default()));
-        stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool.clone());
+        stage_graph.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(mempool.clone());
         stage_graph.resources().put::<ResourceTxValidation>(validator);
 
         let sender = stage_graph.input(mempool_stage.without_state());
@@ -356,7 +357,10 @@ mod tests {
         (services, running, guard)
     }
 
-    fn reject_transactions(_tx: &Transaction) -> Result<(), TransactionValidationError> {
+    fn reject_transactions(
+        _tx: &Transaction,
+        _previous: &[VolatileFragment],
+    ) -> Result<VolatileFragment, TransactionValidationError> {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     }
 

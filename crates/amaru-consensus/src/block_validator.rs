@@ -23,7 +23,7 @@ use std::{
 use amaru_kernel::{Block, BlockBuilderConstraints, PeerCandidate, Point, Transaction};
 use amaru_ledger::{
     rules::block::BlockValidation,
-    state::State,
+    state::{State, volatile::VolatileFragment},
     store::{HistoricalStores, Store},
 };
 use amaru_metrics::ledger::LedgerMetrics;
@@ -59,7 +59,11 @@ enum LedgerRequest {
     SwitchToFork(Point, Vec<Block>, oneshot::Sender<Result<ForkSwitchOutcome, BlockValidationError>>),
     Tip(oneshot::Sender<Point>),
     VolatileTip(oneshot::Sender<Option<Point>>),
-    ValidateTx(Box<Transaction>, oneshot::Sender<Result<(), TransactionValidationError>>),
+    ValidateTx(
+        Box<Transaction>,
+        Vec<VolatileFragment>,
+        oneshot::Sender<Result<VolatileFragment, TransactionValidationError>>,
+    ),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
     SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
@@ -234,9 +238,13 @@ fn terminated() -> BlockValidationError {
 }
 
 #[async_trait::async_trait]
-impl CanValidateTxs for BlockValidator {
-    async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), reply))
+impl CanValidateTxs<VolatileFragment> for BlockValidator {
+    async fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[VolatileFragment],
+    ) -> Result<VolatileFragment, TransactionValidationError> {
+        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), previous.to_vec(), reply))
             .await
             .map_err(|e| TransactionValidationError::from(anyhow::Error::new(e)))?
     }
@@ -340,9 +348,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                 *phase.lock() = LedgerThreadPhase::ReadingVolatileTip;
                 let _ = reply.send(self.state.volatile_tip());
             }
-            LedgerRequest::ValidateTx(tx, reply) => {
+            LedgerRequest::ValidateTx(tx, previous, reply) => {
                 *phase.lock() = LedgerThreadPhase::ValidatingTransaction;
-                let _ = reply.send(self.validate_tx(&tx));
+                let _ = reply.send(self.validate_tx(&tx, &previous));
             }
             LedgerRequest::RegisteredRelayCandidates(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
@@ -376,9 +384,13 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         }
     }
 
-    fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
+    fn validate_tx(
+        &self,
+        tx: &Transaction,
+        previous: &[VolatileFragment],
+    ) -> Result<VolatileFragment, TransactionValidationError> {
         self.state
-            .validate_tx(tx, self.state.tip().slot_or_default(), &self.vm_eval_pool)
+            .validate_tx(tx, self.state.tip().slot_or_default(), &self.vm_eval_pool, previous)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }

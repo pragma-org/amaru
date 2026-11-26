@@ -60,7 +60,7 @@ pub type VoteDiff = DiffSet<BallotId, Ballot, 1, 1>;
 pub type UtxoDiff = DiffSet<TransactionInput, Arc<MemoizedTransactionOutput>, 64, 128>;
 
 /// Resulting state change coming from processing a block.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VolatileFragment {
     pub utxo: UtxoDiff,
     pub pools: DiffEpochReg<PoolId, Arc<(PoolParams, CertificatePointer, Lovelace)>>,

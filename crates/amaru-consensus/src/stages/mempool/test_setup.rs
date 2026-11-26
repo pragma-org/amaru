@@ -17,6 +17,7 @@ use amaru_kernel::{
     cbor::{WithOriginalBytes, WithSize},
     size::TRANSACTION_BODY,
 };
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_metrics::{MetricsEvent, mempool::MempoolMetrics};
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxInsertResult, TxOrigin};
 use amaru_ouroboros_traits::MockBlockValidator;
@@ -40,7 +41,7 @@ use crate::{
 pub struct TestPrep {
     pub msg: MempoolMsg,
     pub rt: Runtime,
-    pub mempool: ResourceMempool<Transaction>,
+    pub mempool: ResourceMempool<Transaction, VolatileFragment>,
     pub validator: ResourceTxValidation,
     pub chain_store: amaru_protocols::store_effects::ResourceHeaderStore,
 }
@@ -48,6 +49,7 @@ pub struct TestPrep {
 #[derive(serde::Serialize)]
 struct InsertEffectPayload {
     tx: WithOriginalBytes<Transaction>,
+    state: VolatileFragment,
     tx_origin: TxOrigin,
 }
 
@@ -75,7 +77,7 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     network.resources().put::<ResourceParameters>(global_parameters.clone());
     network.resources().put::<ResourceEraHistory>(era_history.clone());
     network.resources().put::<ResourceBlockValidation>(std::sync::Arc::new(MockBlockValidator::default()));
-    network.resources().put::<ResourceMempool<Transaction>>(prep.mempool.clone());
+    network.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(prep.mempool.clone());
     network.resources().put::<ResourceTxValidation>(prep.validator.clone());
     network.resources().put::<amaru_protocols::store_effects::ResourceHeaderStore>(prep.chain_store.clone());
 
@@ -89,15 +91,31 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     (running, guards, logs.logs())
 }
 
-pub fn te_validate_tx(at_stage: &str, tx: &Transaction) -> TraceEntry {
-    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx))))
+pub fn te_validate_tx(at_stage: &str, tx: &Transaction, previous: &[VolatileFragment]) -> TraceEntry {
+    TraceEntry::suspend(Effect::external(at_stage, Box::new(ValidateTxEffect::new(tx, previous))))
 }
 
-pub fn te_insert(at_stage: &str, tx: &WithOriginalBytes<Transaction>, tx_origin: TxOrigin) -> TraceEntry {
-    let payload = InsertEffectPayload { tx: tx.clone(), tx_origin };
+pub fn te_insert(
+    at_stage: &str,
+    tx: &WithOriginalBytes<Transaction>,
+    state: VolatileFragment,
+    tx_origin: TxOrigin,
+) -> TraceEntry {
+    let payload = InsertEffectPayload { tx: tx.clone(), state, tx_origin };
     let value = SendDataValue::from_json("payload", &payload).cast::<SendDataValue>().unwrap().value;
     let effect: Box<dyn ExternalEffect> = Box::new(UnknownExternalEffect::new(SendDataValue {
-        typetag: "amaru_protocols::mempool_effects::Insert".to_string(),
+        typetag: "amaru_protocols::mempool_effects::Insert<amaru_ledger::state::volatile::fragment::VolatileFragment>"
+            .to_string(),
+        value,
+    }));
+    TraceEntry::suspend(Effect::external(at_stage, effect))
+}
+
+pub fn te_iter(at_stage: &str) -> TraceEntry {
+    let value = SendDataValue::from_json("payload", ()).cast::<SendDataValue>().unwrap().value;
+    let effect: Box<dyn ExternalEffect> = Box::new(UnknownExternalEffect::new(SendDataValue {
+        typetag: "amaru_protocols::mempool_effects::Iter<amaru_ledger::state::volatile::fragment::VolatileFragment>"
+            .to_string(),
         value,
     }));
     TraceEntry::suspend(Effect::external(at_stage, effect))
@@ -110,7 +128,8 @@ pub fn te_send(from: impl AsRef<str>, to: impl AsRef<str>, msg: Vec<TxInsertResu
 pub fn te_mempool_state(at_stage: &str) -> TraceEntry {
     let value = SendDataValue::from_json("payload", ()).cast::<SendDataValue>().unwrap().value;
     let effect: Box<dyn ExternalEffect> = Box::new(UnknownExternalEffect::new(SendDataValue {
-        typetag: "amaru_protocols::mempool_effects::State".to_string(),
+        typetag: "amaru_protocols::mempool_effects::MempoolStateEffect<amaru_ledger::state::volatile::fragment::VolatileFragment>"
+            .to_string(),
         value,
     }));
     TraceEntry::suspend(Effect::external(at_stage, effect))

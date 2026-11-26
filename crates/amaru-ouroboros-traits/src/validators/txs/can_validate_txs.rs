@@ -19,23 +19,26 @@ use async_trait::async_trait;
 
 use crate::mempool::TransactionValidationError;
 
-pub type ResourceTxValidation = Arc<dyn CanValidateTxs>;
+pub type ResourceTxValidation<State = ()> = Arc<dyn CanValidateTxs<State>>;
 
 /// This trait abstract over the possibility to validate transactions.
 /// Concretely speaking this will be done by the ledger.
 #[async_trait]
-pub trait CanValidateTxs: Send + Sync {
-    async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError>;
+pub trait CanValidateTxs<State = ()>: Send + Sync
+where
+    State: Send + Sync + 'static,
+{
+    async fn validate_tx(&self, tx: &Transaction, previous: &[State]) -> Result<State, TransactionValidationError>;
 }
 
-/// A simple function can be used to implement the validation trait
 #[async_trait]
-impl<F> CanValidateTxs for F
+impl<F, State> CanValidateTxs<State> for F
 where
-    F: Fn(&Transaction) -> Result<(), TransactionValidationError> + Send + Sync,
+    F: Fn(&Transaction, &[State]) -> Result<State, TransactionValidationError> + Send + Sync,
+    State: Send + Sync + 'static,
 {
-    async fn validate_tx(&self, tx: &Transaction) -> Result<(), TransactionValidationError> {
-        self(tx)
+    async fn validate_tx(&self, tx: &Transaction, previous: &[State]) -> Result<State, TransactionValidationError> {
+        self(tx, previous)
     }
 }
 
@@ -44,8 +47,8 @@ where
 pub struct MockCanValidateTxs;
 
 #[async_trait]
-impl CanValidateTxs for MockCanValidateTxs {
-    async fn validate_tx(&self, _tx: &Transaction) -> Result<(), TransactionValidationError> {
-        Ok(())
+impl<State: Default + Send + Sync + 'static> CanValidateTxs<State> for MockCanValidateTxs {
+    async fn validate_tx(&self, _tx: &Transaction, _previous: &[State]) -> Result<State, TransactionValidationError> {
+        Ok(State::default())
     }
 }
