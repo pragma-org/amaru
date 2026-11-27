@@ -211,8 +211,7 @@ mod tests {
 
     #[test]
     fn treasury_excludes_mempool_donations() {
-        let mut fragment = VolatileFragment::default();
-        fragment.donations = 42_000;
+        let fragment = VolatileFragment { donations: 42_000, ..Default::default() };
         let base = VolatileDB::default();
         let view = VolatileMempool::new(&base, [&fragment]);
 

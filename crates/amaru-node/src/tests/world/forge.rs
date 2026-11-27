@@ -302,7 +302,7 @@ fn capacity_constraints(
     assert!(builder.try_push(first, &baseline).expect("first transaction must be measurable"));
 
     match dimension {
-        CapacityDimension::Size => parameters.max_block_body_size = builder.size(),
+        CapacityDimension::Size => parameters.max_block_body_size = builder.serialization_size(),
         CapacityDimension::ReferenceScript => {
             let reference_script_size = builder.ref_scripts_size();
             assert!(reference_script_size > 0, "reference script transaction must have a non-zero estimate");

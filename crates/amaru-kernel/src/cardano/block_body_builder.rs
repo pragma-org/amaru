@@ -19,8 +19,8 @@ use amaru_minicbor_extra::{CborSizeOf, IndefiniteArray, IndefiniteMap};
 use super::block_body_parts::{BlockBodyCommitment, BlockBodyParts, TransactionIndex, hash_body_cbor};
 use crate::{
     AuxiliaryData, ExUnitPrices, ExUnits, ProtocolParameters, ProtocolVersion, RationalNumber, Transaction,
-    TransactionBody, WitnessSet, cbor, cbor::WithSize, plutus_execution_fee, reference_scripts_fee, size_fee,
-    traits::HasExUnits,
+    TransactionBody, TransactionId, WitnessSet, cbor, cbor::WithSize, plutus_execution_fee, reference_scripts_fee,
+    size_fee, traits::HasExUnits,
 };
 
 /// A mutable block body under construction.
@@ -33,10 +33,25 @@ pub struct BlockBodyBuilder<'a> {
     transaction_witnesses: Vec<WithSize<&'a WitnessSet>>,
     auxiliary_data: BTreeMap<TransactionIndex, &'a AuxiliaryData>,
     invalid_transactions: BTreeSet<TransactionIndex>,
-    size: u32,
-    ex_units: ExUnits,
-    ref_scripts_size: u64,
+    sizes: BlockBodyBuilderSizes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BlockBodyBuilderSizes {
+    index: TransactionIndex,
     protocol_version: ProtocolVersion,
+    serialization: u32,
+    ex_units: ExUnits,
+    ref_scripts: u64,
+}
+
+impl BlockBodyBuilderSizes {
+    pub fn add(&mut self, rhs: &Self) {
+        self.protocol_version = rhs.protocol_version;
+        self.serialization += rhs.serialization;
+        self.ex_units = &self.ex_units + &rhs.ex_units;
+        self.ref_scripts += rhs.ref_scripts;
+    }
 }
 
 /// Limits and fee parameters needed while selecting transactions for a block.
@@ -114,10 +129,7 @@ impl Default for BlockBodyBuilder<'_> {
             transaction_witnesses: Vec::new(),
             auxiliary_data: BTreeMap::new(),
             invalid_transactions: BTreeSet::new(),
-            size: Self::FIXED_CBOR_OVERHEAD,
-            ex_units: ExUnits { mem: 0, steps: 0 },
-            ref_scripts_size: 0,
-            protocol_version: ProtocolVersion::default(),
+            sizes: BlockBodyBuilderSizes { serialization: Self::FIXED_CBOR_OVERHEAD, ..Default::default() },
         }
     }
 }
@@ -125,16 +137,28 @@ impl Default for BlockBodyBuilder<'_> {
 impl<'a> BlockBodyBuilder<'a> {
     const FIXED_CBOR_OVERHEAD: u32 = 8;
 
-    pub fn size(&self) -> u32 {
-        self.size
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.sizes.protocol_version
+    }
+
+    pub fn serialization_size(&self) -> u32 {
+        self.sizes.serialization
     }
 
     pub fn ex_units(&self) -> ExUnits {
-        self.ex_units
+        self.sizes.ex_units
     }
 
     pub fn ref_scripts_size(&self) -> u64 {
-        self.ref_scripts_size
+        self.sizes.ref_scripts
+    }
+
+    pub fn len(&self) -> usize {
+        self.transaction_bodies.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.transaction_bodies.is_empty()
     }
 
     /// Build a body while deriving each transaction's reference-script bound from its fee.
@@ -151,35 +175,30 @@ impl<'a> BlockBodyBuilder<'a> {
         Ok(builder)
     }
 
-    /// Add a transaction if all protocol block limits permit it.
-    ///
-    /// The builder is unchanged when this returns `Ok(false)`.
-    pub fn try_push(
-        &mut self,
+    /// Check whether a transaction can fit in the block, according to the given constraints.
+    pub fn try_fit(
+        &self,
         transaction: &'a Transaction,
         constraints: &BlockBuilderConstraints,
-    ) -> Result<bool, BlockBodyBuilderError> {
-        if !self.transaction_bodies.is_empty() && self.protocol_version != constraints.protocol_version {
+    ) -> Result<Option<BlockBodyBuilderSizes>, BlockBodyBuilderError> {
+        if !self.transaction_bodies.is_empty() && self.protocol_version() != constraints.protocol_version {
             return Err(BlockBodyBuilderError::ProtocolVersionMismatch {
-                expected: self.protocol_version,
+                expected: self.protocol_version(),
                 actual: constraints.protocol_version,
             });
         }
 
-        let ref_scripts_size = ref_scripts_size_upper_bound(transaction, constraints);
         let index = TransactionIndex::try_from(self.transaction_bodies.len())
             .map_err(|_| BlockBodyBuilderError::TooManyTransactions)?;
 
         let body = &transaction.body;
         let witnesses = transaction.witnesses.as_ref();
-        let is_expected_valid = transaction.is_expected_valid;
         let auxiliary_data = transaction.auxiliary_data.as_ref();
 
         let mut protocol_version = constraints.protocol_version;
 
         // Compute sizes and check whether the transaction pushes us off limit.
-        let size = u64::from(self.size)
-            .checked_add(body.len())
+        let serialization_size = Some(body.len())
             .and_then(|size| {
                 let witnesses_size = u64::try_from(cbor::to_cbor_with(&witnesses, &mut protocol_version).len()).ok()?;
                 size.checked_add(witnesses_size)
@@ -188,45 +207,78 @@ impl<'a> BlockBodyBuilder<'a> {
                 auxiliary_data.map_or(Some(size), |data| size.checked_add(index.cbor_size_of() as u64 + data.len()))
             })
             .and_then(|size| {
-                let invalid_size = if is_expected_valid { 0 } else { index.cbor_size_of() as u64 };
+                let invalid_size = if transaction.is_expected_valid { 0 } else { index.cbor_size_of() as u64 };
                 size.checked_add(invalid_size)
             })
             .ok_or(BlockBodyBuilderError::SizeOverflow)?;
 
-        let ex_units =
-            self.ex_units.checked_add(&witnesses.total_ex_units()).ok_or(BlockBodyBuilderError::SizeOverflow)?;
-        let ref_scripts_size =
-            self.ref_scripts_size.checked_add(ref_scripts_size).ok_or(BlockBodyBuilderError::SizeOverflow)?;
+        let ex_units = witnesses.total_ex_units();
 
-        if size > u64::from(constraints.max_size)
-            || ex_units.mem > constraints.max_ex_units.mem
-            || ex_units.steps > constraints.max_ex_units.steps
-            || ref_scripts_size > u64::from(constraints.max_ref_scripts_size)
+        let ref_scripts_size = ref_scripts_size_upper_bound(transaction, constraints);
+
+        let next_serialization_size = u64::from(self.serialization_size())
+            .checked_add(serialization_size)
+            .ok_or(BlockBodyBuilderError::SizeOverflow)?;
+        let next_ex_units = self.ex_units().checked_add(&ex_units).ok_or(BlockBodyBuilderError::SizeOverflow)?;
+        let next_ref_scripts_size =
+            self.ref_scripts_size().checked_add(ref_scripts_size).ok_or(BlockBodyBuilderError::SizeOverflow)?;
+
+        if next_serialization_size > u64::from(constraints.max_size)
+            || next_ex_units.mem > constraints.max_ex_units.mem
+            || next_ex_units.steps > constraints.max_ex_units.steps
+            || next_ref_scripts_size > u64::from(constraints.max_ref_scripts_size)
         {
-            return Ok(false);
+            return Ok(None);
         }
+
+        Ok(Some(BlockBodyBuilderSizes {
+            index,
+            protocol_version,
+            serialization: serialization_size as u32,
+            ex_units,
+            ref_scripts: ref_scripts_size,
+        }))
+    }
+
+    /// Add a transaction with its associated size to the builder. The size is pre-computed
+    /// independently using the `try_fit` method.
+    pub fn push(&mut self, transaction: &'a Transaction, sizes: BlockBodyBuilderSizes) {
+        let auxiliary_data = transaction.auxiliary_data.as_ref();
 
         // Push the transaction to the block when there's space
-        self.transaction_bodies.push(body);
-        self.transaction_witnesses.push(witnesses);
+        self.transaction_bodies.push(&transaction.body);
+        self.transaction_witnesses.push(transaction.witnesses.as_ref());
+
         if let Some(auxiliary_data) = auxiliary_data {
-            self.auxiliary_data.insert(index, auxiliary_data);
+            self.auxiliary_data.insert(sizes.index, auxiliary_data);
         }
-        if !is_expected_valid {
-            self.invalid_transactions.insert(index);
+
+        if !transaction.is_expected_valid {
+            self.invalid_transactions.insert(sizes.index);
         }
 
         // Update the sizes
-        self.size = size as u32;
-        self.ex_units = ex_units;
-        self.ref_scripts_size = ref_scripts_size;
-        self.protocol_version = constraints.protocol_version;
-
-        Ok(true)
+        self.sizes.add(&sizes);
     }
 
-    pub fn finalize(self) -> Result<BlockBodyParts, BlockBodyBuilderError> {
-        let mut protocol_version = self.protocol_version;
+    /// Combination of try_fit + push, does not change the builder if the transaction cannot fit. Returns Ok(true) when it was added.
+    pub fn try_push(
+        &mut self,
+        transaction: &'a Transaction,
+        constraints: &BlockBuilderConstraints,
+    ) -> Result<bool, BlockBodyBuilderError> {
+        Ok(if let Some(sizes) = self.try_fit(transaction, constraints)? {
+            self.push(transaction, sizes);
+            true
+        } else {
+            false
+        })
+    }
+
+    /// Seal the block builder and construct the relevant block body parts for signature. Also
+    /// returns the id of all selected transactions in the block.
+    pub fn finalize(self) -> Result<(BlockBodyParts, Vec<TransactionId>), BlockBodyBuilderError> {
+        let mut protocol_version = self.sizes.protocol_version;
         let encoded = [
             cbor::to_cbor_with(&IndefiniteArray(self.transaction_bodies.iter().copied()), &mut protocol_version),
             cbor::to_cbor_with(&IndefiniteArray(self.transaction_witnesses.iter().copied()), &mut protocol_version),
@@ -242,8 +294,11 @@ impl<'a> BlockBodyBuilder<'a> {
             size.checked_add(part_size).ok_or(BlockBodyBuilderError::SizeOverflow)
         })?;
 
-        if encoded_size != self.size {
-            return Err(BlockBodyBuilderError::SizeMismatch { counted: self.size, encoded: encoded_size });
+        if encoded_size != self.serialization_size() {
+            return Err(BlockBodyBuilderError::SizeMismatch {
+                counted: self.serialization_size(),
+                encoded: encoded_size,
+            });
         }
 
         let commitment = BlockBodyCommitment {
@@ -251,7 +306,10 @@ impl<'a> BlockBodyBuilder<'a> {
             size: encoded_size,
         };
 
-        Ok(BlockBodyParts::new(encoded, commitment))
+        Ok((
+            BlockBodyParts::new(encoded, commitment),
+            self.transaction_bodies.iter().map(|body| TransactionId::new(body.id())).collect(),
+        ))
     }
 }
 
@@ -309,7 +367,7 @@ mod tests {
     #[test]
     fn try_push_returns_false_without_mutating_when_size_limit_is_reached() {
         let mut builder = BlockBodyBuilder::default();
-        let initial_size = builder.size();
+        let initial_size = builder.serialization_size();
         let mut constraints = BlockBuilderConstraints::unlimited();
         constraints.max_size = initial_size;
         let initial_ex_units = builder.ex_units();
@@ -317,9 +375,9 @@ mod tests {
 
         assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
-        assert_eq!(builder.size(), initial_size);
+        assert_eq!(builder.serialization_size(), initial_size);
         assert_eq!(builder.ex_units(), initial_ex_units);
-        assert_eq!(builder.finalize().unwrap().commitment().size, initial_size);
+        assert_eq!(builder.finalize().unwrap().0.commitment().size, initial_size);
     }
 
     #[test]
@@ -327,15 +385,15 @@ mod tests {
         let mut builder = BlockBodyBuilder::default();
         let mut constraints = BlockBuilderConstraints::unlimited();
         constraints.max_ex_units = ExUnits { mem: 0, steps: 0 };
-        let initial_size = builder.size();
+        let initial_size = builder.serialization_size();
         let initial_ex_units = builder.ex_units();
         let transaction = transaction_with_ex_units();
 
         assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
-        assert_eq!(builder.size(), initial_size);
+        assert_eq!(builder.serialization_size(), initial_size);
         assert_eq!(builder.ex_units(), initial_ex_units);
-        assert_eq!(builder.finalize().unwrap().commitment().size, initial_size);
+        assert_eq!(builder.finalize().unwrap().0.commitment().size, initial_size);
     }
 
     #[test]
@@ -356,10 +414,10 @@ mod tests {
         let constraints = BlockBuilderConstraints::unlimited();
         let expected_ref_scripts_size = ref_scripts_size_upper_bound(&transaction, &constraints);
         assert!(builder.try_push(&transaction, &constraints).unwrap());
-        assert_eq!(builder.size(), expected_size);
+        assert_eq!(builder.serialization_size(), expected_size);
         assert_eq!(builder.ref_scripts_size(), expected_ref_scripts_size);
 
-        let parts = builder.finalize().expect("tracked size matches encoded body");
+        let parts = builder.finalize().expect("tracked size matches encoded body").0;
         let commitment = parts.commitment();
         let mut header = run_strategy(any::<Header>());
         header.body_mut().block_body_hash = commitment.hash;
@@ -419,8 +477,8 @@ mod tests {
 
         let constraints = BlockBuilderConstraints::unlimited();
         let builder = BlockBodyBuilder::try_from_iter(transactions.iter(), &constraints).unwrap();
-        let size = builder.size();
-        let parts = builder.finalize().unwrap();
+        let size = builder.serialization_size();
+        let parts = builder.finalize().unwrap().0;
         assert_eq!(size, parts.commitment().size);
     }
 
@@ -491,7 +549,7 @@ mod tests {
         let mut builder = BlockBodyBuilder::default();
 
         assert!(builder.try_push(&transaction, &constraints).unwrap());
-        let parts = builder.finalize().expect("original auxiliary data encoding is preserved");
+        let parts = builder.finalize().expect("original auxiliary data encoding is preserved").0;
         assert_eq!(
             parts.commitment().size,
             BlockBodyBuilder::FIXED_CBOR_OVERHEAD + transaction.body.len() as u32 + 1 + 1 + 2
@@ -501,7 +559,7 @@ mod tests {
     #[test]
     fn try_push_returns_false_when_reference_script_limit_is_reached() {
         let mut builder = BlockBodyBuilder::default();
-        let initial_size = builder.size();
+        let initial_size = builder.serialization_size();
         let mut transaction = default_transaction();
         transaction.body.fee = 1_000_000_000;
         let mut constraints = BlockBuilderConstraints::from(&*PREPROD_DEFAULT_PROTOCOL_PARAMETERS);
@@ -510,7 +568,7 @@ mod tests {
 
         assert!(!builder.try_push(&transaction, &constraints).unwrap());
 
-        assert_eq!(builder.size(), initial_size);
+        assert_eq!(builder.serialization_size(), initial_size);
         assert_eq!(builder.ref_scripts_size(), 0);
         builder.finalize().expect("unchanged builder remains valid");
     }
@@ -518,14 +576,14 @@ mod tests {
     #[test]
     fn finalize_rejects_an_inconsistent_tracked_size() {
         let mut builder = BlockBodyBuilder::default();
-        builder.size += 1;
+        builder.sizes.serialization += 1;
 
         assert!(matches!(builder.finalize(), Err(BlockBodyBuilderError::SizeMismatch { .. })));
     }
 
     #[test]
     fn finalize_commitment_matches_the_indefinite_body_encoding() {
-        let parts = BlockBodyBuilder::default().finalize().unwrap();
+        let parts = BlockBodyBuilder::default().finalize().unwrap().0;
         let commitment = parts.commitment();
         let mut header = run_strategy(any::<Header>());
         header.body_mut().block_body_hash = commitment.hash;
@@ -540,7 +598,7 @@ mod tests {
 
     #[test]
     fn try_into_block_rejects_a_header_with_a_different_commitment() {
-        let parts = BlockBodyBuilder::default().finalize().unwrap();
+        let parts = BlockBodyBuilder::default().finalize().unwrap().0;
         let header = run_strategy(any::<Header>());
         assert!(parts.try_into_block(&header, &EraHistory::default()).is_err());
     }

@@ -250,7 +250,8 @@ impl UtxoPool {
         let block_body = BlockBodyBuilder::try_from_iter(transactions.iter(), &constraints)
             .expect("failed to create block body from transactions")
             .finalize()
-            .expect("failed to finalize block body");
+            .expect("failed to finalize block body")
+            .0;
         let commitment = block_body.commitment();
 
         let mut header = make_header(height.into_u64(), height.into_u64(), None);

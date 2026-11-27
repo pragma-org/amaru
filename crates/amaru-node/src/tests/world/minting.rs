@@ -207,7 +207,7 @@ fn header_for(
     protocol_version: amaru_kernel::ProtocolVersion,
     slots_per_kes_period: u64,
 ) -> Header {
-    let commitment = BlockBodyBuilder::default().finalize().expect("empty body").commitment();
+    let commitment = BlockBodyBuilder::default().finalize().expect("empty body").0.commitment();
     let kes_period = KesPeriod::from(u64::from(slot) / slots_per_kes_period);
     let draft = HeaderDraft {
         block_number,
@@ -230,6 +230,7 @@ fn store_block(chain: &RocksDBStore, header: &Header, era: &EraHistory) {
     let raw = BlockBodyBuilder::default()
         .finalize()
         .expect("empty body")
+        .0
         .try_into_block(header, era)
         .expect("matching body commitment");
     chain.store_block(&header.hash(), &raw).expect("store block");

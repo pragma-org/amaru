@@ -199,35 +199,34 @@ impl ExternalEffectAPI for TakeForForgeEffect {
 
             let body = async {
                 let mut builder = BlockBodyBuilder::default();
-                let mut selected = Vec::new();
                 let mut state = Arc::new(Vec::new());
 
                 for entry in &entries {
                     let transaction = &entry.tx;
 
-                    let Ok(fragment) = validator
-                        .validate_tx(
-                            (**transaction).clone(),
-                            this.slot,
-                            Arc::clone(&state),
-                            ValidationMode::Revalidation,
-                        )
-                        .await
-                    else {
-                        continue;
-                    };
+                    if let Some(sizes) = builder.try_fit(transaction, &constraints)? {
+                        let Ok(fragment) = validator
+                            .validate_tx(
+                                (**transaction).clone(),
+                                this.slot,
+                                Arc::clone(&state),
+                                ValidationMode::Revalidation,
+                            )
+                            .await
+                        else {
+                            continue;
+                        };
 
-                    if builder.try_push(transaction, &constraints)? {
+                        builder.push(transaction, sizes);
                         Arc::make_mut(&mut state).push(fragment);
-                        selected.push(transaction.tx_id());
                     }
                 }
 
                 info!(
                     consensus::forge::BLOCK_BODY,
                     slot = this.slot,
-                    tx_count = selected.len() as u64,
-                    size_bytes = builder.size(),
+                    tx_count = builder.len() as u64,
+                    size_bytes = builder.serialization_size(),
                     ex_units = builder.ex_units(),
                     ref_scripts_size = builder.ref_scripts_size(),
                 );
@@ -245,6 +244,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                     .await
                     .map_err(|_| TakeForForgeError::LedgerThreadTerminated)?
                     .tip;
+
                 if latest_tip.hash() != this.parent || latest_tip.slot() > this.slot {
                     return Err(TakeForForgeError::TipsChanged {
                         ledger_tip: latest_tip,
@@ -269,7 +269,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                 // Forge-time validation rebuilds the sequence from the canonical ledger tip and the
                 // transactions selected for this block, so B, C, and D are skipped until A is present
                 // in the ledger.
-                let body = builder.finalize()?;
+                let (body, selected) = builder.finalize()?;
                 mempool.remove(&selected);
 
                 Ok::<_, TakeForForgeError>(body)

@@ -19,7 +19,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
 use crate::cbor;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, cbor::Encode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, cbor::Encode)]
 #[cbor(context_bound = "crate::cbor::HasProtocolVersion")]
 pub struct ExUnits {
     #[n(0)]
