@@ -25,6 +25,7 @@ use crate::{
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage, MiniProtocolUse},
+    mempool_effects::SerializableMempoolState,
     metrics_effects::{Metrics, MetricsOps},
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SHARE_REQUEST_AMOUNT, SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
@@ -222,8 +223,7 @@ struct Connection {
 
 impl<MempoolState> Manager<MempoolState>
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     pub fn new(
         magic: NetworkMagic,
@@ -349,8 +349,7 @@ impl Default for ManagerConfig {
 
 impl<MempoolState> Manager<MempoolState>
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     async fn add_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
         let already_dialing = matches!(
@@ -484,8 +483,7 @@ where
         conn_id: ConnectionId,
         direction: ConnectionDirection,
     ) {
-        let connection =
-            eff.stage(format!("{conn_id}-{peer}"), connection::stage_with_mempool_state::<MempoolState>).await;
+        let connection = eff.stage(format!("{conn_id}-{peer}"), connection::stage::<MempoolState>).await;
         let role = match direction {
             ConnectionDirection::Inbound => Role::Responder,
             ConnectionDirection::Outbound => Role::Initiator,
@@ -841,8 +839,7 @@ pub async fn stage<MempoolState>(
     eff: Effects<ManagerMessage>,
 ) -> Manager<MempoolState>
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let message_type = msg.message_type().to_string();
     let span = debug_span!(protocols::manager::message::PROCESS, message_type);
@@ -1033,8 +1030,7 @@ async fn close_terminated_connection(eff: &Effects<ManagerMessage>, peer: &Peer,
 
 pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let mut guards = vec![
         register_data_deserializer::<Manager<MempoolState>>().boxed(),

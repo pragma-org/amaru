@@ -39,14 +39,14 @@ pub use tests::*;
 
 use crate::{
     connection::ConnectionMessage,
+    mempool_effects::SerializableMempoolState,
     mux,
     protocol::{Inputs, PROTO_N2N_TX_SUB, ProtocolState, Role, RoleT, ingress_limit},
 };
 
 pub fn register_deserializers<MempoolState>() -> amaru_pure_stage::DeserializerGuards
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     vec![initiator::register_deserializers::<MempoolState>(), responder::register_deserializers::<MempoolState>()]
         .into_iter()
@@ -83,35 +83,7 @@ where
 }
 
 #[expect(clippy::too_many_arguments)]
-pub async fn register_tx_submission(
-    role: Role,
-    peer: Peer,
-    conn_id: ConnectionId,
-    muxer: StageRef<mux::MuxMessage>,
-    eff: &Effects<ConnectionMessage>,
-    origin: TxOrigin,
-    mempool_stage: StageRef<MempoolMsg>,
-    params: ResponderParams,
-    era_history: Arc<EraHistory>,
-    tombstone: ConnectionMessage,
-) -> Option<StageRef<initiator::InitiatorLocalIn>> {
-    register_tx_submission_with_state::<()>(
-        role,
-        peer,
-        conn_id,
-        muxer,
-        eff,
-        origin,
-        mempool_stage,
-        params,
-        era_history,
-        tombstone,
-    )
-    .await
-}
-
-#[expect(clippy::too_many_arguments)]
-pub async fn register_tx_submission_with_state<MempoolState>(
+pub async fn register_tx_submission<MempoolState>(
     role: Role,
     peer: Peer,
     conn_id: ConnectionId,
@@ -124,8 +96,7 @@ pub async fn register_tx_submission_with_state<MempoolState>(
     tombstone: ConnectionMessage,
 ) -> Option<StageRef<initiator::InitiatorLocalIn>>
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let (handler, close) = if role == Role::Initiator {
         let (state, stage) = initiator::TxSubmissionInitiator::<MempoolState>::new(

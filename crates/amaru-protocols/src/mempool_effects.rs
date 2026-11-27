@@ -21,6 +21,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::effect_timings;
 
+/// Bounds required of the state carried by a transaction through protocol stages.
+pub trait SerializableMempoolState:
+    Clone + Debug + PartialEq + Send + Sync + 'static + Serialize + serde::de::DeserializeOwned
+{
+}
+
+impl<T> SerializableMempoolState for T where
+    T: Clone + Debug + PartialEq + Send + Sync + 'static + Serialize + serde::de::DeserializeOwned
+{
+}
+
 pub trait AsyncMempool<State = ()>: Send + Sync
 where
     State: Send + Sync + 'static,
@@ -76,7 +87,7 @@ impl<State> MempoolEffects<State> {
 
 impl<State> MempoolEffects<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     pub fn insert(
         &self,
@@ -99,7 +110,7 @@ where
 
 impl<State> AsyncMempool<State> for MempoolEffects<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     fn insert(
         &self,
@@ -205,7 +216,7 @@ struct Insert<State> {
 
 impl<State> ExternalEffectAPI for Insert<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = TxInsertResult;
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Insert;
@@ -223,7 +234,7 @@ struct Iter<State>(PhantomData<State>);
 
 impl<State> ExternalEffectAPI for Iter<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = Vec<(WithOriginalBytes<Transaction>, State)>;
 
@@ -249,7 +260,7 @@ impl<State> Get<State> {
 
 impl<State> ExternalEffectAPI for Get<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = Vec<WithOriginalBytes<Transaction>>;
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Get;
@@ -276,7 +287,7 @@ impl<State> ContainsTx<State> {
 
 impl<State> ExternalEffectAPI for ContainsTx<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = bool;
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__ContainsTx;
@@ -306,7 +317,7 @@ impl<State> Slice<State> {
 
 impl<State> ExternalEffectAPI for Slice<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = Vec<(TransactionId, u32, MempoolSeqNo)>;
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Slice;
@@ -325,7 +336,7 @@ struct IterTransactions<State>(PhantomData<State>);
 
 impl<State> ExternalEffectAPI for IterTransactions<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = Vec<WithOriginalBytes<Transaction>>;
     const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Iter;
@@ -352,7 +363,7 @@ impl<State> Remove<State> {
 
 impl<State> ExternalEffectAPI for Remove<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = ();
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Remove;
@@ -371,7 +382,7 @@ struct Last<State>(PhantomData<State>);
 
 impl<State> ExternalEffectAPI for Last<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = MempoolSeqNo;
     const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__Last;
@@ -393,7 +404,7 @@ struct IsNearCapacity<State> {
 
 impl<State> ExternalEffectAPI for IsNearCapacity<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = bool;
     // const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__IsNearCapacity;
@@ -413,7 +424,7 @@ struct MempoolStateEffect<State>(PhantomData<State>);
 
 impl<State> ExternalEffectAPI for MempoolStateEffect<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = MempoolState;
     const SIMULATED_DURATION: DurationDist = effect_timings::mempool_effects__State;
@@ -441,7 +452,7 @@ impl<State> SetTip<State> {
 
 impl<State> ExternalEffectAPI for SetTip<State>
 where
-    State: Clone + Send + Sync + 'static + Debug + PartialEq + Serialize + serde::de::DeserializeOwned,
+    State: SerializableMempoolState,
 {
     type Response = ();
 

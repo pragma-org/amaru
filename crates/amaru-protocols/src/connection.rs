@@ -27,6 +27,7 @@ use crate::{
     handshake,
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
+    mempool_effects::SerializableMempoolState,
     mux::{self, MuxMessage},
     network_effects::{Network, NetworkOps},
     peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator, register_peer_sharing_responder},
@@ -201,18 +202,13 @@ impl ConnectionMessage {
     }
 }
 
-pub async fn stage(connection: Connection, msg: ConnectionMessage, eff: Effects<ConnectionMessage>) -> Connection {
-    stage_with_mempool_state(connection, msg, eff).await
-}
-
-pub async fn stage_with_mempool_state<MempoolState>(
+pub async fn stage<MempoolState>(
     Connection { params, state }: Connection<MempoolState>,
     msg: ConnectionMessage,
     eff: Effects<ConnectionMessage>,
 ) -> Connection<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let message_type = msg.message_type().to_string();
     let Params { conn_id, role, .. } = params;
@@ -369,8 +365,7 @@ async fn do_initialize<MempoolState>(
     eff: Effects<ConnectionMessage>,
 ) -> State<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let peer = *peer;
     // Same flags as the version table below. A responder always serves; an initiator serves
@@ -436,8 +431,7 @@ async fn do_handshake<MempoolState>(
     eff: Effects<ConnectionMessage>,
 ) -> State<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let Params { role, peer, conn_id, manager, .. } = params;
     let peer = *peer;
@@ -540,13 +534,12 @@ async fn register_responders<MempoolState>(
     eff: &Effects<ConnectionMessage>,
 ) -> Established<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let Params { peer, conn_id, era_history, mempool_stage, config, .. } = params;
     let died = ConnectionMessage::ChildDied(ChildId::Responder);
     let _ = register_keepalive(Role::Responder, *peer, *conn_id, s.muxer.clone(), eff, died).await;
-    let _ = tx_submission::register_tx_submission_with_state::<MempoolState>(
+    let _ = tx_submission::register_tx_submission::<MempoolState>(
         Role::Responder,
         *peer,
         *conn_id,
@@ -614,8 +607,7 @@ async fn converge_use<MempoolState>(
     eff: &Effects<ConnectionMessage>,
 ) -> Established<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     if !s.stopping.is_empty() {
         return s;
@@ -685,8 +677,7 @@ async fn on_expected_stop<MempoolState>(
     eff: &Effects<ConnectionMessage>,
 ) -> Established<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     s.stopping.remove(&child);
     match child {
@@ -765,8 +756,7 @@ async fn start_initiators<MempoolState>(
     eff: &Effects<ConnectionMessage>,
 ) -> Established<MempoolState>
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let Params { peer, conn_id, config, pipeline, mempool_stage, era_history, .. } = params;
     if s.desired_use >= MiniProtocolUse::Maintenance {
@@ -824,7 +814,7 @@ where
             );
         }
         if s.tx_submission_initiator.is_none() {
-            s.tx_submission_initiator = tx_submission::register_tx_submission_with_state::<MempoolState>(
+            s.tx_submission_initiator = tx_submission::register_tx_submission::<MempoolState>(
                 Role::Initiator,
                 *peer,
                 *conn_id,
@@ -861,8 +851,7 @@ async fn notify_local_use<MempoolState>(
 
 pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
-    MempoolState:
-        Clone + fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     vec![
         register_data_deserializer::<(ConnectionId, StageRef<mux::MuxMessage>, Role)>().boxed(),

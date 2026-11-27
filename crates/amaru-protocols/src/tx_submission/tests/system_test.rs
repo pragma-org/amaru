@@ -52,7 +52,7 @@ async fn test_tx_submission_with_node() -> anyhow::Result<()> {
     network.resources().put::<Arc<dyn DiagnosticChainStore>>(Arc::new(InMemoryChainStore::new()));
     network.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
 
-    let connection = network.stage("connection", connection::stage);
+    let connection = network.stage("connection", connection::stage::<()>);
     let connection = network.wire_up(
         connection,
         connection::Connection::new(

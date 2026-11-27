@@ -15,14 +15,14 @@
 use amaru_pure_stage::DeserializerGuards;
 
 use crate::{
-    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects, peer_sharing,
-    peer_tracking_effects, store_effects, tx_submission,
+    accept, blockfetch, chainsync, connection, handshake, keepalive, manager,
+    mempool_effects::SerializableMempoolState, mux, network_effects, peer_sharing, peer_tracking_effects,
+    store_effects, tx_submission,
 };
 
 pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
-    MempoolState:
-        Clone + std::fmt::Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     let mut guards: DeserializerGuards = Vec::new();
     guards.extend(accept::register_deserializers());

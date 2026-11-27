@@ -31,7 +31,7 @@ use amaru_ouroboros::{
 use amaru_pure_stage::{DeserializerGuards, Effects, ScheduleId, StageRef, Void};
 
 use crate::{
-    mempool_effects::{AsyncMempool, MempoolEffects},
+    mempool_effects::{AsyncMempool, MempoolEffects, SerializableMempoolState},
     mux::MuxMessage,
     peer_tracking_effects::PeerTrack,
     protocol::{
@@ -95,7 +95,7 @@ fn max_reply_tx_ids(limit: usize) -> u16 {
 
 pub fn register_deserializers<MempoolState>() -> DeserializerGuards
 where
-    MempoolState: Clone + Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     vec![
         amaru_pure_stage::register_data_deserializer::<TxSubmissionResponder<MempoolState>>().boxed(),
@@ -105,14 +105,14 @@ where
 
 pub fn responder<MempoolState>() -> Miniprotocol<State, TxSubmissionResponder<MempoolState>, Responder>
 where
-    MempoolState: Clone + Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     miniprotocol(PROTO_N2N_TX_SUB.responder())
 }
 
 impl<MempoolState> StageState<State, Responder> for TxSubmissionResponder<MempoolState>
 where
-    MempoolState: Clone + Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     type LocalIn = ResponderLocalIn;
 
@@ -364,7 +364,7 @@ pub struct TxStateEntry {
 
 impl<MempoolState> TxSubmissionResponder<MempoolState>
 where
-    MempoolState: Clone + Debug + PartialEq + Send + Sync + 'static + serde::Serialize + serde::de::DeserializeOwned,
+    MempoolState: SerializableMempoolState,
 {
     pub fn new(
         peer: Peer,
