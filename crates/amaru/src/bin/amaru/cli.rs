@@ -71,7 +71,7 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Pool(cmd::pool::PoolCommand),
 
-    /// Offline transaction tools.
+    /// Sign and submit transactions.
     #[command(subcommand)]
     Transaction(cmd::transaction::TransactionCommand),
 

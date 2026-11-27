@@ -152,6 +152,7 @@ impl From<anyhow::Error> for NodeStartError {
 
 struct NodeLifecycle {
     ledger_thread: LedgerThreadStop,
+    initial_ledger_tip: Point,
     connections: Arc<TokioConnections>,
     performance: Box<dyn FnOnce() -> std::thread::Result<()> + Send + Sync>,
 }
@@ -335,6 +336,11 @@ pub struct NodeRunning {
 }
 
 impl NodeRunning {
+    /// Ledger tip from which the node started recovery and synchronization.
+    pub fn initial_ledger_tip(&self) -> Point {
+        self.lifecycle.initial_ledger_tip
+    }
+
     /// Bound node-to-node address, including the assigned port when configured with port zero.
     pub fn listen_address(&self) -> SocketAddr {
         self.listen_address
@@ -387,7 +393,7 @@ impl NodeRunning {
         let Self { tokio_running, mempool, mempool_guard, lifecycle, listen_address: _ } = self;
         drop(mempool_guard);
         drop(mempool);
-        let NodeLifecycle { ledger_thread, connections, performance } = lifecycle;
+        let NodeLifecycle { ledger_thread, connections, performance, .. } = lifecycle;
 
         tokio_running.request_abort();
         let mut unexpected_exits = match tokio_running.join().await {
@@ -619,7 +625,12 @@ fn register_resources(
     );
     let join_performance = Box::new(performance.install(stage_graph.resources()));
 
-    stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
+    stage_graph.resources().put(NodeLifecycle {
+        ledger_thread,
+        initial_ledger_tip: ledger_tip,
+        connections,
+        performance: join_performance,
+    });
 }
 
 /// This function migrates the database if necessary
