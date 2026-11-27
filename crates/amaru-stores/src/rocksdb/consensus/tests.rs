@@ -30,10 +30,10 @@ use amaru_kernel::{
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
+    BaseReadChainStore, BestChainError, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
     FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
-    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
-    in_memory_chain_store::InMemoryChainStore,
+    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore, best_chain_point_at_or_before,
+    in_memory_chain_store::InMemoryChainStore, next_best_chain_point,
 };
 use proptest::prelude::{any, any_with};
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
@@ -377,6 +377,62 @@ fn test_retrieve_best_chain() {
         let result = db.retrieve_best_chain();
         assert_eq!(result, chain[4..].iter().map(|h| h.hash()).collect::<Vec<_>>());
     })
+}
+
+#[test]
+fn best_chain_range_respects_exact_endpoints_and_same_slot_checkpoints() {
+    with_db(|store| {
+        let first = encoded(&make_header(1, 0, None));
+        let second = make_header(2, 0, Some(first.header.hash()));
+        let third = make_header(3, 4, Some(second.hash()));
+        let fork = make_header(2, 4, Some(first.header.hash()));
+        store.store_block(&first.header.hash(), &first.raw).unwrap();
+        for header in [&second, &third, &fork] {
+            store.store_header(header).unwrap();
+        }
+        for header in [&first.header, &second, &third] {
+            store.roll_forward_chain(&header.point()).unwrap();
+        }
+
+        let snapshot = store.snapshot();
+        let checkpoint = || Ok::<(), BestChainError>(());
+        let next = |after, through| next_best_chain_point(snapshot.as_ref(), after, through, checkpoint).unwrap();
+        let resolve =
+            |point, through| best_chain_point_at_or_before(snapshot.as_ref(), point, through, checkpoint).unwrap();
+        let (first, second, third) = (first.header.point(), second.point(), third.point());
+        assert_eq!(resolve(fork.point().into(), third.into()), None);
+        assert_eq!(resolve(NetworkPoint::Specific(first.slot(), third.hash()), third.into()), None);
+        assert_eq!(resolve(first.into(), third.into()), Some(first));
+        assert_eq!(resolve(first.into(), first.into()), Some(first));
+        assert_eq!(resolve(second.into(), first.into()), None);
+        assert_eq!(next(NetworkPoint::Origin, first.into()), Some(first));
+        assert_eq!(next(NetworkPoint::Origin, third.into()), Some(first));
+        assert_eq!(next(first.into(), third.into()), Some(second));
+        assert_eq!(next(second.into(), third.into()), Some(third));
+        assert_eq!(next(third.into(), third.into()), None);
+    });
+}
+
+#[test]
+fn best_chain_successor_reports_incomplete_history_and_honors_the_read_budget() {
+    with_db(|store| {
+        let missing = make_header(1, 0, None);
+        let tip = make_header(2, 0, Some(missing.hash()));
+        store.store_header(&tip).unwrap();
+        store.roll_forward_chain(&tip.point()).unwrap();
+        let snapshot = store.snapshot();
+        let through = tip.point().into();
+        let result =
+            next_best_chain_point(snapshot.as_ref(), NetworkPoint::Origin, through, || Ok::<(), BestChainError>(()));
+        assert!(matches!(result, Err(BestChainError::MissingHeader { hash }) if hash == missing.hash()));
+
+        let mut remaining = 1usize;
+        let result = next_best_chain_point(snapshot.as_ref(), NetworkPoint::Origin, through, || {
+            remaining = remaining.checked_sub(1).ok_or_else(|| anyhow::anyhow!("read budget exhausted"))?;
+            Ok::<(), anyhow::Error>(())
+        });
+        assert_eq!(result.unwrap_err().to_string(), "read budget exhausted");
+    });
 }
 
 #[test]
