@@ -245,10 +245,10 @@ impl CanValidateTxs<VolatileFragment> for BlockValidator {
         &self,
         tx: &Transaction,
         slot: Slot,
-        previous: &[VolatileFragment],
+        fragments: &[VolatileFragment],
         mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
-        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), slot, previous.to_vec(), mode, reply))
+        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), slot, fragments.to_vec(), mode, reply))
             .await
             .map_err(|e| TransactionValidationError::from(anyhow::Error::new(e)))?
     }
@@ -352,9 +352,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                 *phase.lock() = LedgerThreadPhase::ReadingVolatileTip;
                 let _ = reply.send(self.state.volatile_tip());
             }
-            LedgerRequest::ValidateTx(tx, slot, previous, mode, reply) => {
+            LedgerRequest::ValidateTx(tx, slot, fragments, mode, reply) => {
                 *phase.lock() = LedgerThreadPhase::ValidatingTransaction;
-                let _ = reply.send(self.validate_tx(&tx, slot, &previous, mode));
+                let _ = reply.send(self.validate_tx(&tx, slot, &fragments, mode));
             }
             LedgerRequest::RegisteredRelayCandidates(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
@@ -392,11 +392,11 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         &self,
         tx: &Transaction,
         slot: Slot,
-        previous: &[VolatileFragment],
+        fragments: &[VolatileFragment],
         mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         self.state
-            .validate_tx(tx, slot, &self.vm_eval_pool, previous, mode)
+            .validate_tx(tx, slot, &self.vm_eval_pool, fragments, mode)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }

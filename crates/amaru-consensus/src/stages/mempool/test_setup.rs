@@ -94,10 +94,10 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
     (running, guards, logs.logs())
 }
 
-pub fn te_validate_tx(at_stage: &str, tx: &Transaction, previous: &[VolatileFragment]) -> TraceEntry {
+pub fn te_validate_tx(at_stage: &str, tx: &Transaction, fragments: &[VolatileFragment]) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(ValidateTxEffect::new(tx, Slot::from(1), previous, ValidationMode::FullValidation)),
+        Box::new(ValidateTxEffect::new(tx, Slot::from(1), fragments, ValidationMode::FullValidation)),
     ))
 }
 

@@ -36,7 +36,7 @@ pub trait LedgerOps: Send + Sync {
         &self,
         tx: &Transaction,
         slot: Slot,
-        previous: &[VolatileFragment],
+        fragments: &[VolatileFragment],
         mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>>;
 
@@ -106,10 +106,10 @@ impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
         &self,
         tx: &Transaction,
         slot: Slot,
-        previous: &[VolatileFragment],
+        fragments: &[VolatileFragment],
         mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>> {
-        self.effects.external(ValidateTxEffect::new(tx, slot, previous, mode))
+        self.effects.external(ValidateTxEffect::new(tx, slot, fragments, mode))
     }
 
     fn validate_header(&self, header: &Header) -> BoxFuture<'static, Result<Nonces, ValidateHeaderError>> {
@@ -157,19 +157,19 @@ pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 pub struct ValidateTxEffect {
     tx: Transaction,
     slot: Slot,
-    previous: Vec<VolatileFragment>,
+    fragments: Vec<VolatileFragment>,
     mode: ValidationMode,
 }
 
 impl ValidateTxEffect {
-    pub fn new(tx: &Transaction, slot: Slot, previous: &[VolatileFragment], mode: ValidationMode) -> Self {
-        Self { tx: tx.clone(), slot, previous: previous.to_vec(), mode }
+    pub fn new(tx: &Transaction, slot: Slot, fragments: &[VolatileFragment], mode: ValidationMode) -> Self {
+        Self { tx: tx.clone(), slot, fragments: fragments.to_vec(), mode }
     }
 }
 
 impl PartialEq for ValidateTxEffect {
     fn eq(&self, other: &Self) -> bool {
-        self.tx == other.tx && self.slot == other.slot && self.previous == other.previous && self.mode == other.mode
+        self.tx == other.tx && self.slot == other.slot && self.fragments == other.fragments && self.mode == other.mode
     }
 }
 
@@ -183,7 +183,7 @@ impl ExternalEffectAPI for ValidateTxEffect {
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&this.tx, this.slot, &this.previous, this.mode).await
+            validator.validate_tx(&this.tx, this.slot, &this.fragments, this.mode).await
         })
     }
 }
