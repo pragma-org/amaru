@@ -299,6 +299,9 @@ impl ConnectionProvider for TokioConnections {
                 })?;
 
                 debug!(network::connection::ACCEPTED, peer_addr = peer_addr.to_string());
+                // A dual-stack listener on `[::]` reports IPv4 clients as IPv4-mapped IPv6 addresses, which `Peer`
+                // does not accept; the client is the IPv4 peer.
+                let peer_addr = SocketAddr::new(peer_addr.ip().to_canonical(), peer_addr.port());
                 let peer = Peer::try_from(peer_addr)
                     .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
                 let id = inner.connections.lock().add_connection(Connection::new(stream, inner.read_buf_size)?);
@@ -397,7 +400,14 @@ struct PendingAccept {
 ///
 /// A bind the listen socket will not share falls back to an ephemeral port.
 async fn connect_stream(resource: &Inner, addr: SocketAddr) -> std::io::Result<TcpStream> {
-    if let Some(local) = resource.bind_outbound_to_listen_port.then(|| *resource.outbound_bind.lock()).flatten() {
+    // A socket of the listen address's family cannot reach a peer of the other family, so those connections use an
+    // ephemeral port.
+    if let Some(local) = resource
+        .bind_outbound_to_listen_port
+        .then(|| *resource.outbound_bind.lock())
+        .flatten()
+        .filter(|local| local.is_ipv4() == addr.is_ipv4())
+    {
         match connect_bound(local, addr).await {
             Ok(stream) => return Ok(stream),
             Err(err) if local_bind_rejected(&err) => {}
@@ -509,6 +519,51 @@ mod tests {
         let (id, _accepted) = connect_elsewhere(&connections).await?;
         let local = connections.local_addr(id).await?;
         assert_ne!(local.port(), listen.port());
+        connections.close(id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn outbound_connect_reaches_the_other_address_family() -> anyhow::Result<()> {
+        let Ok(v6_listener) = TcpListener::bind(("::1", 0)).await else {
+            eprintln!("skipping address family test; no IPv6 loopback");
+            return Ok(());
+        };
+        let v6_remote = v6_listener.local_addr()?;
+        let v4_listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let v4_remote = v4_listener.local_addr()?;
+
+        for (listen, listener, remote) in [
+            (SocketAddr::from(([127, 0, 0, 1], 0)), v6_listener, v6_remote),
+            (SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 0)), v4_listener, v4_remote),
+        ] {
+            let connections = TokioConnections::new(1024);
+            connections.listen(listen).await?;
+            let accept = tokio::spawn(async move { listener.accept().await.map(|(stream, _)| stream) });
+            let id = connections.connect(Peer::try_from(remote)?, Duration::from_secs(1)).await?;
+            accept.await??;
+            assert_eq!(connections.local_addr(id).await?.is_ipv4(), remote.is_ipv4());
+            connections.close(id).await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dual_stack_listener_accepts_an_ipv4_client() -> anyhow::Result<()> {
+        let connections = TokioConnections::new(1024);
+        let listen_addr = SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0));
+        let Ok(addr) = connections.listen(listen_addr).await else {
+            eprintln!("skipping dual-stack test; cannot listen on [::]");
+            return Ok(());
+        };
+        let client = TcpStream::connect(("127.0.0.1", addr.port())).await;
+        // `[::]` is IPv6-only where net.ipv6.bindv6only=1, and on Windows.
+        let Ok(client) = client else {
+            eprintln!("skipping dual-stack test; the [::] listener does not accept IPv4");
+            return Ok(());
+        };
+        let (peer, id) = timeout(Duration::from_secs(1), connections.accept(listen_addr)).await??;
+        assert_eq!(peer, Peer::try_from(client.local_addr()?)?);
         connections.close(id).await?;
         Ok(())
     }
