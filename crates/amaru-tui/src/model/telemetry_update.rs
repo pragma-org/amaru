@@ -403,6 +403,8 @@ impl Model {
     /// The row for `conn_id`, created on the first span that names it.
     ///
     /// A connection that has already closed stays gone, including when a late span arrives after it.
+    /// An earlier row for the same socket and bootstrap name is closed too, so a reconnect does not
+    /// leave one row per attempt. A different candidate for that socket stays.
     fn connection_mut(&mut self, conn_id: &str, address: &str, updated_at: Instant) -> Option<&mut PeerState> {
         if self.closed_connections.contains(conn_id) {
             return None;
@@ -413,15 +415,38 @@ impl Model {
             self.peers.entry(conn_id.to_string()).or_insert(placeholder);
         }
         let candidate = self.resolved_candidates.get(address).cloned();
-        let peer = self.peers.entry(conn_id.to_string()).or_insert_with(|| {
-            let mut peer = PeerState::new(address.to_string(), updated_at);
-            peer.candidate = candidate.clone();
-            peer
-        });
-        if peer.candidate.is_none() {
-            peer.candidate = candidate;
+        {
+            let peer = self.peers.entry(conn_id.to_string()).or_insert_with(|| {
+                let mut peer = PeerState::new(address.to_string(), updated_at);
+                peer.candidate = candidate.clone();
+                peer
+            });
+            if peer.candidate.is_none() {
+                peer.candidate = candidate;
+            }
         }
-        Some(peer)
+        self.drop_replaced_connections(conn_id, address);
+        self.peers.get_mut(conn_id)
+    }
+
+    /// Drop earlier rows for this socket and bootstrap name.
+    ///
+    /// Both candidates being absent counts as the same name. The removed connection ids are
+    /// remembered so a late span cannot restore them.
+    fn drop_replaced_connections(&mut self, conn_id: &str, address: &str) {
+        let candidate = self.peers.get(conn_id).and_then(|peer| peer.candidate.clone());
+        let stale: Vec<String> = self
+            .peers
+            .iter()
+            .filter(|(id, peer)| {
+                id.as_str() != conn_id && peer.address == address && peer.candidate.as_deref() == candidate.as_deref()
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in stale {
+            self.peers.remove(&id);
+            self.closed_connections.insert(id);
+        }
     }
 
     fn upsert_proposal(&mut self, record: &TelemetryRecord, status: &str, detail: Option<String>) {

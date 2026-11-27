@@ -57,6 +57,9 @@ const CHURN_FRACTION_PERCENT: usize = 20;
 /// After clean churn, the bearer stays; do not re-promote for this long.
 pub(crate) const CHURN_REPROMOTE_DELAY: Duration = Duration::from_secs(10);
 /// Retry Using after no intersection (not hostility).
+///
+/// A dial that closes before it is adopted is held off for this long when that bearer had
+/// reported no intersection, including the name it was resolved from.
 pub(crate) const UNINTERESTING_RETRY: Duration = Duration::from_secs(120);
 /// Retry Using after a rollback past the intersection.
 const UNINTERESTING_RETRY_AFTER_ROLLBACK: Duration = Duration::from_secs(180);
@@ -368,8 +371,15 @@ impl PeerSelection {
         true
     }
 
-    fn hold_dial_many(&mut self, peer: Peer, also: impl IntoIterator<Item = PeerCandidate>, now: Instant) {
-        let until = now + DIAL_HOLDOFF;
+    /// Hold `peer` and `also` until `now + hold`. A later call keeps the further deadline.
+    fn hold_dial_many(
+        &mut self,
+        peer: Peer,
+        also: impl IntoIterator<Item = PeerCandidate>,
+        now: Instant,
+        hold: Duration,
+    ) {
+        let until = now + hold;
         self.push_dial_holdoff(PeerCandidate::from(peer), until);
         for candidate in also {
             self.push_dial_holdoff(candidate, until);
@@ -394,13 +404,21 @@ impl PeerSelection {
 
     /// First sight of a close at or after `since`. A close already applied does not count again
     /// unless it is strictly newer.
-    fn close_instant_to_apply(&self, view: Option<&PeerView>, peer: Peer, since: Instant) -> Option<Instant> {
-        let DialOutcome::Closed { at, .. } = view?.closes.get(&peer).copied()?;
+    ///
+    /// The connection id and the uninteresting flag come from the close itself. The mark is
+    /// dropped when the bearer goes, so a later view no longer carries it.
+    fn close_to_apply(
+        &self,
+        view: Option<&PeerView>,
+        peer: Peer,
+        since: Instant,
+    ) -> Option<(Instant, ConnectionId, bool)> {
+        let DialOutcome::Closed { at, conn_id, uninteresting, .. } = view?.closes.get(&peer).copied()?;
         let at = observed_instant(at);
         if self.applied_close.get(&peer).is_some_and(|applied| at <= *applied) {
             return None;
         }
-        (at >= since).then_some(at)
+        (at >= since).then_some((at, conn_id, uninteresting))
     }
 
     fn related_candidates(&self, peer: Peer) -> Vec<PeerCandidate> {
@@ -701,14 +719,33 @@ impl PeerSelection {
                 continue;
             }
             // A close at or after the dial is the bearer ending, not a failed connect.
-            // Apply each close once, clear any hold-off, and let the round refill.
+            // Apply each close once. An uninteresting bearer is held off, including the name
+            // it was dialled under; any other close clears hold-off so the round can refill.
+            // This dial was never adopted, so reconcile will not emit `disconnected` for it.
             // A dial started after that application is cancelled only by a strictly newer close.
-            if let Some(at) = self.close_instant_to_apply(view, peer, since) {
+            if let Some((at, conn_id, uninteresting)) = self.close_to_apply(view, peer, since) {
                 self.applied_close.insert(peer, at);
-                self.clear_dial_holdoff(peer, &candidate);
+                let mark = view.and_then(|view| view.uninteresting.iter().find(|mark| mark.peer == peer));
+                if uninteresting || mark.is_some() {
+                    let names = self.related_candidates(peer);
+                    let delay = if mark.is_some_and(|mark| mark.after_rollback) {
+                        UNINTERESTING_RETRY_AFTER_ROLLBACK
+                    } else {
+                        UNINTERESTING_RETRY
+                    };
+                    self.hold_dial_many(peer, names, now, delay);
+                } else {
+                    self.clear_dial_holdoff(peer, &candidate);
+                }
                 self.outbound_peers.remove(&peer);
                 self.unbind_peer(&peer);
                 self.demoted_until.remove(&peer);
+                debug!(
+                    protocols::peer_selection::peer::DISCONNECTED,
+                    peer,
+                    conn_id = conn_id.as_u64(),
+                    direction = ConnectionDirection::Outbound,
+                );
                 continue;
             }
             let failed = view
@@ -718,7 +755,7 @@ impl PeerSelection {
                 let names = self.related_candidates(peer);
                 self.outbound_peers.remove(&peer);
                 self.unbind_peer(&peer);
-                self.hold_dial_many(peer, names, now);
+                self.hold_dial_many(peer, names, now, DIAL_HOLDOFF);
             }
         }
     }
@@ -744,13 +781,12 @@ impl PeerSelection {
         for (peer, conn_id) in dropped_in {
             self.inbound_peers.remove(&peer);
             self.demoted_until.remove(&peer);
-            let _span = debug_span!(
+            debug!(
                 protocols::peer_selection::peer::DISCONNECTED,
                 peer,
                 conn_id = conn_id.as_u64(),
                 direction = ConnectionDirection::Inbound,
-            )
-            .entered();
+            );
         }
         let dropped_out: Vec<(Peer, ConnectionId)> = self
             .outbound_peers
@@ -764,13 +800,12 @@ impl PeerSelection {
             self.outbound_peers.remove(&peer);
             self.unbind_peer(&peer);
             self.demoted_until.remove(&peer);
-            let _span = debug_span!(
+            debug!(
                 protocols::peer_selection::peer::DISCONNECTED,
                 peer,
                 conn_id = conn_id.as_u64(),
                 direction = ConnectionDirection::Outbound,
-            )
-            .entered();
+            );
         }
 
         for conn in &view.connections {

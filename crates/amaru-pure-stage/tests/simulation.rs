@@ -65,7 +65,7 @@ fn basic() {
         state
     });
     let (output, mut rx) = network.output("output", 10);
-    let basic = network.wire_up(basic, State(1u32, output.clone()));
+    let basic = network.wire_up(basic, State(1u32, output));
     let mut running = network.run(test_runtime().handle());
 
     running.run(Run::default()).assert_idle();
