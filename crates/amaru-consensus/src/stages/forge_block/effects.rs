@@ -169,7 +169,7 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             .expect("ResourceMempool must be registered before the forge stage is started")
             .clone();
 
-        let constraints = resources
+        let block_builder = resources
             .get::<ResourceBlockBuilderConstraints>()
             .expect("ResourceBlockBuilderConstraints must be registered before the forge stage is started")
             .clone();
@@ -180,8 +180,10 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             .clone();
 
         self.wrap(|this| async move {
-            let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } =
-                constraints.block_builder_constraints().await.map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
+            let BlockBuilderConstraintsResponse { tip: ledger_tip, constraints } = block_builder
+                .block_builder_constraints()
+                .await
+                .map_err(|_| TakeForForgeError::LedgerThreadTerminated)?;
 
             if ledger_tip.hash() != this.parent || ledger_tip.slot() > this.slot {
                 return Err(TakeForForgeError::TipsChanged { ledger_tip, parent: this.parent, slot: this.slot });
@@ -223,6 +225,27 @@ impl ExternalEffectAPI for TakeForForgeEffect {
                     ex_units = builder.ex_units(),
                     ref_scripts_size = builder.ref_scripts_size(),
                 );
+
+                // Validation awaits the ledger worker for every transaction. Re-read the tip
+                // before committing the selected entries to ensure these computations weren't
+                // affected by a concurrent chain update. This should not happen since we are
+                // technically producing the next block, but it can happen in practice due to
+                // slot battles or deferred block arrivals.
+                //
+                // Yet if it happens, then we block we have just constructed is potentially invalid
+                // and it's best to error and retry if possible.
+                let latest_tip = block_builder
+                    .block_builder_constraints()
+                    .await
+                    .map_err(|_| TakeForForgeError::LedgerThreadTerminated)?
+                    .tip;
+                if latest_tip.hash() != this.parent || latest_tip.slot() > this.slot {
+                    return Err(TakeForForgeError::TipsChanged {
+                        ledger_tip: latest_tip,
+                        parent: this.parent,
+                        slot: this.slot,
+                    });
+                }
 
                 // Taking a transaction out of the mempool can temporarily leave its dependants
                 // without their predecessor until the forged block is applied:
