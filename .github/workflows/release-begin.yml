@@ -507,18 +507,6 @@ jobs:
             printf '| Image | Registry |\n'
             printf '| --- | --- |\n'
             printf '| `%s:%s` | [%s](%s) |\n' "$DOCKER_IMAGE" "$RELEASE_TAG" "$docker_registry_url" "$docker_registry_url"
-            printf '\n## CBOR decoding conformance\n\n'
-            printf 'Per-sample results of decoding the [cardano-cbor-dataset](https://github.com/r2rationality/cardano-cbor-dataset) corpus with this build: [%s](%s)\n' \
-              "${cbor_report}.json" "$(asset_url_for "${cbor_report}.json")"
-            printf '\n## UPLC conformance\n\n'
-            printf 'Results for the standard and implementation-specific UPLC scenarios: [%s](%s)\n' \
-              "${uplc_conformance_report}.json" "$(asset_url_for "${uplc_conformance_report}.json")"
-            printf '\n## UPLC performance\n\n'
-            printf 'Turbo benchmark measurements for the shared UPLC corpus: [%s](%s)\n' \
-              "${uplc_turbo_report}.json" "$(asset_url_for "${uplc_turbo_report}.json")"
-            printf '\n## Ledger rules\n\n'
-            printf 'Transaction-rule scenario results: [%s](%s)\n' \
-              "${ledger_rules_report}.json" "$(asset_url_for "${ledger_rules_report}.json")"
             printf '\n## Checksum manifest\n\n'
             printf '[%s](%s)\n' "$checksum_manifest" "$(asset_url_for "$checksum_manifest")"
           } > release-body.md

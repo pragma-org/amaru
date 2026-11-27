@@ -34,7 +34,7 @@ Every time it starts, Amaru loads some initial stake distributions from disk bef
 
 The page tabs `[Amaru] [Cardano] [Config]` sit in the top-left corner of the frame. Click a tab, or press `Tab`/`Shift+Tab` to cycle through the pages.
 
-The center shows `AMARU` followed by the node version and commit. For example, `10.11.20260807 (493bffb)`.
+The center shows `AMARU` followed by the node version and commit. For example, `10.11.20261127 (2c94ba0)`.
 
 The bottom-right corner lists the keys that work right now, written as `<key> ACTION`. The list changes with the mode. If you forget a key, look there.
 
