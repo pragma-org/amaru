@@ -65,7 +65,7 @@ impl MempoolWorld {
 
     fn validate_expected_validity(&self) {
         let ledger_tip = self.ledger_tip.clone();
-        let validator: ResourceTxValidation = Arc::new(move |tx: &Transaction, _previous: &[VolatileFragment]| {
+        let validator: ResourceTxValidation = Arc::new(move |tx: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
             if tx.is_expected_valid && tx.body.validity_interval().includes(ledger_tip.lock().slot()) {
                 Ok(VolatileFragment::default())
             } else {
@@ -80,7 +80,7 @@ impl MempoolWorld {
     }
 
     fn reject_everything(&self) {
-        let validator: ResourceTxValidation = Arc::new(|_: &Transaction, _previous: &[VolatileFragment]| {
+        let validator: ResourceTxValidation = Arc::new(|_: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
             Err(TransactionValidationError::from(anyhow::anyhow!("transaction invalid after tip")))
         });
         self.world.graph(0).resources().put(validator);

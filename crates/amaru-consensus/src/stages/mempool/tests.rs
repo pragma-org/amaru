@@ -105,7 +105,7 @@ fn accepted_transaction_state_is_passed_to_the_next_validation() {
         msg: MempoolMsg::InsertBatch { txs: vec![first.clone(), second.clone()], origin: TxOrigin::Local, caller },
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
-        validator: Arc::new(|_: &Transaction, fragments: &[VolatileFragment]| {
+        validator: Arc::new(|_: Transaction, fragments: Arc<Vec<VolatileFragment>>| {
             if fragments.is_empty() {
                 Ok(VolatileFragment { fees: 1, ..Default::default() })
             } else if fragments.len() == 1 && fragments[0].fees == 1 {
@@ -186,9 +186,9 @@ fn an_invalid_transaction_is_validated_only_once_per_tip() {
         msg: MempoolMsg::InsertBatch { txs: vec![tx_1.clone(), tx_1.clone()], origin: TxOrigin::Local, caller },
         rt: crate::stages::test_utils::test_runtime(),
         mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default())),
-        validator: Arc::new(move |tx: &Transaction, _fragments: &[VolatileFragment]| {
+        validator: Arc::new(move |tx: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
             counter.fetch_add(1, Ordering::SeqCst);
-            reject_tx_1(tx, &[])
+            reject_tx_1(tx, Arc::new(Vec::new()))
         }),
         chain_store: Arc::new(InMemoryChainStore::default()),
     };
@@ -215,7 +215,7 @@ fn an_invalid_transaction_does_not_reject_the_same_body_with_other_witnesses() {
         },
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
-        validator: Arc::new(|tx: &Transaction, _fragments: &[VolatileFragment]| {
+        validator: Arc::new(|tx: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
             let signature = tx.witnesses.verification_key_witness.as_ref().map(|witnesses| witnesses.first().signature);
             if signature == Some([0xAA; 64].into()) {
                 Err(anyhow::anyhow!("invalid witness").into())
@@ -267,7 +267,7 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
         msg: MempoolMsg::NewTip(tip),
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
-        validator: Arc::new(|_: &Transaction, _fragments: &[VolatileFragment]| {
+        validator: Arc::new(|_: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
             Err(anyhow::anyhow!("invalid after tip").into())
         }),
         chain_store,
@@ -311,8 +311,8 @@ fn create_transaction_with_signature(input_index: u16, signature: u8) -> WithOri
 }
 
 fn reject_tx_1(
-    tx: &Transaction,
-    _fragments: &[VolatileFragment],
+    tx: Transaction,
+    _fragments: Arc<Vec<VolatileFragment>>,
 ) -> Result<VolatileFragment, TransactionValidationError> {
     if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
         Err(anyhow::anyhow!("transaction rejected for testing").into())

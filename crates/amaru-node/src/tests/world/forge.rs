@@ -479,9 +479,9 @@ struct RejectConflictingInputs;
 impl CanValidateTxs<VolatileFragment> for RejectConflictingInputs {
     async fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         _slot: Slot,
-        previous: &[VolatileFragment],
+        previous: Arc<Vec<VolatileFragment>>,
         _mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         let input = tx.body.inputs.iter().next().copied().expect("fixture transaction has an input");
@@ -528,7 +528,7 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
     let tx = create_transaction(13);
     forge.submit_and_settle(tx);
 
-    let validator: ResourceTxValidation = Arc::new(|_: &Transaction, _previous: &[VolatileFragment]| {
+    let validator: ResourceTxValidation = Arc::new(|_: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
         Err(amaru_ouroboros_traits::TransactionValidationError::from(anyhow::anyhow!(
             "transaction invalidated by test tip"
         )))
@@ -553,7 +553,7 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
 fn world_forge_skips_transaction_expired_at_target_slot() {
     let mempool = Arc::new(Pool::new(Default::default()));
     mempool.set_tip(Point::Origin);
-    let validator: ResourceTxValidation = Arc::new(|tx: &Transaction, _previous: &[VolatileFragment]| {
+    let validator: ResourceTxValidation = Arc::new(|tx: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
         if tx.body.validity_interval().includes(simulation_slot()) {
             Ok(VolatileFragment::default())
         } else {

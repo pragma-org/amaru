@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use amaru_kernel::{
     Hash, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Slot, Transaction, TransactionBody, TransactionInput,
     WitnessSet,
@@ -97,7 +99,12 @@ pub fn setup(prep: &TestPrep) -> (SimulationRunning, DeserializerGuards, Logs) {
 pub fn te_validate_tx(at_stage: &str, tx: &Transaction, fragments: &[VolatileFragment]) -> TraceEntry {
     TraceEntry::suspend(Effect::external(
         at_stage,
-        Box::new(ValidateTxEffect::new(tx, Slot::from(1), fragments, ValidationMode::FullValidation)),
+        Box::new(ValidateTxEffect::new(
+            tx.clone(),
+            Slot::from(1),
+            Arc::new(fragments.to_vec()),
+            ValidationMode::FullValidation,
+        )),
     ))
 }
 

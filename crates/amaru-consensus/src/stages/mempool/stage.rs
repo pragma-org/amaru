@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
+    sync::Arc,
     time::Instant,
 };
 
@@ -133,13 +134,13 @@ async fn validate_and_insert(
 
     let incoming_tx_id = tx.tx_id();
 
-    let mut state = vec![];
-    for (tx, fragment) in mempool.iter().await.into_iter() {
+    let mut state = Arc::new(Vec::new());
+    for (tx, fragment) in mempool.iter().await {
         let tx_id = tx.tx_id();
         if incoming_tx_id == tx_id {
             return TxInsertResult::Rejected { tx_id, reason: TxRejectReason::Duplicate };
         }
-        state.push(fragment);
+        Arc::make_mut(&mut state).push(fragment);
     }
     // NOTE: mempool validation slot
     //
@@ -150,7 +151,7 @@ async fn validate_and_insert(
     // This has an influence on the transaction validity interval, and it allows including
     // transactions that should be valid immediately after the tip.
     let slot = ledger.volatile_tip().await.slot_or_default() + 1;
-    match ledger.validate_tx(&tx, slot, &state, ValidationMode::FullValidation).await {
+    match ledger.validate_tx(tx.clone().into_inner(), slot, state, ValidationMode::FullValidation).await {
         Ok(fragment) => mempool.insert(tx, fragment, origin.clone()).await,
         Err(error) => {
             let result = TxInsertResult::rejected(incoming_tx_id, TxRejectReason::Invalid(error));
@@ -167,17 +168,18 @@ async fn apply_new_tip(ledger: &Ledger, mempool: &MempoolEffects<VolatileFragmen
     let total_before = entries.len() as u64;
 
     let mut invalid_tx_ids = vec![];
-    let mut state = Vec::new();
+    let mut state = Arc::new(Vec::new());
     // NOTE: mempool validation slot
     //
     // See above note.
     let slot = tip.slot_or_default() + 1;
     for (tx, _) in entries {
-        match ledger.validate_tx(&tx, slot, &state, ValidationMode::Revalidation).await {
+        let tx_id = tx.tx_id();
+        match ledger.validate_tx(tx.into_inner(), slot, Arc::clone(&state), ValidationMode::Revalidation).await {
             Ok(fragment) => {
-                state.push(fragment);
+                Arc::make_mut(&mut state).push(fragment);
             }
-            Err(_) => invalid_tx_ids.push(tx.tx_id()),
+            Err(_) => invalid_tx_ids.push(tx_id),
         }
     }
 

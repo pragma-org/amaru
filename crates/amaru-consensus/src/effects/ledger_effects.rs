@@ -34,9 +34,9 @@ use crate::validate_header::ValidateHeaderError;
 pub trait LedgerOps: Send + Sync {
     fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         slot: Slot,
-        fragments: &[VolatileFragment],
+        fragments: Arc<Vec<VolatileFragment>>,
         mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>>;
 
@@ -104,9 +104,9 @@ impl Ledger<VALIDATE> {
 impl<S: Send + Sync + 'static> LedgerOps for Ledger<S> {
     fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         slot: Slot,
-        fragments: &[VolatileFragment],
+        fragments: Arc<Vec<VolatileFragment>>,
         mode: ValidationMode,
     ) -> BoxFuture<'_, Result<VolatileFragment, TransactionValidationError>> {
         self.effects.external(ValidateTxEffect::new(tx, slot, fragments, mode))
@@ -157,13 +157,13 @@ pub type ResourcePoolSummaries = Arc<PoolSummaries>;
 pub struct ValidateTxEffect {
     tx: Transaction,
     slot: Slot,
-    fragments: Vec<VolatileFragment>,
+    fragments: Arc<Vec<VolatileFragment>>,
     mode: ValidationMode,
 }
 
 impl ValidateTxEffect {
-    pub fn new(tx: &Transaction, slot: Slot, fragments: &[VolatileFragment], mode: ValidationMode) -> Self {
-        Self { tx: tx.clone(), slot, fragments: fragments.to_vec(), mode }
+    pub fn new(tx: Transaction, slot: Slot, fragments: Arc<Vec<VolatileFragment>>, mode: ValidationMode) -> Self {
+        Self { tx, slot, fragments, mode }
     }
 }
 
@@ -183,7 +183,7 @@ impl ExternalEffectAPI for ValidateTxEffect {
                 .get::<ResourceTxValidation>()
                 .expect("ValidateTxEffect requires a ResourceTxValidation resource")
                 .clone();
-            validator.validate_tx(&this.tx, this.slot, &this.fragments, this.mode).await
+            validator.validate_tx(this.tx, this.slot, this.fragments, this.mode).await
         })
     }
 }

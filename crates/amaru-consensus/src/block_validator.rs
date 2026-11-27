@@ -62,7 +62,7 @@ enum LedgerRequest {
     ValidateTx(
         Box<Transaction>,
         Slot,
-        Vec<VolatileFragment>,
+        Arc<Vec<VolatileFragment>>,
         ValidationMode,
         oneshot::Sender<Result<VolatileFragment, TransactionValidationError>>,
     ),
@@ -243,12 +243,12 @@ fn terminated() -> BlockValidationError {
 impl CanValidateTxs<VolatileFragment> for BlockValidator {
     async fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         slot: Slot,
-        fragments: &[VolatileFragment],
+        fragments: Arc<Vec<VolatileFragment>>,
         mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
-        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx.clone()), slot, fragments.to_vec(), mode, reply))
+        self.request(|reply| LedgerRequest::ValidateTx(Box::new(tx), slot, fragments, mode, reply))
             .await
             .map_err(|e| TransactionValidationError::from(anyhow::Error::new(e)))?
     }
@@ -354,7 +354,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
             }
             LedgerRequest::ValidateTx(tx, slot, fragments, mode, reply) => {
                 *phase.lock() = LedgerThreadPhase::ValidatingTransaction;
-                let _ = reply.send(self.validate_tx(&tx, slot, &fragments, mode));
+                let _ = reply.send(self.validate_tx(*tx, slot, &fragments, mode));
             }
             LedgerRequest::RegisteredRelayCandidates(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingRelayCandidates;
@@ -390,13 +390,13 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
 
     fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         slot: Slot,
         fragments: &[VolatileFragment],
         mode: ValidationMode,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         self.state
-            .validate_tx(tx, slot, &self.vm_eval_pool, fragments, mode)
+            .validate_tx(&tx, slot, &self.vm_eval_pool, fragments, mode)
             .map_err(|error| TransactionValidationError::from(anyhow!(error)))
     }
 }

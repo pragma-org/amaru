@@ -358,8 +358,8 @@ mod tests {
     }
 
     fn reject_transactions(
-        _tx: &Transaction,
-        _previous: &[VolatileFragment],
+        _tx: Transaction,
+        _previous: Arc<Vec<VolatileFragment>>,
     ) -> Result<VolatileFragment, TransactionValidationError> {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     }

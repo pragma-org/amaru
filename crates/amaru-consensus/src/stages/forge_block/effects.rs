@@ -200,19 +200,25 @@ impl ExternalEffectAPI for TakeForForgeEffect {
             let body = async {
                 let mut builder = BlockBodyBuilder::default();
                 let mut selected = Vec::new();
-                let mut state = Vec::new();
+                let mut state = Arc::new(Vec::new());
 
                 for entry in &entries {
                     let transaction = &entry.tx;
 
-                    let Ok(fragment) =
-                        validator.validate_tx(transaction, this.slot, &state, ValidationMode::Revalidation).await
+                    let Ok(fragment) = validator
+                        .validate_tx(
+                            (**transaction).clone(),
+                            this.slot,
+                            Arc::clone(&state),
+                            ValidationMode::Revalidation,
+                        )
+                        .await
                     else {
                         continue;
                     };
 
                     if builder.try_push(transaction, &constraints)? {
-                        state.push(fragment);
+                        Arc::make_mut(&mut state).push(fragment);
                         selected.push(transaction.tx_id());
                     }
                 }

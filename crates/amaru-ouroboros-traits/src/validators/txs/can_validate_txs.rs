@@ -40,9 +40,9 @@ where
 {
     async fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         slot: Slot,
-        previous: &[State],
+        previous: Arc<Vec<State>>,
         mode: ValidationMode,
     ) -> Result<State, TransactionValidationError>;
 }
@@ -50,14 +50,14 @@ where
 #[async_trait]
 impl<F, State> CanValidateTxs<State> for F
 where
-    F: Fn(&Transaction, &[State]) -> Result<State, TransactionValidationError> + Send + Sync,
+    F: Fn(Transaction, Arc<Vec<State>>) -> Result<State, TransactionValidationError> + Send + Sync,
     State: Send + Sync + 'static,
 {
     async fn validate_tx(
         &self,
-        tx: &Transaction,
+        tx: Transaction,
         _slot: Slot,
-        previous: &[State],
+        previous: Arc<Vec<State>>,
         _mode: ValidationMode,
     ) -> Result<State, TransactionValidationError> {
         self(tx, previous)
@@ -72,9 +72,9 @@ pub struct MockCanValidateTxs;
 impl<State: Default + Send + Sync + 'static> CanValidateTxs<State> for MockCanValidateTxs {
     async fn validate_tx(
         &self,
-        _tx: &Transaction,
+        _tx: Transaction,
         _slot: Slot,
-        _previous: &[State],
+        _previous: Arc<Vec<State>>,
         _mode: ValidationMode,
     ) -> Result<State, TransactionValidationError> {
         Ok(State::default())
