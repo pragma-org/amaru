@@ -157,12 +157,20 @@ impl ExternalEffectAPI for AcceptEffect {
             #[expect(clippy::expect_used)]
             let resource =
                 resources.get::<ConnectionsResource>().expect("AcceptEffect requires a ConnectionsResource").clone();
-            #[expect(clippy::wildcard_enum_match_arm)]
-            resource.accept(this.listener_addr).await.map_err(|e| match e.kind() {
-                ErrorKind::ConnectionAborted => AcceptError::ConnectionAborted,
-                other => AcceptError::Other(format!("{other}")),
-            })
+            resource.accept(this.listener_addr).await.map_err(|e| accept_error(&e))
         })
+    }
+}
+
+fn accept_error(error: &std::io::Error) -> AcceptError {
+    #[expect(clippy::wildcard_enum_match_arm)]
+    match error.kind() {
+        // The client of the pending connection went away before it was taken, e.g. reset right
+        // after connecting: only that connection is lost, not the listener.
+        ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset | ErrorKind::NotConnected => {
+            AcceptError::ConnectionAborted
+        }
+        other => AcceptError::Other(format!("{other}")),
     }
 }
 
@@ -425,4 +433,22 @@ pub async fn create_connection(conn: &dyn amaru_ouroboros::ConnectionProvider) -
         Ok(conn.connect(peer, Duration::from_secs(5)).await?)
     })
     .await?
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Error, ErrorKind};
+
+    use super::*;
+
+    #[test]
+    fn accept_error_keeps_the_listener_for_a_client_that_went_away() {
+        for kind in [ErrorKind::ConnectionAborted, ErrorKind::ConnectionReset, ErrorKind::NotConnected] {
+            assert_eq!(accept_error(&Error::from(kind)), AcceptError::ConnectionAborted, "{kind:?}");
+        }
+        assert_eq!(
+            accept_error(&Error::new(ErrorKind::BrokenPipe, "connection listener shut down")),
+            AcceptError::Other("broken pipe".to_string())
+        );
+    }
 }
