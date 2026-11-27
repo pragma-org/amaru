@@ -757,10 +757,10 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
     /// epoch are there. This takes the final snapshot of that epoch.
     fn flush_overlay(&mut self) -> Result<(), StateError> {
         self.volatile.apply_transition(&self.stable)?;
-        self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
         // A settled candidate snapshot stays on disk while the stake distribution and rewards
         // computation reads it.
         self.latest_snapshot.finalize(self.volatile.epoch() - 1, &self.stable);
+        self.snapshots.prune(self.volatile.epoch() - MIN_LEDGER_SNAPSHOTS)?;
         Ok(())
     }
 
