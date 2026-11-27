@@ -206,8 +206,10 @@ async fn submit_until_confirmed(
                     if !current.submission_started {
                         state.send_modify(|s| s.submission_started = true);
                     }
-                    if submit().await? {
-                        submitted_on = Some(current.fork);
+                    match submit().await {
+                        Ok(true) => submitted_on = Some(current.fork),
+                        Err(error) if status.borrow().inclusion.is_none() => return Err(error),
+                        Ok(false) | Err(_) => (),
                     }
                     retry = Instant::now() + Duration::from_secs(10);
                 }
