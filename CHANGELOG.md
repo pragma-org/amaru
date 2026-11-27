@@ -37,6 +37,10 @@ Other guiding principles:
 
 ## Unreleased
 
+### Fixed
+
+- **amaru-ledger**: fix the setting of the fallback DRep when a pool is retiring or changes it rewards account. ([#1344](https://github.com/pragma-org/amaru/issues/1344))
+
 ## [v10.11.20261127](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261127)
 
 ### Added

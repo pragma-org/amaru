@@ -77,9 +77,10 @@ pub struct PoolState {
 
     /// Delegate representative to fall back to when the operator does not cast an explicit vote.
     ///
-    /// This is derived from the pool reward account delegation in the corresponding stake
-    /// distribution snapshot. It is not serialized because it is only needed at runtime for
-    /// ratification.
+    /// It uses the reward account effective at the next epoch and its delegation from the
+    /// latest snapshot. Pools that retire at that boundary have no fallback.
+    ///
+    /// This field is not serialized because only runtime ratification needs it.
     pub fallback_drep: Option<DRep>,
 }
 

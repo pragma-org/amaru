@@ -26,7 +26,6 @@ use amaru_observability::info;
 use serde::ser::SerializeStruct;
 
 use crate::{
-    epoch_transition::PoolsEpochTransitionUpdates,
     store::{Snapshot, StoreError, columns::pots::Row as Pots},
     summary::{
         AccountState, PoolState,
@@ -121,22 +120,27 @@ impl StakeSummary {
         let epoch = db.epoch();
         let stake_pool_deposit = db.protocol_parameters()?.stake_pool_deposit;
         let mut pools_deregistration_refunds: BTreeMap<Credential, Lovelace> = BTreeMap::new();
+        let mut pools_fallback_reward_account_updates: BTreeMap<PoolId, Option<Credential>> = BTreeMap::new();
 
         let mut pools = db
             .iter_pools()?
             .map(|(pool, row)| {
-                // NOTE: Pool voting stake distribution & pool retirements
-                //
-                // We need to tick pool as part of the stake distribution calculation, in order to
-                // know whether a pool will retire in the next epoch. This is because, votes
-                // ratification happens *after* pools reaping, and thus, nullify voting power of
-                // pools that are retiring.
-                if PoolsEpochTransitionUpdates::is_retiring(epoch + 1, &row) {
+                // At the next epoch boundary, a retiring pool loses its fallback DRep for ratification
+                // and refunds its deposit to its current reward account.
+                // A re-registered pool instead uses its updated reward account to determine the fallback DRep.
+                // Otherwise a pool keeps its current reward account to determine the fallback DRep.
+                let pending = row.pending_certificates.pending_after(epoch + 1);
+                if pending.is_retiring() {
+                    pools_fallback_reward_account_updates.insert(pool, None);
                     let reward_account = row.current_params.reward_account.credential();
                     pools_deregistration_refunds
                         .entry(reward_account)
                         .and_modify(|refund| *refund += stake_pool_deposit)
                         .or_insert(stake_pool_deposit);
+                } else if let Some(parameters) = pending.registration()
+                    && parameters.reward_account.credential() != row.current_params.reward_account.credential()
+                {
+                    pools_fallback_reward_account_updates.insert(pool, Some(parameters.reward_account.credential()));
                 }
 
                 (
@@ -256,9 +260,14 @@ impl StakeSummary {
             }
         }
 
-        for pool in pools.values_mut() {
-            let reward_account = pool.parameters.reward_account.credential();
-            pool.fallback_drep = accounts.get(&reward_account).and_then(|account| account.drep);
+        for (pool_id, pool) in pools.iter_mut() {
+            let reward_account = pools_fallback_reward_account_updates
+                .get(pool_id)
+                .copied()
+                .unwrap_or(Some(pool.parameters.reward_account.credential()));
+            pool.fallback_drep = reward_account
+                .and_then(|reward_account| accounts.get(&reward_account))
+                .and_then(|account| account.drep);
         }
 
         db.iter_block_issuers()?.for_each(|(_, issuer)| {
