@@ -30,10 +30,10 @@ use amaru_kernel::{
     utils::tests::{random_bytes, run_strategy},
 };
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, CanonicalChainError, ChainStore, ChildTipsMode, DiagnosticChainStore,
-    FindAncestorOnBestChainResult, FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult,
-    NextBestChainHeader, Nonces, OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore,
-    canonical_point_at_or_before, in_memory_chain_store::InMemoryChainStore, next_canonical_point,
+    BaseReadChainStore, BestChainError, ChainStore, ChildTipsMode, DiagnosticChainStore, FindAncestorOnBestChainResult,
+    FindCommonAncestorResult, FullChainStore, MissingBlocks, MissingBlocksResult, NextBestChainHeader, Nonces,
+    OpcertSequenceNumbers, SampleAncestorPointsResult, StoreError, WriteChainStore, best_chain_point_at_or_before,
+    in_memory_chain_store::InMemoryChainStore, next_best_chain_point,
 };
 use proptest::prelude::{any, any_with};
 use rocksdb::{DB, Direction, IteratorMode, ReadOptions};
@@ -380,7 +380,7 @@ fn test_retrieve_best_chain() {
 }
 
 #[test]
-fn canonical_range_respects_exact_endpoints_and_same_slot_checkpoints() {
+fn best_chain_range_respects_exact_endpoints_and_same_slot_checkpoints() {
     with_db(|store| {
         let first = encoded(&make_header(1, 0, None));
         let second = make_header(2, 0, Some(first.header.hash()));
@@ -395,10 +395,10 @@ fn canonical_range_respects_exact_endpoints_and_same_slot_checkpoints() {
         }
 
         let snapshot = store.snapshot();
-        let checkpoint = || Ok::<(), CanonicalChainError>(());
-        let next = |after, through| next_canonical_point(snapshot.as_ref(), after, through, checkpoint).unwrap();
+        let checkpoint = || Ok::<(), BestChainError>(());
+        let next = |after, through| next_best_chain_point(snapshot.as_ref(), after, through, checkpoint).unwrap();
         let resolve =
-            |point, through| canonical_point_at_or_before(snapshot.as_ref(), point, through, checkpoint).unwrap();
+            |point, through| best_chain_point_at_or_before(snapshot.as_ref(), point, through, checkpoint).unwrap();
         let (first, second, third) = (first.header.point(), second.point(), third.point());
         assert_eq!(resolve(fork.point().into(), third.into()), None);
         assert_eq!(resolve(NetworkPoint::Specific(first.slot(), third.hash()), third.into()), None);
@@ -414,7 +414,7 @@ fn canonical_range_respects_exact_endpoints_and_same_slot_checkpoints() {
 }
 
 #[test]
-fn canonical_successor_reports_incomplete_history_and_honors_the_read_budget() {
+fn best_chain_successor_reports_incomplete_history_and_honors_the_read_budget() {
     with_db(|store| {
         let missing = make_header(1, 0, None);
         let tip = make_header(2, 0, Some(missing.hash()));
@@ -423,16 +423,11 @@ fn canonical_successor_reports_incomplete_history_and_honors_the_read_budget() {
         let snapshot = store.snapshot();
         let through = tip.point().into();
         let result =
-            next_canonical_point(
-                snapshot.as_ref(),
-                NetworkPoint::Origin,
-                through,
-                || Ok::<(), CanonicalChainError>(()),
-            );
-        assert!(matches!(result, Err(CanonicalChainError::MissingHeader { hash }) if hash == missing.hash()));
+            next_best_chain_point(snapshot.as_ref(), NetworkPoint::Origin, through, || Ok::<(), BestChainError>(()));
+        assert!(matches!(result, Err(BestChainError::MissingHeader { hash }) if hash == missing.hash()));
 
         let mut remaining = 1usize;
-        let result = next_canonical_point(snapshot.as_ref(), NetworkPoint::Origin, through, || {
+        let result = next_best_chain_point(snapshot.as_ref(), NetworkPoint::Origin, through, || {
             remaining = remaining.checked_sub(1).ok_or_else(|| anyhow::anyhow!("read budget exhausted"))?;
             Ok::<(), anyhow::Error>(())
         });

@@ -56,7 +56,7 @@ pub trait BaseReadChainStore: Send + Sync {
     /// `Point`, if it exists.
     fn next_best_chain(&self, point: &Point) -> Option<Point>;
 
-    /// Seek the canonical slot index and return the last block at the first slot at or after `slot`.
+    /// Seek the best-chain slot index and return the last block at the first slot at or after `slot`.
     fn block_at_or_after(&self, slot: Slot) -> Result<Option<Point>, StoreError>;
 
     fn load_block(&self, hash: &HeaderHash) -> Result<Option<RawBlock>, StoreError>;

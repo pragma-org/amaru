@@ -127,7 +127,7 @@ where
                 let (_, value) = entry.map_err(|error| StoreError::ReadError { error: error.to_string() })?;
                 from_cbor::<NetworkTip>(&value)
                     .map(Point::from)
-                    .ok_or_else(|| StoreError::ReadError { error: "malformed canonical chain point".to_owned() })
+                    .ok_or_else(|| StoreError::ReadError { error: "malformed best-chain point".to_owned() })
             })
             .transpose()
     }

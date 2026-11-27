@@ -348,28 +348,28 @@ pub trait ReadChainStore: BaseReadChainStore {
 }
 
 #[derive(Debug, Error)]
-pub enum CanonicalChainError {
-    #[error("canonical successor after {after} is unavailable before {through}")]
+pub enum BestChainError {
+    #[error("best-chain successor after {after} is unavailable before {through}")]
     MissingSuccessor { after: NetworkPoint, through: NetworkPoint },
-    #[error("canonical header {hash} is unavailable")]
+    #[error("best-chain header {hash} is unavailable")]
     MissingHeader { hash: HeaderHash },
-    #[error("invalid canonical ancestry at {hash}")]
+    #[error("invalid best-chain ancestry at {hash}")]
     InvalidAncestry { hash: HeaderHash },
     #[error(transparent)]
     Store(StoreError),
 }
 
-/// Resolve the exact slot and hash on the canonical snapshot at or before a trusted `through` point.
-/// An inclusive range starts with this point. `None` means the point is outside that canonical prefix.
+/// Resolve the exact slot and hash on the best-chain snapshot at or before a trusted `through` point.
+/// An inclusive range starts with this point. `None` means the point is outside that prefix of the best chain.
 /// `checkpoint` runs before each store read.
-pub fn canonical_point_at_or_before<E>(
+pub fn best_chain_point_at_or_before<E>(
     snapshot: &dyn BaseReadChainStore,
     point: NetworkPoint,
     through: NetworkPoint,
     mut checkpoint: impl FnMut() -> Result<(), E>,
 ) -> Result<Option<Point>, E>
 where
-    E: From<CanonicalChainError>,
+    E: From<BestChainError>,
 {
     if point == NetworkPoint::Origin {
         return Ok(Some(Point::Origin));
@@ -382,7 +382,7 @@ where
         through
     } else {
         checkpoint()?;
-        let Some(indexed) = snapshot.block_at_or_after(slot).map_err(CanonicalChainError::Store)? else {
+        let Some(indexed) = snapshot.block_at_or_after(slot).map_err(BestChainError::Store)? else {
             return Ok(None);
         };
         if indexed.slot() != slot {
@@ -390,29 +390,29 @@ where
         }
         indexed.into()
     };
-    find_in_canonical_slot(snapshot, start, &mut checkpoint, |header| header.point().to_network_point() == point)
+    find_in_best_chain_slot(snapshot, start, &mut checkpoint, |header| header.point().to_network_point() == point)
 }
 
 /// Find the immediate successor of the already processed `after` point, up to and including `through`.
-/// Both bounds must be validated against the same canonical snapshot. `None` means the endpoint
+/// Both bounds must be validated against the same best-chain snapshot. `None` means the endpoint
 /// was reached. `checkpoint` can enforce cancellation or a work budget before each store read.
-pub fn next_canonical_point<E>(
+pub fn next_best_chain_point<E>(
     snapshot: &dyn BaseReadChainStore,
     after: NetworkPoint,
     through: NetworkPoint,
     mut checkpoint: impl FnMut() -> Result<(), E>,
 ) -> Result<Option<Point>, E>
 where
-    E: From<CanonicalChainError>,
+    E: From<BestChainError>,
 {
     if after == through {
         return Ok(None);
     }
 
-    let missing = || CanonicalChainError::MissingSuccessor { after, through };
+    let missing = || BestChainError::MissingSuccessor { after, through };
     let mut seek = |slot| -> Result<Point, E> {
         checkpoint()?;
-        snapshot.block_at_or_after(slot).map_err(CanonicalChainError::Store)?.ok_or_else(|| missing().into())
+        snapshot.block_at_or_after(slot).map_err(BestChainError::Store)?.ok_or_else(|| missing().into())
     };
     let mut candidate = seek(after.slot_or_default())?;
     if candidate.to_network_point() == after {
@@ -426,24 +426,24 @@ where
     }
     // The index holds only the last point at a slot. Start at the endpoint if it shares that slot.
     let start = if slot == through.slot_or_default() { through } else { candidate.into() };
-    let next = find_in_canonical_slot(snapshot, start, &mut checkpoint, |header| {
+    let next = find_in_best_chain_slot(snapshot, start, &mut checkpoint, |header| {
         header.parent().unwrap_or(ORIGIN_HASH) == after.hash()
     })?;
     next.map(Some).ok_or_else(|| missing().into())
 }
 
-fn find_in_canonical_slot<E>(
+fn find_in_best_chain_slot<E>(
     snapshot: &dyn BaseReadChainStore,
     start: NetworkPoint,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
     matches: impl Fn(&Header) -> bool,
 ) -> Result<Option<Point>, E>
 where
-    E: From<CanonicalChainError>,
+    E: From<BestChainError>,
 {
-    let first = read_canonical_header(snapshot, start.hash(), checkpoint)?;
+    let first = read_best_chain_header(snapshot, start.hash(), checkpoint)?;
     if first.point().to_network_point() != start {
-        return Err(CanonicalChainError::InvalidAncestry { hash: start.hash() }.into());
+        return Err(BestChainError::InvalidAncestry { hash: start.hash() }.into());
     }
 
     let slot = start.slot_or_default();
@@ -455,14 +455,14 @@ where
             return Break(Ok(Some(header.point())));
         }
         match header.parent().filter(|hash| *hash != ORIGIN_HASH) {
-            Some(hash) if hash == header.hash() => Break(Err(CanonicalChainError::InvalidAncestry { hash }.into())),
+            Some(hash) if hash == header.hash() => Break(Err(BestChainError::InvalidAncestry { hash }.into())),
             Some(hash) => Continue(hash),
             None => Break(Ok(None)),
         }
     };
 
     successors(Some(step(first)), |state| match state {
-        Continue(hash) => Some(match read_canonical_header(snapshot, *hash, checkpoint) {
+        Continue(hash) => Some(match read_best_chain_header(snapshot, *hash, checkpoint) {
             Ok(header) => step(header),
             Err(error) => Break(Err(error)),
         }),
@@ -472,13 +472,13 @@ where
     .unwrap_or(Ok(None))
 }
 
-fn read_canonical_header<E>(
+fn read_best_chain_header<E>(
     snapshot: &dyn BaseReadChainStore,
     hash: HeaderHash,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Header, E>
 where
-    E: From<CanonicalChainError>,
+    E: From<BestChainError>,
 {
     checkpoint()?;
     if let Some(header) = snapshot.load_header(&hash) {
@@ -487,9 +487,9 @@ where
     checkpoint()?;
     snapshot
         .load_block(&hash)
-        .map_err(CanonicalChainError::Store)?
+        .map_err(BestChainError::Store)?
         .and_then(|block| block.decode_header().ok())
-        .ok_or_else(|| CanonicalChainError::MissingHeader { hash }.into())
+        .ok_or_else(|| BestChainError::MissingHeader { hash }.into())
 }
 
 /// Walk ancestors of `start` on a snapshot view, stopping past the anchor.
