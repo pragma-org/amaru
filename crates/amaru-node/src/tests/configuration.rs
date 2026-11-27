@@ -29,6 +29,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
+    state::volatile::VolatileFragment,
     store::{Columns, Store, TransactionalContext},
 };
 use amaru_mempool::InMemoryMempool;
@@ -59,7 +60,7 @@ use crate::{
 #[derive(Clone)]
 pub struct NodeTestConfig {
     pub chain_store: Arc<InMemoryChainStore>,
-    pub mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>,
+    pub mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>, VolatileFragment>>,
     pub connections: ConnectionsResource,
     pub chain_length: usize,
     pub upstream_peers: Vec<Peer>,
@@ -143,7 +144,7 @@ impl Default for NodeTestConfig {
     fn default() -> Self {
         Self {
             chain_store: Arc::new(InMemoryChainStore::default()),
-            mempool: Arc::new(InMemoryMempool::default()),
+            mempool: Arc::new(InMemoryMempool::new(Default::default())),
             connections: Arc::new(InMemoryConnectionProvider::default()),
             chain_length: 10,
             upstream_peers: vec![Peer::for_test(3001)],
@@ -252,7 +253,10 @@ impl NodeTestConfig {
         self
     }
 
-    pub fn with_mempool(mut self, mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>) -> Self {
+    pub fn with_mempool(
+        mut self,
+        mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>, VolatileFragment>>,
+    ) -> Self {
         self.mempool = mempool;
         self
     }

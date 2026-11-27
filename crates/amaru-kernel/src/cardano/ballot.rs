@@ -20,7 +20,7 @@ use proptest::{
 
 use crate::{Anchor, Vote, cbor};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Ballot {
     vote: Vote,
 

@@ -22,7 +22,10 @@
 use std::{ops::Range, sync::Arc, time::Duration};
 
 use amaru_consensus::{
-    effects::{ResourceBlockBuilderConstraints, ResourceConsensusParameters, ResourceEraHistory, ResourceTxValidation},
+    effects::{
+        ResourceBlockBuilderConstraints, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory,
+        ResourceTxValidation,
+    },
     performance::{Performance, ResourcePerformance},
     stages::{
         forge_block::{
@@ -35,14 +38,15 @@ use amaru_consensus::{
 use amaru_kernel::{
     Block, BlockBodyBuilder, BlockBuilderConstraints, ConsensusParameters, Epoch, HasTransactionId, HeaderHash,
     IsHeader, Nonce, PREPROD_DEFAULT_PROTOCOL_PARAMETERS, PREPROD_ERA_HISTORY, PREPROD_GLOBAL_PARAMETERS, Point,
-    ProtocolVersion, Redeemers, ReferenceInputs, Slot, Transaction, WitnessSet, cbor::WithOriginalBytes,
-    maths::FixedDecimal,
+    ProtocolVersion, Redeemers, ReferenceInputs, Slot, Transaction, TransactionBody, WitnessSet,
+    cbor::WithOriginalBytes, maths::FixedDecimal,
 };
-use amaru_mempool::InMemoryMempool;
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_ouroboros::{MempoolMsg, ResourceMempool, TxOrigin, in_memory_chain_store::InMemoryChainStore};
 use amaru_ouroboros_traits::{
-    BaseReadChainStore, BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, DiagnosticChainStore,
-    ForgingCredentials, LedgerThreadTerminated, MockBlockValidator, MockCanValidateTxs, Nonces,
+    BaseReadChainStore, BlockBuilderConstraintsResponse, CanReadBlockBuilderConstraints, CanValidateTxs,
+    DiagnosticChainStore, ForgingCredentials, LedgerThreadTerminated, Mempool, MockBlockValidator, MockCanValidateTxs,
+    Nonces, TransactionValidationError, ValidationMode,
 };
 use amaru_protocols::store_effects::{ResourceHeaderStore, ResourceParameters};
 use amaru_pure_stage::{StageGraph, StageRef, simulation::SimulationBuilder};
@@ -51,7 +55,7 @@ use test_case::test_case;
 use tokio::runtime::Runtime;
 
 use super::{WorldConnectionProvider, WorldLoop};
-use crate::tests::test_data::create_transaction;
+use crate::{mempool::Pool, tests::test_data::create_transaction};
 
 const WORLD_SEED: u64 = 0x464F5247455F5241;
 
@@ -74,7 +78,7 @@ impl CanReadBlockBuilderConstraints for FixedConstraints {
 
 struct TipChangingConstraints {
     response: BlockBuilderConstraintsResponse,
-    mempool: ResourceMempool<Transaction>,
+    mempool: ResourceMempool<Transaction, VolatileFragment>,
     tip: Point,
 }
 
@@ -92,7 +96,7 @@ struct ForgeWorld {
     forge: StageRef<ForgeBlockMsg>,
     submit: StageRef<WithOriginalBytes<Transaction>>,
     mempool_stage: StageRef<MempoolMsg>,
-    mempool: ResourceMempool<Transaction>,
+    mempool: ResourceMempool<Transaction, VolatileFragment>,
     store: Arc<InMemoryChainStore>,
 }
 
@@ -102,20 +106,25 @@ impl ForgeWorld {
     }
 
     fn new_with_tips(ledger_tip: Point, mempool_tip: Point) -> Self {
-        let mempool: ResourceMempool<Transaction> = Arc::new(InMemoryMempool::default());
+        let mempool = Arc::new(Pool::new(Default::default()));
         mempool.set_tip(mempool_tip);
         Self::new_with_mempool(mempool, Arc::new(MockBlockValidator::new(ledger_tip)))
     }
 
     fn new_with_resource(mempool_tip: Point, validator: Arc<dyn CanReadBlockBuilderConstraints + Send + Sync>) -> Self {
-        let mempool: ResourceMempool<Transaction> = Arc::new(InMemoryMempool::default());
+        let mempool = Arc::new(Pool::new(Default::default()));
         mempool.set_tip(mempool_tip);
         Self::new_with_mempool(mempool, validator)
     }
 
-    fn new_with_mempool(
-        mempool: ResourceMempool<Transaction>,
+    fn new_with_mempool(mempool: Arc<Pool>, validator: Arc<dyn CanReadBlockBuilderConstraints + Send + Sync>) -> Self {
+        Self::new_with_mempool_and_tx_validator(mempool, validator, Arc::new(MockCanValidateTxs))
+    }
+
+    fn new_with_mempool_and_tx_validator(
+        mempool: Arc<Pool>,
         validator: Arc<dyn CanReadBlockBuilderConstraints + Send + Sync>,
+        tx_validator: ResourceTxValidation,
     ) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("runtime");
         let consensus_parameters = ConsensusParameters::new(PREPROD_GLOBAL_PARAMETERS.clone(), &PREPROD_ERA_HISTORY);
@@ -162,12 +171,13 @@ impl ForgeWorld {
         let submit_stage =
             builder.wire_up(submit_stage, SubmitterState { mempool: mempool_stage.clone().without_state() });
         builder.resources().put::<ResourceHeaderStore>(store.clone());
-        builder.resources().put::<ResourceMempool<Transaction>>(mempool.clone());
+        builder.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(mempool.clone());
+        builder.resources().put::<ResourceBlockValidation>(Arc::new(MockBlockValidator::new(Point::Origin)));
         builder.resources().put::<ResourceBlockBuilderConstraints>(validator);
         builder.resources().put::<ResourceConsensusParameters>(Arc::new(consensus_parameters));
         builder.resources().put::<ResourceParameters>(PREPROD_GLOBAL_PARAMETERS.clone());
         builder.resources().put::<ResourceEraHistory>(PREPROD_ERA_HISTORY.clone());
-        builder.resources().put::<ResourceTxValidation>(Arc::new(MockCanValidateTxs));
+        builder.resources().put::<ResourceTxValidation>(tx_validator);
         builder.resources().put::<ResourcePerformance>(Arc::new(Performance::new()));
         builder
             .resources()
@@ -185,7 +195,7 @@ impl ForgeWorld {
             forge: forge_stage.without_state(),
             submit: submit_stage.without_state(),
             mempool_stage: mempool_stage.without_state(),
-            mempool,
+            mempool: mempool as ResourceMempool<Transaction, VolatileFragment>,
             store,
         }
     }
@@ -292,7 +302,7 @@ fn capacity_constraints(
     assert!(builder.try_push(first, &baseline).expect("first transaction must be measurable"));
 
     match dimension {
-        CapacityDimension::Size => parameters.max_block_body_size = builder.size(),
+        CapacityDimension::Size => parameters.max_block_body_size = builder.serialization_size(),
         CapacityDimension::ReferenceScript => {
             let reference_script_size = builder.ref_scripts_size();
             assert!(reference_script_size > 0, "reference script transaction must have a non-zero estimate");
@@ -365,7 +375,7 @@ fn world_forge_skips_when_mempool_tip_lags_the_ledger() {
 #[test]
 fn world_forge_skips_when_tip_changes_during_take() {
     let changed_tip = Point::Specific(Slot::from(1), amaru_kernel::ORIGIN_HASH, 1.into());
-    let mempool: ResourceMempool<Transaction> = Arc::new(InMemoryMempool::default());
+    let mempool = Arc::new(Pool::new(Default::default()));
     mempool.set_tip(Point::Origin);
     let constraints = BlockBuilderConstraints::from(&*PREPROD_DEFAULT_PROTOCOL_PARAMETERS);
     let provider = TipChangingConstraints {
@@ -424,6 +434,67 @@ fn world_forge_includes_transaction_submitted_before_take() {
     assert!(forge.mempool.read().iter().next().is_none(), "selected transaction must leave the mempool");
 }
 
+/// `forge.conflicting_transactions`: two admitted transactions spend the same input.
+///
+/// Both submissions go through the local submission stage. The second transaction must see the
+/// first transaction's state fragment and be rejected before it can reach block selection.
+#[test]
+fn world_forge_does_not_include_conflicting_transactions() {
+    let mempool = Arc::new(Pool::new(Default::default()));
+    mempool.set_tip(Point::Origin);
+    let mut forge = ForgeWorld::new_with_mempool_and_tx_validator(
+        mempool,
+        Arc::new(MockBlockValidator::new(Point::Origin)),
+        Arc::new(RejectConflictingInputs),
+    );
+    let first = create_transaction(10).into_inner();
+    let input = first.body.inputs.iter().next().copied().expect("fixture transaction has an input");
+    let second = Transaction { body: TransactionBody::new([input], [], 1), ..first.clone() };
+    let first_id = first.tx_id();
+
+    forge.submit_and_settle(first.into());
+    forge.world.run_until_horizon(1_000_000_000);
+    forge.submit(second.into());
+    forge.world.run_until_horizon(2_000_000_000);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![first_id]);
+
+    forge.due_lead();
+    forge.world.run_until_horizon(20_000_000_000);
+
+    let header = forge.store.load_headers().next().expect("conflicting submissions must trigger a forge");
+    let block = forge.load_block(&header.hash());
+    assert_eq!(
+        block.into_iter().map(|(_, tx)| tx.tx_id()).collect::<Vec<_>>(),
+        vec![first_id],
+        "a forged block must not contain two transactions spending the same input"
+    );
+}
+
+/// Minimal stateful validator for the forge scenario. Production validation returns the same
+/// fragment shape from the ledger; this keeps the test focused on passing that fragment from one
+/// admission to the next.
+struct RejectConflictingInputs;
+
+#[async_trait]
+impl CanValidateTxs<VolatileFragment> for RejectConflictingInputs {
+    async fn validate_tx(
+        &self,
+        tx: Transaction,
+        _slot: Slot,
+        previous: Arc<Vec<VolatileFragment>>,
+        _mode: ValidationMode,
+    ) -> Result<VolatileFragment, TransactionValidationError> {
+        let input = tx.body.inputs.iter().next().copied().expect("fixture transaction has an input");
+        if previous.iter().any(|fragment| fragment.utxo.consumed.contains(&input)) {
+            return Err(anyhow::anyhow!("transaction spends an input already consumed by the mempool").into());
+        }
+
+        let mut fragment = VolatileFragment::default();
+        fragment.utxo.consume(input);
+        Ok(fragment)
+    }
+}
+
 /// `forge.submit_after_take`: a submission arriving after body selection belongs to a later block.
 ///
 /// The lead is processed first and creates an empty block; the local submission is then routed
@@ -442,7 +513,7 @@ fn world_forge_keeps_transaction_submitted_after_take() {
     let header = forge.store.load_headers().next().expect("lead must forge an empty block");
     let block = forge.load_block(&header.hash());
     assert!(block.into_iter().next().is_none(), "late submission must not enter the sealed block");
-    assert_eq!(forge.mempool.read().iter().map(HasTransactionId::tx_id).collect::<Vec<_>>(), vec![tx_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
 }
 
 /// `forge.invalidated_transaction`: revalidation happens before the next forge lead.
@@ -457,7 +528,7 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
     let tx = create_transaction(13);
     forge.submit_and_settle(tx);
 
-    let validator: ResourceTxValidation = Arc::new(|_: &Transaction| {
+    let validator: ResourceTxValidation = Arc::new(|_: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
         Err(amaru_ouroboros_traits::TransactionValidationError::from(anyhow::anyhow!(
             "transaction invalidated by test tip"
         )))
@@ -480,11 +551,25 @@ fn world_forge_does_not_include_transaction_invalidated_by_new_tip() {
 /// transaction rather than producing a block that the ledger immediately rejects.
 #[test]
 fn world_forge_skips_transaction_expired_at_target_slot() {
-    let mut forge = ForgeWorld::new(Point::Origin);
+    let mempool = Arc::new(Pool::new(Default::default()));
+    mempool.set_tip(Point::Origin);
+    let validator: ResourceTxValidation = Arc::new(|tx: Transaction, _previous: Arc<Vec<VolatileFragment>>| {
+        if tx.body.validity_interval().includes(simulation_slot()) {
+            Ok(VolatileFragment::default())
+        } else {
+            Err(TransactionValidationError::from(anyhow::anyhow!("transaction expired at forge slot")))
+        }
+    });
+    let mut forge = ForgeWorld::new_with_mempool_and_tx_validator(
+        mempool,
+        Arc::new(MockBlockValidator::new(Point::Origin)),
+        validator,
+    );
     let mut tx = create_transaction(17).into_inner();
     tx.body.validity_interval_end = Some(simulation_slot());
     let tx_id = tx.tx_id();
-    forge.submit_and_settle(tx.into());
+    let _ = forge.mempool.insert(tx.into(), VolatileFragment::default(), TxOrigin::Local);
+    assert!(forge.mempool.contains(&tx_id));
 
     forge.due_lead();
     forge.world.run_until_horizon(20_000_000_000);
@@ -492,7 +577,7 @@ fn world_forge_skips_transaction_expired_at_target_slot() {
     let header = forge.store.load_headers().next().expect("expired transaction must not prevent forging");
     let block = forge.load_block(&header.hash());
     assert!(block.into_iter().next().is_none(), "an expired transaction must not be included");
-    assert_eq!(forge.mempool.read().iter().map(HasTransactionId::tx_id).collect::<Vec<_>>(), vec![tx_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![tx_id]);
 }
 
 /// `forge.capacity_boundary`: transaction selection stops at an exact block constraint boundary.
@@ -522,7 +607,7 @@ fn world_forge_stops_at_block_capacity(dimension: CapacityDimension) {
     let block = forge.load_block(&header.hash());
 
     assert_eq!(block.into_iter().map(|(_, tx)| tx.tx_id()).collect::<Vec<_>>(), vec![first_id]);
-    assert_eq!(forge.mempool.read().iter().map(HasTransactionId::tx_id).collect::<Vec<_>>(), vec![second_id]);
+    assert_eq!(forge.mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(), vec![second_id]);
 }
 
 /// `forge.failure_after_take`: signing fails after the body has been removed from the mempool.

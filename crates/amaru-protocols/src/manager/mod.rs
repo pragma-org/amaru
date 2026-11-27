@@ -25,6 +25,7 @@ use crate::{
     blockfetch::Blocks,
     chainsync::ChainSyncInitiatorMsg,
     connection::{self, ConnectionMessage, MiniProtocolUse},
+    mempool_effects::SerializableMempoolState,
     metrics_effects::{Metrics, MetricsOps},
     network_effects::{ConnectError, Network, NetworkOps},
     peer_sharing::{SHARE_REQUEST_AMOUNT, SHARE_REQUEST_INITIAL_DELAY, SHARE_REQUEST_INTERVAL},
@@ -165,7 +166,7 @@ impl ManagerMessage {
 /// [`MiniProtocolUse::Diffusion`] and inbound is [`MiniProtocolUse::None`]. The connection records a later
 /// applied use on the peer resource. Fetch reads which bearers may initiate from there.
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Manager {
+pub struct Manager<MempoolState = ()> {
     peers: BTreeMap<Peer, PeerState>,
     connections: BTreeMap<ConnectionId, Connection>,
     /// Sockets whose connection stage is running and whose handshake has not finished.
@@ -180,6 +181,7 @@ pub struct Manager {
     mempool: StageRef<MempoolMsg>,
     /// Port from the bound listener. The wildcard IP is not kept.
     listen_port: Option<u16>,
+    mempool_state: std::marker::PhantomData<fn() -> MempoolState>,
 }
 
 #[derive(Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -219,7 +221,10 @@ struct Connection {
     full_duplex: bool,
 }
 
-impl Manager {
+impl<MempoolState> Manager<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     pub fn new(
         magic: NetworkMagic,
         config: ManagerConfig,
@@ -239,6 +244,7 @@ impl Manager {
             chain_sync,
             mempool,
             listen_port: None,
+            mempool_state: std::marker::PhantomData,
         }
     }
 
@@ -341,7 +347,10 @@ impl Default for ManagerConfig {
     }
 }
 
-impl Manager {
+impl<MempoolState> Manager<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     async fn add_peer(&mut self, peer: Peer, eff: &Effects<ManagerMessage>) {
         let already_dialing = matches!(
             self.peers.get(&peer).map(|state| &state.outbound),
@@ -474,7 +483,7 @@ impl Manager {
         conn_id: ConnectionId,
         direction: ConnectionDirection,
     ) {
-        let connection = eff.stage(format!("{conn_id}-{peer}"), connection::stage).await;
+        let connection = eff.stage(format!("{conn_id}-{peer}"), connection::stage::<MempoolState>).await;
         let role = match direction {
             ConnectionDirection::Inbound => Role::Responder,
             ConnectionDirection::Outbound => Role::Initiator,
@@ -824,7 +833,14 @@ impl Manager {
 ///
 /// A peer can be added right after being removed. A result for the dial that was cleared does not
 /// attach to the new one. The old socket is closed when that dial is dropped.
-pub async fn stage(mut manager: Manager, msg: ManagerMessage, eff: Effects<ManagerMessage>) -> Manager {
+pub async fn stage<MempoolState>(
+    mut manager: Manager<MempoolState>,
+    msg: ManagerMessage,
+    eff: Effects<ManagerMessage>,
+) -> Manager<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let message_type = msg.message_type().to_string();
     let span = debug_span!(protocols::manager::message::PROCESS, message_type);
 
@@ -1012,9 +1028,12 @@ async fn close_terminated_connection(eff: &Effects<ManagerMessage>, peer: &Peer,
     }
 }
 
-pub fn register_deserializers() -> DeserializerGuards {
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
+where
+    MempoolState: SerializableMempoolState,
+{
     let mut guards = vec![
-        register_data_deserializer::<Manager>().boxed(),
+        register_data_deserializer::<Manager<MempoolState>>().boxed(),
         register_data_deserializer::<ManagerMessage>().boxed(),
         register_data_deserializer::<Instant>().boxed(),
     ];

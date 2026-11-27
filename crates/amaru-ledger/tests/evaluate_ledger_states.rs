@@ -36,6 +36,7 @@ pub mod tests {
         rules::block::{TransactionInvalid, validate_transaction},
         snapshot,
     };
+    use amaru_ouroboros_traits::ValidationMode;
     use amaru_uplc::arena_pool::ArenaPool;
 
     // Tests cases are constructed in build.rs, which generates the test_cases.rs file
@@ -348,6 +349,7 @@ pub mod tests {
                 decoded.constitution.guardrail_script,
                 pointer,
                 tx.tx_ref(),
+                ValidationMode::FullValidation,
             )
             .map_err(|e| match e {
                 TransactionInvalid::PhaseOne(e) => e.to_string(),

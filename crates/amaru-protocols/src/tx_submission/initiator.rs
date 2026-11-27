@@ -50,6 +50,7 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::{
     fmt::{Debug, Display},
+    marker::PhantomData,
     sync::Arc,
 };
 
@@ -62,7 +63,7 @@ use amaru_ouroboros::{MempoolMsg, MempoolSeqNo};
 use amaru_pure_stage::{DeserializerGuards, Effects, StageRef, Void};
 
 use crate::{
-    mempool_effects::{AsyncMempool, MempoolEffects},
+    mempool_effects::{AsyncMempool, MempoolEffects, SerializableMempoolState},
     mux::MuxMessage,
     protocol::{
         Initiator, Inputs, Miniprotocol, Outcome, PROTO_N2N_TX_SUB, ProtocolState, StageState, miniprotocol, outcome,
@@ -73,19 +74,28 @@ use crate::{
     },
 };
 
-pub fn register_deserializers() -> DeserializerGuards {
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
+where
+    MempoolState: SerializableMempoolState,
+{
     vec![
         amaru_pure_stage::register_data_deserializer::<InitiatorLocalIn>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<TxSubmissionInitiator>().boxed(),
-        amaru_pure_stage::register_data_deserializer::<(State, TxSubmissionInitiator)>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<TxSubmissionInitiator<MempoolState>>().boxed(),
+        amaru_pure_stage::register_data_deserializer::<(State, TxSubmissionInitiator<MempoolState>)>().boxed(),
     ]
 }
 
-pub fn initiator() -> Miniprotocol<State, TxSubmissionInitiator, Initiator> {
+pub fn initiator<MempoolState>() -> Miniprotocol<State, TxSubmissionInitiator<MempoolState>, Initiator>
+where
+    MempoolState: SerializableMempoolState,
+{
     miniprotocol(PROTO_N2N_TX_SUB)
 }
 
-impl StageState<State, Initiator> for TxSubmissionInitiator {
+impl<MempoolState> StageState<State, Initiator> for TxSubmissionInitiator<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     type LocalIn = InitiatorLocalIn;
 
     async fn local(
@@ -94,7 +104,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         input: Self::LocalIn,
         eff: &Effects<Inputs<Self::LocalIn>>,
     ) -> anyhow::Result<(Option<InitiatorAction>, Self)> {
-        let mempool = MempoolEffects::new(eff.clone());
+        let mempool = MempoolEffects::<MempoolState>::new(eff.clone());
         let action = match input {
             InitiatorLocalIn::WaitForAtLeastReached => {
                 let action = self.complete_request_tx_ids_blocking(&mempool).await?;
@@ -133,7 +143,7 @@ impl StageState<State, Initiator> for TxSubmissionInitiator {
         let peer = self.peer;
 
         async move {
-            let mempool = MempoolEffects::new(eff.clone());
+            let mempool = MempoolEffects::<MempoolState>::new(eff.clone());
 
             let action = match input {
                 InitiatorResult::RequestTxIds { blocking: Blocking::Yes, .. } if self.pending_close => {
@@ -282,7 +292,7 @@ impl Display for InitiatorResult {
 }
 
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TxSubmissionInitiator {
+pub struct TxSubmissionInitiator<MempoolState = ()> {
     /// The connected peer, expecting transactions to be received.
     peer: Peer,
     /// What we’ve already advertised but has not yet been fully acked.
@@ -298,9 +308,13 @@ pub struct TxSubmissionInitiator {
     /// Era history used to derive the current era tag for outgoing wire messages.
     era_history: Arc<EraHistory>,
     pending_close: bool,
+    mempool_state: PhantomData<fn() -> MempoolState>,
 }
 
-impl TxSubmissionInitiator {
+impl<MempoolState> TxSubmissionInitiator<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     pub fn new(
         peer: Peer,
         muxer: StageRef<MuxMessage>,
@@ -319,6 +333,7 @@ impl TxSubmissionInitiator {
                 muxer,
                 era_history,
                 pending_close: false,
+                mempool_state: PhantomData,
             },
         )
     }
@@ -397,7 +412,7 @@ impl TxSubmissionInitiator {
     /// it); the pending request is left in place so the caller can re-arm the wait.
     async fn complete_request_tx_ids_blocking(
         &mut self,
-        mempool: &dyn AsyncMempool,
+        mempool: &dyn AsyncMempool<MempoolState>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         let Some(PendingBlockingRequest { req }) = self.pending_blocking_request.as_ref() else {
             anyhow::bail!("missing pending blocking request")
@@ -415,7 +430,7 @@ impl TxSubmissionInitiator {
 
     async fn request_tx_ids_non_blocking(
         &mut self,
-        mempool: &dyn AsyncMempool,
+        mempool: &dyn AsyncMempool<MempoolState>,
         ack: u16,
         req: u16,
     ) -> anyhow::Result<Option<InitiatorAction>> {
@@ -442,7 +457,7 @@ impl TxSubmissionInitiator {
 
     async fn request_txs(
         &mut self,
-        mempool: &dyn AsyncMempool,
+        mempool: &dyn AsyncMempool<MempoolState>,
         tx_ids: Vec<TransactionId>,
     ) -> anyhow::Result<Option<InitiatorAction>> {
         debug!(
@@ -496,7 +511,7 @@ impl TxSubmissionInitiator {
     /// Take notice of the acknowledged transactions, and send the next batch of tx ids.
     async fn get_next_tx_ids(
         &mut self,
-        mempool: &dyn AsyncMempool,
+        mempool: &dyn AsyncMempool<MempoolState>,
         required_next: u16,
     ) -> anyhow::Result<Vec<(TransactionId, u32)>> {
         let tx_ids = mempool.slice(self.next_seq(), required_next).await;
@@ -565,7 +580,7 @@ fn terminate(cause: impl Into<TerminationCause>) -> anyhow::Result<Option<Initia
     Ok(Some(InitiatorAction::Error(cause)))
 }
 
-impl AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator {
+impl<MempoolState> AsRef<StageRef<MuxMessage>> for TxSubmissionInitiator<MempoolState> {
     fn as_ref(&self) -> &StageRef<MuxMessage> {
         &self.muxer
     }
@@ -633,7 +648,7 @@ mod tests {
         let txs = create_transactions(6);
 
         for tx in txs.iter().take(2) {
-            Mempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
+            Mempool::insert(mempool.as_ref(), tx.clone(), (), TxOrigin::Local);
         }
 
         // Send requests to retrieve transactions and block until they are available.
@@ -646,7 +661,7 @@ mod tests {
 
         // Refill the mempool with more transactions
         for tx in &txs[2..] {
-            Mempool::insert(mempool.as_ref(), tx.clone(), TxOrigin::Local);
+            Mempool::insert(mempool.as_ref(), tx.clone(), (), TxOrigin::Local);
         }
         let messages = vec![
             request_tx_ids(1, 2, Blocking::Yes),
@@ -687,9 +702,9 @@ mod tests {
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
         assert!(Mempool::last(mempool.as_ref()) < seq_no);
-        Mempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
+        Mempool::insert(mempool.as_ref(), txs[0].clone(), (), TxOrigin::Local);
         assert!(Mempool::last(mempool.as_ref()) >= seq_no);
-        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, Some(reply_tx_ids(&txs, &[0])));
+        assert_eq!(initiator.complete_request_tx_ids_blocking(&mempool).await?, Some(reply_tx_ids(&txs, &[0])));
 
         Ok(())
     }
@@ -708,13 +723,13 @@ mod tests {
         let seq_no = initiator.begin_request_tx_ids_blocking(0, 10).map_err(|error| anyhow::anyhow!(error))?;
 
         let tx_id = txs[0].tx_id();
-        Mempool::insert(mempool.as_ref(), txs[0].clone(), TxOrigin::Local);
+        Mempool::insert(mempool.as_ref(), txs[0].clone(), (), TxOrigin::Local);
         Mempool::remove(mempool.as_ref(), &[tx_id]);
         // the last seq_no is greater than the requested seq_no
         assert!(Mempool::last(mempool.as_ref()) >= seq_no);
 
         // yet we don't complete the request because the mempool is empty
-        assert_eq!(initiator.complete_request_tx_ids_blocking(mempool.as_ref()).await?, None);
+        assert_eq!(initiator.complete_request_tx_ids_blocking(&mempool).await?, None);
         assert!(
             initiator.pending_blocking_request.is_some(),
             "the request is still pending because no tx can satisfy it"
@@ -941,7 +956,7 @@ mod tests {
     // HELPERS
 
     async fn run_stage<M: AsyncMempool>(
-        mempool: Arc<M>,
+        mempool: M,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<Vec<InitiatorAction>> {
         let (actions, _initiator) = run_stage_and_return_state(mempool, results).await?;
@@ -949,7 +964,7 @@ mod tests {
     }
 
     async fn run_stage_and_return_state<M: AsyncMempool>(
-        mempool: Arc<M>,
+        mempool: M,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         run_stage_and_return_state_with(
@@ -968,11 +983,11 @@ mod tests {
 
     async fn run_stage_and_return_state_with<M: AsyncMempool>(
         mut initiator: TxSubmissionInitiator,
-        mempool: Arc<M>,
+        mempool: M,
         results: Vec<InitiatorResult>,
     ) -> anyhow::Result<(Vec<InitiatorAction>, TxSubmissionInitiator)> {
         let mut actions = vec![];
-        let mempool = mempool.as_ref();
+        let mempool = &mempool;
         for r in results {
             let action = step(&mut initiator, r, mempool).await?;
             if let Some(action) = action {

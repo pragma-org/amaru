@@ -32,13 +32,13 @@ use crate::state::volatile::Registrations;
 /// `.register` and `.unregister` assumes they are all done from within the same epoch. Merging
 /// across epochs requires some more finesse; which isn't completely out of the picture, but simply
 /// hasn't been implemented yet.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffEpochReg<K, V> {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DiffEpochReg<K: Ord, V> {
     pub registered: BTreeMap<K, Registrations<V>>,
     pub unregistered: BTreeMap<K, Epoch>,
 }
 
-impl<K, V> Default for DiffEpochReg<K, V> {
+impl<K: Ord, V> Default for DiffEpochReg<K, V> {
     fn default() -> Self {
         Self { registered: Default::default(), unregistered: Default::default() }
     }

@@ -18,6 +18,7 @@ use amaru_kernel::{
     EraHistory, GlobalParameters, Hash, NetworkName, ProtocolParameters, TransactionPointer, TransactionRef,
     size::SCRIPT,
 };
+use amaru_ouroboros_traits::ValidationMode;
 use amaru_uplc::arena_pool::ArenaPool;
 
 use crate::{
@@ -43,6 +44,7 @@ pub struct Environment<'a> {
     pub governance_activity: GovernanceActivity,
     pub guardrail_script: Option<Hash<SCRIPT>>,
     pub pointer: TransactionPointer,
+    pub mode: ValidationMode,
 }
 
 /// Validates a transaction against a validation context, then consumes the inputs it spends
@@ -78,9 +80,11 @@ impl Execute for ValidTransaction<'_> {
     {
         let spent = phase_one::when_valid(context, environment, self.0)?;
 
-        let failures = evaluate_scripts(context, environment, self.0)?;
-        if !failures.is_empty() {
-            return Err(TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(failures)));
+        if matches!(environment.mode, ValidationMode::FullValidation) {
+            let failures = evaluate_scripts(context, environment, self.0)?;
+            if !failures.is_empty() {
+                return Err(TransactionInvalid::PhaseTwo(TagMismatch::FailedUnexpectedly(failures)));
+            }
         }
 
         spent.into_iter().for_each(|input| context.consume(input));
@@ -96,7 +100,9 @@ impl Execute for InvalidTransaction<'_> {
     {
         let spent = phase_one::when_invalid(context, environment, self.0)?;
 
-        if evaluate_scripts(context, environment, self.0)?.is_empty() {
+        if matches!(environment.mode, ValidationMode::FullValidation)
+            && evaluate_scripts(context, environment, self.0)?.is_empty()
+        {
             return Err(TransactionInvalid::PhaseTwo(TagMismatch::PassedUnexpectedly));
         }
 
@@ -114,6 +120,10 @@ fn evaluate_scripts<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
+    if matches!(environment.mode, ValidationMode::Revalidation) {
+        return Ok(Vec::new());
+    }
+
     phase_two::execute(
         context,
         environment.arena_pool,
@@ -144,6 +154,7 @@ mod tests {
     use amaru_kernel::{
         EraHistory, Lovelace, ProtocolParameters, Transaction, cbor, json, utils::serde::FilesystemRefResolver,
     };
+    use amaru_ouroboros_traits::ValidationMode;
     use amaru_uplc::arena_pool::ArenaPool;
     use test_case::test_case;
 
@@ -308,6 +319,7 @@ mod tests {
             guardrail_script,
             fixture.point,
             tx.tx_ref(),
+            ValidationMode::FullValidation,
         )
         .map_err(Predicate::from);
 

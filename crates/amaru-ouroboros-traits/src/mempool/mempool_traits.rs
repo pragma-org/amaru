@@ -12,36 +12,66 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
-use amaru_kernel::{Point, TransactionId, cbor::WithOriginalBytes};
+use amaru_kernel::{
+    Point, TransactionId,
+    cbor::{self, WithOriginalBytes},
+    to_cbor,
+};
 
 use crate::mempool::{MempoolSeqNo, MempoolState, TxInsertResult, TxOrigin};
+
+/// A transaction stored in a mempool together with its admission metadata and validation state.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MempoolEntry<Tx, State = ()> {
+    pub seq_no: MempoolSeqNo,
+    pub tx_id: TransactionId,
+    pub tx: Tx,
+    /// State produced while admitting the transaction.
+    pub state: State,
+    /// Serialized transaction size in bytes.
+    pub tx_size: u32,
+    /// The admitting origin. Duplicate offers do not update it.
+    pub origin: TxOrigin,
+    /// Wall-clock insertion time; use `seq_no` for ordering because wall-clock time can jump.
+    pub admitted_at: SystemTime,
+}
+
+impl<Tx: cbor::Encode<()>, State> MempoolEntry<Tx, State> {
+    /// Return the transaction's serialized bytes.
+    pub fn original_bytes(&self) -> Vec<u8> {
+        to_cbor(&self.tx)
+    }
+}
 
 /// A mempool interface to:
 ///
 /// - Retrieve transactions to be included in a new block.
 /// - Support the transaction submission protocol to share transactions with peers.
 ///
-pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
-    /// Insert a transaction into the mempool, specifying its origin.
-    /// A TxOrigin::Local origin indicates the transaction was created on the current node,
-    /// A TxOrigin::Remote(origin_peer) indicates the transaction was received from a remote peer.
-    fn insert(&self, tx: Tx, tx_origin: TxOrigin) -> TxInsertResult;
+pub trait Mempool<Tx: Send + Sync + 'static, State = ()>: Send + Sync
+where
+    State: Send + Sync + 'static,
+{
+    /// Insert a transaction and the state fragment produced while validating it.
+    /// A `TxOrigin::Local` origin indicates the transaction was created on the current node. A
+    /// `TxOrigin::Remote(origin_peer)` indicates that it was received from a remote peer.
+    fn insert(&self, tx: Tx, state: State, tx_origin: TxOrigin) -> TxInsertResult;
 
     /// Borrow the current contents of the mempool.
     ///
     /// The read view holds the implementation's read lock, when one is needed, until it is
     /// dropped. Callers must finish using the view before mutating the mempool. Use [`Self::read_at`]
     /// when the view must match a previously observed ledger tip.
-    fn read(&self) -> Box<dyn MempoolRead<Tx> + '_>;
+    fn read(&self) -> Box<dyn MempoolRead<Tx, State> + '_>;
 
     /// Borrow the mempool only if it is still at `tip`.
     ///
     /// The tip check and acquisition of the read view are one operation. A successful result
     /// therefore keeps the view aligned with the tip supplied by the caller for its entire
     /// lifetime; a failed result means the caller must retry against a newer tip.
-    fn read_at(&self, tip: Point) -> Option<Box<dyn MempoolRead<Tx> + '_>>;
+    fn read_at(&self, tip: Point) -> Option<Box<dyn MempoolRead<Tx, State> + '_>>;
 
     /// Return true if the mempool contains a transaction with the given id.
     fn contains(&self, tx_id: &TransactionId) -> bool {
@@ -75,14 +105,17 @@ pub trait Mempool<Tx: Send + Sync + 'static>: Send + Sync {
 }
 
 /// Borrowed access to the transactions currently held by a mempool.
-pub trait MempoolRead<Tx: Send + Sync + 'static> {
+pub trait MempoolRead<Tx: Send + Sync + 'static, State = ()>
+where
+    State: Send + Sync + 'static,
+{
     /// Retrieve the transactions for the given ids without cloning them.
     ///
     /// Results are ordered by insertion sequence, and unknown ids are omitted.
-    fn get(&self, ids: &[TransactionId]) -> Vec<&Tx>;
+    fn get(&self, ids: &[TransactionId]) -> Vec<(&Tx, &State)>;
 
-    /// Iterate over all active transactions in insertion order without cloning them.
-    fn iter(&self) -> Box<dyn Iterator<Item = &Tx> + '_>;
+    /// Iterate over all active transactions and their state fragments in insertion order without cloning them.
+    fn iter(&self) -> Box<dyn Iterator<Item = Arc<MempoolEntry<Tx, State>>> + '_>;
 }
 
-pub type ResourceMempool<Tx> = Arc<dyn Mempool<WithOriginalBytes<Tx>>>;
+pub type ResourceMempool<Tx, State = ()> = Arc<dyn Mempool<WithOriginalBytes<Tx>, State>>;

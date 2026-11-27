@@ -59,6 +59,7 @@ impl BlockBodyParts {
         BlockBodyBuilder::default()
             .finalize()
             .unwrap_or_else(|_| unreachable!("default BlockBodyBuilder can always be finalized"))
+            .0
     }
 
     /// Assemble a network block only when its header commits to these exact body parts.

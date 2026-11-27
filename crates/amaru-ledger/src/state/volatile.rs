@@ -28,6 +28,9 @@ use overlay::StateOverlay;
 mod aggregate;
 pub use aggregate::VolatileAggregate;
 
+mod mempool;
+pub use mempool::VolatileMempool;
+
 mod bind;
 pub use bind::{Bind, Empty};
 

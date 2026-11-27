@@ -122,6 +122,43 @@ impl<T: Ord, const N: usize> Default for CompactSet<T, N> {
     }
 }
 
+impl<T: Ord + serde::Serialize, const N: usize> serde::Serialize for CompactSet<T, N> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.iter())
+    }
+}
+
+impl<'de, T: Ord + serde::Deserialize<'de>, const N: usize> serde::Deserialize<'de> for CompactSet<T, N> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SetVisitor<T, const N: usize>(std::marker::PhantomData<T>);
+
+        impl<'de, T: Ord + serde::Deserialize<'de>, const N: usize> serde::de::Visitor<'de> for SetVisitor<T, N> {
+            type Value = CompactSet<T, N>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a sequence")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut access: A) -> Result<Self::Value, A::Error> {
+                let storage = match access.size_hint() {
+                    Some(size) if size > N => SetStorage::Tree(BTreeSet::new()),
+                    Some(size) => SetStorage::Small(SmallSortedBuffer::with_capacity(size)),
+                    None => SetStorage::Small(SmallSortedBuffer::new()),
+                };
+                let mut set = CompactSet { storage };
+
+                while let Some(value) = access.next_element()? {
+                    set.insert(value);
+                }
+
+                Ok(set)
+            }
+        }
+
+        deserializer.deserialize_seq(SetVisitor(std::marker::PhantomData))
+    }
+}
+
 impl<T: Ord, const N: usize> FromIterator<T> for CompactSet<T, N> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();

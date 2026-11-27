@@ -20,6 +20,7 @@ use std::{
 };
 
 use amaru_kernel::{Transaction, cbor::WithOriginalBytes};
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{MempoolMsg, TxInsertResult, TxOrigin};
 use amaru_protocols::tx_submission::DEFAULT_MEMPOOL_INSERT_TIMEOUT;
@@ -28,12 +29,12 @@ use futures_util::{FutureExt, future::Shared};
 use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::sync::CancellationToken;
 
-pub(crate) type Pool = InMemoryMempool<WithOriginalBytes<Transaction>>;
+pub(crate) type Pool = InMemoryMempool<WithOriginalBytes<Transaction>, VolatileFragment>;
 
 /// Membership of the node's transaction pool, in insertion order.
-pub type MempoolSnapshot = amaru_mempool::MempoolSnapshot<WithOriginalBytes<Transaction>>;
+pub type MempoolSnapshot = amaru_mempool::MempoolSnapshot<WithOriginalBytes<Transaction>, VolatileFragment>;
 /// A committed insertion or batch of removals.
-pub type MempoolEvent = amaru_mempool::MempoolEvent<WithOriginalBytes<Transaction>>;
+pub type MempoolEvent = amaru_mempool::MempoolEvent<WithOriginalBytes<Transaction>, VolatileFragment>;
 
 /// Inspection, subscription, and submission for one node run.
 /// Retaining this handle does not retain the runtime or stores.

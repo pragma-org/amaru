@@ -17,7 +17,7 @@ use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy, any};
 
 use crate::{CertificatePointer, DRepState, Epoch, Lovelace};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DRepRegistration {
     pub deposit: Lovelace,
     pub registered_at: CertificatePointer,

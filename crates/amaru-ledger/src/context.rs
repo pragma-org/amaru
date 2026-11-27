@@ -355,7 +355,7 @@ pub trait PrepareCommitteeSlice<'a> {
 // Governance Proposals
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProposalState {
     pub proposed_in: ProposalPointer,
     /// Last epoch the proposal can be voted on.
@@ -365,7 +365,7 @@ pub struct ProposalState {
 
 /// [`ProposalState`] with its payload reduced to a [`ProposalSlim`], as the volatile window and the
 /// validation context carry it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProposalStateSlim {
     pub action: ProposalSlim,
     pub valid_until: Epoch,

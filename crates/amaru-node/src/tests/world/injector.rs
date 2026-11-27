@@ -25,7 +25,9 @@
 use std::{collections::BTreeSet, net::SocketAddr, sync::Arc, time::Duration};
 
 use amaru_consensus::stages::select_chain::cmp_tip;
-use amaru_kernel::{Header, HeaderHash, IsHeader, NetworkMagic, PREPROD_ERA_HISTORY, Peer, Point, Transaction};
+use amaru_kernel::{
+    Header, HeaderHash, IsHeader, NetworkMagic, PREPROD_ERA_HISTORY, Peer, Point, Transaction, cbor::WithOriginalBytes,
+};
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::Meter;
 use amaru_ouroboros::{
@@ -200,7 +202,7 @@ pub fn build_injector(
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000));
     put_serve_resources(&mut stage_graph, connections, serving.clone());
 
-    let manager = stage_graph.stage("manager", amaru_protocols::manager::stage);
+    let manager = stage_graph.stage("manager", amaru_protocols::manager::stage::<()>);
     let manager = stage_graph.wire_up(
         manager,
         Manager::new(
@@ -228,7 +230,9 @@ fn put_serve_resources(
 ) {
     stage_graph.resources().put::<ConnectionsResource>(connections);
     stage_graph.resources().put::<ResourceHeaderStore>(store);
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::default()));
+    stage_graph
+        .resources()
+        .put::<ResourceMempool<Transaction>>(Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()));
     stage_graph.resources().put::<ResourceMeter>(Arc::new(Meter::default()));
     stage_graph.resources().put::<PeerTrackingResource>(Arc::new(InMemoryPeerTracking::new()));
 }
@@ -247,7 +251,7 @@ pub fn build_injector_peer(
         .with_trace_buffer(TraceBuffer::new_shared(10_000, 8_000_000));
     put_serve_resources(&mut stage_graph, connections, store);
 
-    let manager = stage_graph.stage("manager", amaru_protocols::manager::stage);
+    let manager = stage_graph.stage("manager", amaru_protocols::manager::stage::<()>);
     let pipeline = stage_graph.stage("pipeline", peer_pipeline);
     let pipeline = stage_graph.wire_up(pipeline, ());
     let manager = stage_graph.wire_up(

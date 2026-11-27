@@ -22,7 +22,7 @@ use crate::state::volatile::{Bind, Existence, Resettable};
 ///
 /// `REGISTERED` and `UNREGISTERED` are the promotion thresholds of the backing compact collections;
 /// the defaults promote immediately, behaving like plain B-trees.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DiffBind<K: Ord, L, R, V, const REGISTERED: usize = 0, const UNREGISTERED: usize = 0> {
     /// Keys registered or updated by this diff, together with their pending bindings.
     pub registered: CompactMap<K, Bind<L, R, V>, REGISTERED>,

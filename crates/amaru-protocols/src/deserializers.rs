@@ -15,24 +15,28 @@
 use amaru_pure_stage::DeserializerGuards;
 
 use crate::{
-    accept, blockfetch, chainsync, connection, handshake, keepalive, manager, mux, network_effects, peer_sharing,
-    peer_tracking_effects, store_effects, tx_submission,
+    accept, blockfetch, chainsync, connection, handshake, keepalive, manager,
+    mempool_effects::SerializableMempoolState, mux, network_effects, peer_sharing, peer_tracking_effects,
+    store_effects, tx_submission,
 };
 
-pub fn register_deserializers() -> DeserializerGuards {
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
+where
+    MempoolState: SerializableMempoolState,
+{
     let mut guards: DeserializerGuards = Vec::new();
     guards.extend(accept::register_deserializers());
     guards.extend(blockfetch::register_deserializers());
     guards.extend(chainsync::register_deserializers());
-    guards.extend(connection::register_deserializers());
+    guards.extend(connection::register_deserializers::<MempoolState>());
     guards.extend(handshake::register_deserializers());
     guards.extend(keepalive::register_deserializers());
-    guards.extend(manager::register_deserializers());
+    guards.extend(manager::register_deserializers::<MempoolState>());
     guards.extend(mux::register_deserializers());
     guards.extend(network_effects::register_deserializers());
     guards.extend(peer_sharing::register_deserializers());
     guards.extend(peer_tracking_effects::register_deserializers());
     guards.extend(store_effects::register_deserializers());
-    guards.extend(tx_submission::register_deserializers());
+    guards.extend(tx_submission::register_deserializers::<MempoolState>());
     guards
 }

@@ -17,7 +17,7 @@ use std::mem;
 /// A pending update to an optional field.
 ///
 /// This distinguishes between setting a new value, clearing the field, and leaving it untouched.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Resettable<A> {
     /// Replace the field with the contained value.
     Set(A),

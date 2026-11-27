@@ -15,5 +15,6 @@
 mod config;
 mod in_memory_mempool;
 
+pub use amaru_ouroboros_traits::MempoolEntry;
 pub use config::MempoolConfig;
 pub use in_memory_mempool::*;

@@ -45,7 +45,7 @@ fn test_keepalive_with_node() {
 
     network.resources().put::<ConnectionsResource>(Arc::new(conn));
 
-    let connection = network.stage("connection", connection::stage);
+    let connection = network.stage("connection", connection::stage::<()>);
     let connection = network.wire_up(
         connection,
         connection::Connection::new(

@@ -18,10 +18,11 @@ use std::sync::{
 };
 
 use amaru_kernel::{
-    NonEmptyVec, Transaction, VerificationKeyWitness, WitnessSet,
+    HasTransactionId, NonEmptyVec, Transaction, VerificationKeyWitness, WitnessSet,
     cbor::{WithOriginalBytes, WithSize},
     to_cbor,
 };
+use amaru_ledger::state::volatile::VolatileFragment;
 use amaru_mempool::InMemoryMempool;
 use amaru_metrics::mempool::{MempoolMetricEvent, MempoolMetrics, TxInsertionOrigin, TxInsertionResult};
 use amaru_observability::tracing::Level;
@@ -36,8 +37,8 @@ use crate::stages::{
         MempoolStageState,
         stage::{InvalidTxsCache, tx_digest},
         test_setup::{
-            TestPrep, create_transaction, setup, te_insert, te_mempool_state, te_record_metrics, te_send,
-            te_validate_tx,
+            TestPrep, create_transaction, setup, te_insert, te_iter, te_mempool_state, te_record_metrics, te_send,
+            te_validate_tx, te_volatile_tip,
         },
     },
     test_utils::{assert_trace_no_clock, te_input, te_state},
@@ -58,17 +59,18 @@ fn insert_batch_returns_one_result_per_transaction() {
         &[
             te_state("mempool-1", &MempoolStageState::default()),
             te_input("mempool-1", &expected_msg),
-            te_validate_tx("mempool-1", &txs[0]),
-            te_insert("mempool-1", &txs[0], TxOrigin::Local),
+            te_iter("mempool-1"),
+            te_volatile_tip("mempool-1"),
+            te_validate_tx("mempool-1", &txs[0], &[]),
+            te_insert("mempool-1", &txs[0], VolatileFragment::default(), TxOrigin::Local),
             te_mempool_state("mempool-1"),
             te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::Accepted)),
-            te_validate_tx("mempool-1", &txs[1]),
+            te_iter("mempool-1"),
+            te_volatile_tip("mempool-1"),
+            te_validate_tx("mempool-1", &txs[1], &[VolatileFragment::default()]),
             te_mempool_state("mempool-1"),
             te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedInvalid)),
-            te_validate_tx("mempool-1", &txs[2]),
-            // Note that the de-duplication check is performed by the mempool when the insertion
-            // is attempted
-            te_insert("mempool-1", &txs[2], TxOrigin::Local),
+            te_iter("mempool-1"),
             te_mempool_state("mempool-1"),
             te_record_metrics("mempool-1", insertion_metric(state, TxInsertionResult::RejectedDuplicate)),
             te_send("mempool-1", "caller", expected_results(&txs)),
@@ -93,14 +95,46 @@ fn insert_batch_returns_one_result_per_transaction() {
 }
 
 #[test]
+fn accepted_transaction_state_is_passed_to_the_next_validation() {
+    let caller = StageRef::named_for_tests("caller");
+    let first = create_transaction(0);
+    let second = create_transaction(1);
+    let mempool =
+        Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default()));
+    let prep = TestPrep {
+        msg: MempoolMsg::InsertBatch { txs: vec![first.clone(), second.clone()], origin: TxOrigin::Local, caller },
+        rt: crate::stages::test_utils::test_runtime(),
+        mempool: mempool.clone(),
+        validator: Arc::new(|_: Transaction, fragments: Arc<Vec<VolatileFragment>>| {
+            if fragments.is_empty() {
+                Ok(VolatileFragment { fees: 1, ..Default::default() })
+            } else if fragments.len() == 1 && fragments[0].fees == 1 {
+                Ok(VolatileFragment::default())
+            } else {
+                Err(anyhow::anyhow!("previous transaction state was not preserved").into())
+            }
+        }),
+        chain_store: Arc::new(InMemoryChainStore::default()),
+    };
+
+    let (_running, _guards, _logs) = setup(&prep);
+
+    assert_eq!(
+        mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
+        vec![first.tx_id(), second.tx_id()]
+    );
+}
+
+#[test]
 fn new_tip_invalidates_transactions_against_current_ledger_state() {
     let tx_0 = create_transaction(0);
     let tx_1 = create_transaction(1);
     let tx_2 = create_transaction(2);
-    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
-    mempool.insert(tx_0.clone(), TxOrigin::Local);
-    mempool.insert(tx_1.clone(), TxOrigin::Local);
-    mempool.insert(tx_2.clone(), TxOrigin::Local);
+    let mempool =
+        Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default()));
+    mempool.insert(tx_0.clone(), VolatileFragment::default(), TxOrigin::Local);
+    mempool.insert(tx_1.clone(), VolatileFragment::default(), TxOrigin::Local);
+    mempool.insert(tx_2.clone(), VolatileFragment::default(), TxOrigin::Local);
     let prep = TestPrep {
         msg: MempoolMsg::NewTip(amaru_kernel::Point::Origin),
         rt: crate::stages::test_utils::test_runtime(),
@@ -111,7 +145,10 @@ fn new_tip_invalidates_transactions_against_current_ledger_state() {
 
     let (_running, _guards, mut logs) = setup(&prep);
 
-    assert_eq!(mempool.read().iter().collect::<Vec<_>>(), vec![&tx_0, &tx_2]);
+    assert_eq!(
+        mempool.read().iter().map(|entry| entry.tx.tx_id()).collect::<Vec<_>>(),
+        vec![tx_0.tx_id(), tx_2.tx_id()]
+    );
     logs.assert_and_remove(Level::INFO, &["transaction.evicted", "evicted_after_new_tip"]);
     logs.assert_and_remove(Level::DEBUG, &["transaction.revalidation_detail", "total_before=3", "evicted_count=1"]);
     logs.assert_and_remove(Level::DEBUG, &["state.update", "tx_count=2", "size_bytes=102"]);
@@ -148,10 +185,10 @@ fn an_invalid_transaction_is_validated_only_once_per_tip() {
     let prep = TestPrep {
         msg: MempoolMsg::InsertBatch { txs: vec![tx_1.clone(), tx_1.clone()], origin: TxOrigin::Local, caller },
         rt: crate::stages::test_utils::test_runtime(),
-        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
-        validator: Arc::new(move |tx: &Transaction| {
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default())),
+        validator: Arc::new(move |tx: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
             counter.fetch_add(1, Ordering::SeqCst);
-            reject_tx_1(tx)
+            reject_tx_1(tx, Arc::new(Vec::new()))
         }),
         chain_store: Arc::new(InMemoryChainStore::default()),
     };
@@ -168,7 +205,8 @@ fn an_invalid_transaction_does_not_reject_the_same_body_with_other_witnesses() {
     let valid_witness = create_transaction_with_signature(2, 0xBB);
     assert_eq!(invalid_witness.tx_id(), valid_witness.tx_id());
 
-    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
+    let mempool =
+        Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default()));
     let prep = TestPrep {
         msg: MempoolMsg::InsertBatch {
             txs: vec![invalid_witness.clone(), valid_witness.clone()],
@@ -177,16 +215,23 @@ fn an_invalid_transaction_does_not_reject_the_same_body_with_other_witnesses() {
         },
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
-        validator: Arc::new(|tx: &Transaction| {
+        validator: Arc::new(|tx: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
             let signature = tx.witnesses.verification_key_witness.as_ref().map(|witnesses| witnesses.first().signature);
-            if signature == Some([0xAA; 64].into()) { Err(anyhow::anyhow!("invalid witness").into()) } else { Ok(()) }
+            if signature == Some([0xAA; 64].into()) {
+                Err(anyhow::anyhow!("invalid witness").into())
+            } else {
+                Ok(VolatileFragment::default())
+            }
         }),
         chain_store: Arc::new(InMemoryChainStore::default()),
     };
 
     let (_running, _guards, _logs) = setup(&prep);
 
-    assert_eq!(mempool.read().get(&[valid_witness.tx_id()]), vec![&valid_witness]);
+    assert_eq!(
+        mempool.read().get(&[valid_witness.tx_id()]).into_iter().map(|(tx, _)| tx).collect::<Vec<_>>(),
+        vec![&valid_witness]
+    );
 }
 
 #[test]
@@ -209,9 +254,10 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
     }
     .into();
     let evicted_tx = create_transaction(0);
-    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default());
-    mempool.insert(included_tx.clone(), TxOrigin::Local);
-    mempool.insert(evicted_tx.clone(), TxOrigin::Local);
+    let mempool =
+        Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default()));
+    mempool.insert(included_tx.clone(), VolatileFragment::default(), TxOrigin::Local);
+    mempool.insert(evicted_tx.clone(), VolatileFragment::default(), TxOrigin::Local);
 
     let chain_store = Arc::new(InMemoryChainStore::default());
     chain_store.store_block(&header.hash(), &raw).unwrap();
@@ -221,7 +267,9 @@ fn new_tip_reports_transactions_included_in_the_adopted_block() {
         msg: MempoolMsg::NewTip(tip),
         rt: crate::stages::test_utils::test_runtime(),
         mempool: mempool.clone(),
-        validator: Arc::new(|_: &Transaction| Err(anyhow::anyhow!("invalid after tip").into())),
+        validator: Arc::new(|_: Transaction, _fragments: Arc<Vec<VolatileFragment>>| {
+            Err(anyhow::anyhow!("invalid after tip").into())
+        }),
         chain_store,
     };
 
@@ -243,7 +291,7 @@ pub fn make_insert_batch_example() -> TestPrep {
     TestPrep {
         msg: MempoolMsg::InsertBatch { txs, origin: TxOrigin::Local, caller },
         rt: crate::stages::test_utils::test_runtime(),
-        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>>::default()),
+        mempool: Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(Default::default())),
         validator: Arc::new(reject_tx_1),
         chain_store: Arc::new(InMemoryChainStore::default()),
     }
@@ -262,11 +310,14 @@ fn create_transaction_with_signature(input_index: u16, signature: u8) -> WithOri
     tx.into()
 }
 
-fn reject_tx_1(tx: &Transaction) -> Result<(), TransactionValidationError> {
+fn reject_tx_1(
+    tx: Transaction,
+    _fragments: Arc<Vec<VolatileFragment>>,
+) -> Result<VolatileFragment, TransactionValidationError> {
     if tx.body.inputs.first().is_some_and(|input| input.index == 1) {
         Err(anyhow::anyhow!("transaction rejected for testing").into())
     } else {
-        Ok(())
+        Ok(VolatileFragment::default())
     }
 }
 

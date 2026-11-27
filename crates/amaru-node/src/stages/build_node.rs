@@ -30,7 +30,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     startup::{StartupHook, with_startup_hook},
-    state::State,
+    state::{State, volatile::VolatileFragment},
     store::{OpenErrorKind, StoreError as LedgerStoreError},
 };
 use amaru_mempool::{InMemoryMempool, MempoolConfig};
@@ -62,7 +62,7 @@ use tokio::runtime::Handle;
 use crate::{
     ClearValidity,
     chain_realign::ensure_store_consistency,
-    mempool::MempoolServices,
+    mempool::{MempoolServices, Pool},
     realign_chain_store_to,
     stages::{
         build_stage_graph::{NodeStages, OpenedLedger, build_stage_graph},
@@ -255,10 +255,9 @@ fn launch_node(config: Config, runtime: &Handle) -> Result<NodeRunning, NodeStar
         .with_trace_buffer(trace_buffer)
         .with_global_epoch_offset(config.compute_global_clock_offset());
 
-    let node_stages = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
+    let (node_stages, pool) = build_node(&config, config.global_parameters(), meter, &mut stage_builder)?;
     let lifecycle = stage_builder.resources().take::<NodeLifecycle>()?;
     let sender = stage_builder.input(node_stages.mempool_stage());
-    let pool = stage_builder.resources().take::<Arc<InMemoryMempool<WithOriginalBytes<Transaction>>>>()?;
     let tokio_running = stage_builder.run(runtime.clone());
     let (mempool, mempool_guard) = MempoolServices::new(&pool, sender, tokio_running.termination());
     Ok(NodeRunning { tokio_running, mempool, mempool_guard, lifecycle, listen_address })
@@ -428,7 +427,7 @@ pub fn build_node(
     global_parameters: &GlobalParameters,
     meter: Arc<Meter>,
     stage_builder: &mut impl StageGraph,
-) -> anyhow::Result<NodeStages> {
+) -> anyhow::Result<(NodeStages, Arc<Pool>)> {
     let listen_address = config
         .listen_address()
         .map_err(|error| NodeStartError::InvalidConfiguration { reason: format!("{error:#}") })?;
@@ -480,7 +479,7 @@ pub fn build_node(
     let consensus_parameters = Arc::new(ConsensusParameters::new(global_parameters.clone(), config.era_history()));
 
     // Register resources
-    register_resources(
+    let pool = register_resources(
         stage_builder,
         chain_store,
         global_parameters,
@@ -528,7 +527,7 @@ pub fn build_node(
         .preload(node_stages.manager_stage.clone(), [ManagerMessage::Listen(listen_address)])
         .map_err(|e| anyhow!(format!("{e:?}")))?;
 
-    Ok(node_stages)
+    Ok((node_stages, pool))
 }
 
 /// Parent of `tip`, used to preload forging.
@@ -563,7 +562,7 @@ fn register_resources(
     meter: Arc<Meter>,
     mempool_config: MempoolConfig,
     config: &Config,
-) {
+) -> Arc<Pool> {
     stage_graph.resources().put::<ResourceHeaderStore>(chain_store);
     stage_graph.resources().put::<ResourceParameters>(global_parameters.clone());
 
@@ -578,10 +577,9 @@ fn register_resources(
     let connections =
         Arc::new(TokioConnections::with_bind_outbound_to_listen_port(65535, config.bind_outbound_to_listen_port));
     stage_graph.resources().put::<ConnectionsResource>(connections.clone());
-    let mempool = Arc::new(InMemoryMempool::new(mempool_config));
+    let mempool = Arc::new(InMemoryMempool::<WithOriginalBytes<Transaction>, VolatileFragment>::new(mempool_config));
     mempool.set_tip(ledger_tip);
-    stage_graph.resources().put(mempool.clone());
-    stage_graph.resources().put::<ResourceMempool<Transaction>>(mempool);
+    stage_graph.resources().put::<ResourceMempool<Transaction, VolatileFragment>>(mempool.clone());
 
     stage_graph.resources().put::<ResourceConsensusParameters>(consensus_parameters);
     stage_graph.resources().put::<ResourceEraHistory>(era_history);
@@ -620,6 +618,7 @@ fn register_resources(
     let join_performance = Box::new(performance.install(stage_graph.resources()));
 
     stage_graph.resources().put(NodeLifecycle { ledger_thread, connections, performance: join_performance });
+    mempool
 }
 
 /// This function migrates the database if necessary

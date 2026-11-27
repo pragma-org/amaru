@@ -23,6 +23,7 @@ use amaru_kernel::{
     TransactionId, TransactionIndex, TransactionPointer, TransactionRef, size::SCRIPT,
 };
 use amaru_observability::debug_span;
+use amaru_ouroboros_traits::ValidationMode;
 use amaru_uplc::arena_pool::ArenaPool;
 use thiserror::Error;
 
@@ -255,6 +256,7 @@ where
                 guardrail_script,
                 TransactionPointer { slot, transaction_index: i as usize },
                 transaction,
+                ValidationMode::FullValidation,
             )
         }) {
             return with_block_context(Err(InvalidBlockDetails::Transaction {
@@ -289,6 +291,7 @@ pub fn validate_transaction<C>(
     guardrail_script: Option<Hash<SCRIPT>>,
     pointer: TransactionPointer,
     transaction: TransactionRef<'_>,
+    mode: ValidationMode,
 ) -> Result<(), TransactionInvalid>
 where
     C: ValidationContext + fmt::Debug,
@@ -302,6 +305,7 @@ where
         governance_activity,
         guardrail_script,
         pointer,
+        mode,
     };
 
     transaction.execute(context, &environment)

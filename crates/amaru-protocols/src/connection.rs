@@ -27,6 +27,7 @@ use crate::{
     handshake,
     keepalive::{self, register_keepalive},
     manager::{ManagerConfig, ManagerMessage},
+    mempool_effects::SerializableMempoolState,
     mux::{self, MuxMessage},
     network_effects::{Network, NetworkOps},
     peer_sharing::{PeerSharingMessage, register_peer_sharing_initiator, register_peer_sharing_responder},
@@ -40,7 +41,7 @@ use crate::{
         version_table::VersionTable,
     },
     store_effects::Store,
-    tx_submission::{self, register_tx_submission},
+    tx_submission,
 };
 
 const STOP_TIMEOUT_SLOT: u64 = 1;
@@ -48,12 +49,12 @@ const STOP_TIMEOUT_SLOT: u64 = 1;
 const HANDSHAKE_RECORD_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Connection {
-    params: Params,
-    state: State,
+pub struct Connection<MempoolState = ()> {
+    params: Params<MempoolState>,
+    state: State<MempoolState>,
 }
 
-impl Connection {
+impl<MempoolState> Connection<MempoolState> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         peer: Peer,
@@ -79,6 +80,7 @@ impl Connection {
                 mempool_stage,
                 manager,
                 listen_port,
+                mempool_state: std::marker::PhantomData,
             },
             state: State::Initial,
         }
@@ -86,7 +88,7 @@ impl Connection {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Params {
+struct Params<MempoolState = ()> {
     peer: Peer,
     conn_id: ConnectionId,
     role: Role,
@@ -99,6 +101,7 @@ struct Params {
     /// Listen port to advertise. The bearer's local IP is read from the socket.
     /// `None` when this node is not listening.
     listen_port: Option<u16>,
+    mempool_state: std::marker::PhantomData<fn() -> MempoolState>,
 }
 
 pub use amaru_ouroboros::MiniProtocolUse;
@@ -111,14 +114,14 @@ fn local_use_for_role(role: Role) -> MiniProtocolUse {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum State {
+enum State<MempoolState = ()> {
     Initial,
     Handshake { muxer: StageRef<MuxMessage>, handshake: StageRef<Inputs<Void>> },
-    Established(Established),
+    Established(Established<MempoolState>),
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Established {
+struct Established<MempoolState = ()> {
     desired_use: MiniProtocolUse,
     actual_use: MiniProtocolUse,
     duplex: bool,
@@ -135,6 +138,7 @@ struct Established {
     blockfetch_responder: Option<StageRef<Void>>,
     peer_sharing_responder: Option<StageRef<amaru_pure_stage::Void>>,
     stopping: BTreeSet<ChildId>,
+    mempool_state: std::marker::PhantomData<fn() -> MempoolState>,
 }
 
 /// Identity of a supervised child stage of a connection.
@@ -198,11 +202,14 @@ impl ConnectionMessage {
     }
 }
 
-pub async fn stage(
-    Connection { params, state }: Connection,
+pub async fn stage<MempoolState>(
+    Connection { params, state }: Connection<MempoolState>,
     msg: ConnectionMessage,
     eff: Effects<ConnectionMessage>,
-) -> Connection {
+) -> Connection<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let message_type = msg.message_type().to_string();
     let Params { conn_id, role, .. } = params;
     let peer = params.peer;
@@ -306,7 +313,11 @@ pub async fn stage(
 ///
 /// Parent termination aborts children without delivering their tombstones, so the chainsync
 /// purge signal must be sent explicitly here whenever an initiator session may have been started.
-async fn teardown(state: State, params: &Params, eff: &Effects<ConnectionMessage>) -> Connection {
+async fn teardown<MempoolState>(
+    state: State<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Connection<MempoolState> {
     match state {
         State::Established(s) if s.chainsync_initiator.is_some() => {
             notify_chainsync_terminated(params, eff).await;
@@ -316,7 +327,7 @@ async fn teardown(state: State, params: &Params, eff: &Effects<ConnectionMessage
     eff.terminate().await
 }
 
-async fn notify_chainsync_terminated(params: &Params, eff: &Effects<ConnectionMessage>) {
+async fn notify_chainsync_terminated<MempoolState>(params: &Params<MempoolState>, eff: &Effects<ConnectionMessage>) {
     eff.send(
         &params.pipeline,
         ChainSyncInitiatorMsg {
@@ -349,10 +360,13 @@ fn early_mini_protocol_buffers(advertisable: bool) -> Vec<(ProtocolId<Erased>, u
     buffers
 }
 
-async fn do_initialize(
-    Params { conn_id, role, magic, peer, config, .. }: &Params,
+async fn do_initialize<MempoolState>(
+    Params { conn_id, role, magic, peer, config, .. }: &Params<MempoolState>,
     eff: Effects<ConnectionMessage>,
-) -> State {
+) -> State<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let peer = *peer;
     // Same flags as the version table below. A responder always serves; an initiator serves
     // when it advertises full duplex. Those are the protocols the mux may hold before `Register`.
@@ -409,13 +423,16 @@ async fn do_initialize(
     State::Handshake { muxer, handshake }
 }
 
-async fn do_handshake(
-    params: &Params,
+async fn do_handshake<MempoolState>(
+    params: &Params<MempoolState>,
     muxer: StageRef<MuxMessage>,
     handshake: StageRef<Inputs<Void>>,
     handshake_result: HandshakeResult,
     eff: Effects<ConnectionMessage>,
-) -> State {
+) -> State<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let Params { role, peer, conn_id, manager, .. } = params;
     let peer = *peer;
     let (version_number, version_data) = match handshake_result {
@@ -496,6 +513,7 @@ async fn do_handshake(
         blockfetch_responder: None,
         peer_sharing_responder: None,
         stopping: BTreeSet::new(),
+        mempool_state: std::marker::PhantomData,
     };
 
     if run_responders {
@@ -510,11 +528,18 @@ async fn do_handshake(
     State::Established(established)
 }
 
-async fn register_responders(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+async fn register_responders<MempoolState>(
+    mut s: Established<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Established<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let Params { peer, conn_id, era_history, mempool_stage, config, .. } = params;
     let died = ConnectionMessage::ChildDied(ChildId::Responder);
     let _ = register_keepalive(Role::Responder, *peer, *conn_id, s.muxer.clone(), eff, died).await;
-    let _ = register_tx_submission(
+    let _ = tx_submission::register_tx_submission::<MempoolState>(
         Role::Responder,
         *peer,
         *conn_id,
@@ -566,14 +591,24 @@ async fn register_responders(mut s: Established, params: &Params, eff: &Effects<
 /// The socket port is ephemeral on an outbound bearer, so it is not used. An unspecified
 /// address (a wildcard bind that never became a concrete source) is not shared. No listener
 /// means this node has nothing to advertise.
-async fn own_share_address(params: &Params, eff: &Effects<ConnectionMessage>) -> Option<std::net::SocketAddr> {
+async fn own_share_address<MempoolState>(
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Option<std::net::SocketAddr> {
     let port = params.listen_port?;
     let local = Network::new(eff).local_addr(params.conn_id).await.ok()?;
     let ip = local.ip();
     if ip.is_unspecified() { None } else { Some(std::net::SocketAddr::new(ip, port)) }
 }
 
-async fn converge_use(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+async fn converge_use<MempoolState>(
+    mut s: Established<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Established<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     if !s.stopping.is_empty() {
         return s;
     }
@@ -590,7 +625,11 @@ async fn converge_use(mut s: Established, params: &Params, eff: &Effects<Connect
     }
 }
 
-async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+async fn begin_stop<MempoolState>(
+    mut s: Established<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Established<MempoolState> {
     let drop_diffusion = s.actual_use >= MiniProtocolUse::Diffusion && s.desired_use < MiniProtocolUse::Diffusion;
     let drop_maintenance = s.actual_use >= MiniProtocolUse::Maintenance && s.desired_use < MiniProtocolUse::Maintenance;
 
@@ -631,12 +670,15 @@ async fn begin_stop(mut s: Established, params: &Params, eff: &Effects<Connectio
     s
 }
 
-async fn on_expected_stop(
-    mut s: Established,
+async fn on_expected_stop<MempoolState>(
+    mut s: Established<MempoolState>,
     child: ChildId,
-    params: &Params,
+    params: &Params<MempoolState>,
     eff: &Effects<ConnectionMessage>,
-) -> Established {
+) -> Established<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     s.stopping.remove(&child);
     match child {
         ChildId::ChainSync => {
@@ -708,7 +750,14 @@ async fn on_expected_stop(
     s
 }
 
-async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<ConnectionMessage>) -> Established {
+async fn start_initiators<MempoolState>(
+    mut s: Established<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) -> Established<MempoolState>
+where
+    MempoolState: SerializableMempoolState,
+{
     let Params { peer, conn_id, config, pipeline, mempool_stage, era_history, .. } = params;
     if s.desired_use >= MiniProtocolUse::Maintenance {
         if s.keepalive_initiator.is_none() {
@@ -765,7 +814,7 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
             );
         }
         if s.tx_submission_initiator.is_none() {
-            s.tx_submission_initiator = register_tx_submission(
+            s.tx_submission_initiator = tx_submission::register_tx_submission::<MempoolState>(
                 Role::Initiator,
                 *peer,
                 *conn_id,
@@ -785,7 +834,11 @@ async fn start_initiators(mut s: Established, params: &Params, eff: &Effects<Con
     s
 }
 
-async fn notify_local_use(s: &Established, params: &Params, eff: &Effects<ConnectionMessage>) {
+async fn notify_local_use<MempoolState>(
+    s: &Established<MempoolState>,
+    params: &Params<MempoolState>,
+    eff: &Effects<ConnectionMessage>,
+) {
     let at = eff.clock().await;
     info!(
         protocols::manager::peer::LOCAL_USE_APPLIED,
@@ -796,10 +849,13 @@ async fn notify_local_use(s: &Established, params: &Params, eff: &Effects<Connec
     PeerTrack::new(eff).record_local_use_applied(params.peer, params.conn_id, s.actual_use, at).await;
 }
 
-pub fn register_deserializers() -> DeserializerGuards {
+pub fn register_deserializers<MempoolState>() -> DeserializerGuards
+where
+    MempoolState: SerializableMempoolState,
+{
     vec![
         register_data_deserializer::<(ConnectionId, StageRef<mux::MuxMessage>, Role)>().boxed(),
-        register_data_deserializer::<Connection>().boxed(),
+        register_data_deserializer::<Connection<MempoolState>>().boxed(),
         register_data_deserializer::<ConnectionMessage>().boxed(),
     ]
 }
@@ -1010,6 +1066,7 @@ mod tests {
                 mempool_stage: StageRef::blackhole(),
                 manager: StageRef::blackhole(),
                 listen_port: None,
+                mempool_state: std::marker::PhantomData,
             },
             state: State::Established(Established {
                 desired_use: MiniProtocolUse::None,
@@ -1028,6 +1085,7 @@ mod tests {
                 blockfetch_responder: None,
                 peer_sharing_responder: None,
                 stopping: BTreeSet::new(),
+                mempool_state: std::marker::PhantomData,
             }),
         }
     }
@@ -1047,6 +1105,7 @@ mod tests {
                 mempool_stage: StageRef::blackhole(),
                 manager: StageRef::blackhole(),
                 listen_port: None,
+                mempool_state: std::marker::PhantomData,
             },
             state,
         }

@@ -19,21 +19,25 @@ use amaru_kernel::{
     cbor::{WithOriginalBytes, WithSize},
     size::TRANSACTION_BODY,
 };
+use amaru_mempool::InMemoryMempool;
 use amaru_ouroboros::{Mempool, TxInsertResult, TxOrigin};
 
 pub fn create_transactions(number: u16) -> Vec<WithOriginalBytes<Transaction>> {
     (0..number).map(create_transaction).collect()
 }
 
-pub fn create_transactions_in_mempool(
-    mempool: Arc<dyn Mempool<WithOriginalBytes<Transaction>>>,
+pub fn create_transactions_in_mempool<State>(
+    mempool: Arc<InMemoryMempool<WithOriginalBytes<Transaction>, State>>,
     number: u16,
-) -> Vec<WithOriginalBytes<Transaction>> {
+) -> Vec<WithOriginalBytes<Transaction>>
+where
+    State: Default + Send + Sync + 'static,
+{
     let mut txs = vec![];
     for i in 0..number {
         let tx = create_transaction(i);
         txs.push(tx.clone());
-        let result = mempool.insert(tx.clone(), TxOrigin::Local);
+        let result = mempool.insert(tx.clone(), State::default(), TxOrigin::Local);
         assert!(matches!(result, TxInsertResult::Accepted { .. }), "transaction {tx:?} was rejected: {result:?}");
     }
     txs
