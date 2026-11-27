@@ -63,6 +63,7 @@ use crate::{
     },
 };
 
+pub mod registration;
 mod tip_update_emitter;
 pub mod volatile;
 
@@ -648,6 +649,22 @@ impl<S: Store, HS: HistoricalStores + Send + 'static> State<S, HS> {
         }
 
         Ok(())
+    }
+
+    /// Capture selected registration data at one tip, including the volatile overlay.
+    /// Missing or already spent inputs are omitted so callers can wait for fresh funding.
+    pub fn registration_context(
+        &self,
+        request: &registration::RegistrationQuery,
+    ) -> Result<registration::RegistrationContext, ContextHydratationError> {
+        registration::RegistrationContext::read(
+            self.tip().into_owned(),
+            self.network().into(),
+            self.protocol_parameters(),
+            &self.volatile,
+            &self.stable,
+            request,
+        )
     }
 
     /// View the stake distribution for a given epoch, if held in memory.

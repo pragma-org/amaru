@@ -29,7 +29,10 @@ use crate::{
         PrepareAccountsSlice, PrepareCommitteeSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareProposalsSlice,
         PrepareUtxoSlice, ProposalStateSlim, UnresolvedInputPolicy,
     },
-    state::volatile::{Bind, Existence, VolatileDB, VolatileState},
+    state::{
+        registration::{OwnerAction, OwnerDelegation, RegistrationContext, RegistrationQuery},
+        volatile::{Bind, Existence, VolatileDB, VolatileState},
+    },
     store::ReadStore,
 };
 
@@ -150,6 +153,51 @@ impl<'block> DefaultPreparationContext<'block> {
             proposal_roots,
             treasury,
         ))
+    }
+}
+
+impl RegistrationContext {
+    pub(crate) fn read(
+        point: amaru_kernel::Point,
+        network: amaru_kernel::Network,
+        parameters: &amaru_kernel::ProtocolParameters,
+        volatile: &VolatileDB,
+        stable: &impl ReadStore,
+        request: &RegistrationQuery,
+    ) -> Result<Self, ContextHydratationError> {
+        let credentials = request
+            .owners
+            .iter()
+            .copied()
+            .map(Credential::KeyHash)
+            .chain([request.reward_account])
+            .collect::<BTreeSet<_>>();
+        let accounts = resolve_accounts(volatile, stable, credentials.into_iter().map(Cow::Owned))?;
+        Ok(Self {
+            point,
+            network,
+            parameters: parameters.clone(),
+            inputs: resolve_inputs(volatile, stable, UnresolvedInputPolicy::Defer, request.inputs.iter())?,
+            pool: request.pool,
+            pool_registered: resolve_pools(volatile, stable, std::iter::once(request.pool))?.contains(&request.pool),
+            reward_account: request.reward_account,
+            reward_registered: accounts.contains_key(&request.reward_account),
+            owners: request
+                .owners
+                .iter()
+                .map(|owner| {
+                    let account = accounts.get(&Credential::KeyHash(*owner));
+                    let previous_pool = account.and_then(|account| account.pool.map(|(pool, _)| pool));
+                    let (action, registration_deposit) = match (account, previous_pool) {
+                        (None, _) => (OwnerAction::RegisterAndDelegate, parameters.stake_credential_deposit),
+                        (Some(_), None) => (OwnerAction::Delegate, 0),
+                        (_, Some(pool)) if pool == request.pool => (OwnerAction::Unchanged, 0),
+                        (_, Some(_)) => (OwnerAction::Redelegate, 0),
+                    };
+                    (*owner, OwnerDelegation { action, previous_pool, registration_deposit })
+                })
+                .collect(),
+        })
     }
 }
 

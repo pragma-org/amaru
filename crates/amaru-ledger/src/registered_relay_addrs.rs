@@ -40,7 +40,7 @@ fn push_relay_candidates(relay: &Relay, set: &mut BTreeSet<PeerCandidate>) {
             let Some(port) = port else {
                 return;
             };
-            push_socket(ipv4.as_ref().map(nullable_ipv4_to_ip), *port, set);
+            push_socket(ipv4.as_ref().map(|bytes| IpAddr::V4(Ipv4Addr::from_octets(*bytes.as_array()))), *port, set);
             push_socket(ipv6.as_ref().map(nullable_ipv6_to_ip), *port, set);
         }
         Relay::SingleHostName(port, dns) => match port {
@@ -85,16 +85,6 @@ fn push_socket(ip: Option<IpAddr>, port: u16, set: &mut BTreeSet<PeerCandidate>)
 
 // NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.
 // The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
-// https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L400
-// https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L563
-fn nullable_ipv4_to_ip(null: &FixedBytes<4>) -> IpAddr {
-    let mut bytes = *null.as_array();
-    bytes.reverse();
-    IpAddr::V4(Ipv4Addr::from_octets(bytes))
-}
-
-// NOTE: The Haskell node usees the `iproute` package for writing IP addresses from the ledger, first stores the bytes in word32 in network byte order.
-// The ledger then uses putWord32le for serializing those words, swapping their byte order in the byte string.
 // https://github.com/kazu-yamamoto/iproute/blob/main/Data/IP/Addr.hs#L431
 // https://github.com/IntersectMBO/cardano-ledger/blob/master/libs/cardano-ledger-binary/src/Cardano/Ledger/Binary/Encoding/Encoder.hs#L569
 fn nullable_ipv6_to_ip(null: &FixedBytes<16>) -> IpAddr {
@@ -130,29 +120,17 @@ fn is_unique_local_v6(v6: &Ipv6Addr) -> bool {
 mod tests {
     use super::*;
 
-    fn ipv4_bytes(addr: Ipv4Addr) -> FixedBytes<4> {
-        let mut bytes = addr.octets();
-        bytes.reverse();
-        FixedBytes::from(bytes)
-    }
-
     #[test]
     fn single_host_addr_public_ipv4_becomes_socket() {
         let mut set = BTreeSet::new();
-        push_relay_candidates(
-            &Relay::SingleHostAddr(Some(3001), Some(ipv4_bytes(Ipv4Addr::new(8, 8, 8, 8))), None),
-            &mut set,
-        );
-        assert_eq!(set, BTreeSet::from(["8.8.8.8:3001".parse::<PeerCandidate>().unwrap()]));
+        push_relay_candidates(&Relay::SingleHostAddr(Some(3001), Some([9, 9, 9, 10].into()), None), &mut set);
+        assert_eq!(set, BTreeSet::from(["9.9.9.10:3001".parse::<PeerCandidate>().unwrap()]));
     }
 
     #[test]
     fn private_ipv4_is_excluded() {
         let mut set = BTreeSet::new();
-        push_relay_candidates(
-            &Relay::SingleHostAddr(Some(3001), Some(ipv4_bytes(Ipv4Addr::new(10, 0, 0, 1))), None),
-            &mut set,
-        );
+        push_relay_candidates(&Relay::SingleHostAddr(Some(3001), Some([10, 0, 0, 1].into()), None), &mut set);
         assert!(set.is_empty());
     }
 

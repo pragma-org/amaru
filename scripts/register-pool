@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+usage() {
+  cat <<'EOF'
+On each host, first set AMARU_NETWORK to preprod, preview, or mainnet.
+Then run each phase on the indicated machine, in order. Each asks for confirmation.
+
+  OFFLINE  scripts/register-pool create
+           Fund the printed address and copy public/ to the online host.
+  ONLINE   scripts/register-pool build-registration unsigned.cbor [TXID#INDEX ...]
+           Copy the unsigned transaction to the offline host for review.
+  OFFLINE  scripts/register-pool sign unsigned.cbor signed.cbor
+           Return the signed transaction to the online host.
+  ONLINE   scripts/register-pool submit signed.cbor
+
+POOL_DIR defaults to ~/.amaru/<network>-pool. AMARU_DB_CHAIN and AMARU_DB_LEDGER
+override the pool's chain and ledger directories for both online phases.
+AMARU_BIN overrides the checkout's release binary or amaru on PATH. Relative
+database and transaction paths are resolved from the current directory.
+EOF
+}
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+
+confirm() {
+  local title=$1 host=$2 answer
+  shift 2
+  {
+    printf '\n%s\nRun this step on an %s host.\n\n' "$title" "$host"
+    printf 'Cardano network: %s\nPool directory: %s\n\n' "$network" "$pool_dir"
+    printf '  - %s\n' "$@"
+    printf '\nType yes to continue, or press Enter to cancel: '
+  } >&2
+  if ! IFS= read -r answer || [[ $answer != yes ]]; then
+    die 'Cancelled.'
+  fi
+}
+
+next_steps() {
+  local step number=1
+  {
+    printf '\nNext steps\n'
+    for step do
+      printf '  %d. %s\n' "$number" "$step"
+      number=$((number + 1))
+    done
+  } >&2
+}
+
+phase=${1:-}
+case $phase in
+  -h|--help) usage; exit 0 ;;
+  create|build-registration|sign|submit) shift ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+network=${AMARU_NETWORK:-}
+case $network in
+  preprod|preview|mainnet) ;;
+  '') die 'Set AMARU_NETWORK to preprod, preview, or mainnet.' ;;
+  *) die "Unsupported network '$network'. Choose preprod, preview, or mainnet." ;;
+esac
+pool_dir=${POOL_DIR:-"$HOME/.amaru/$network-pool"}
+public="$pool_dir/public"
+# Older pools store their public files alongside the keys.
+if [[ $phase != create && ! -d $public ]]; then public=$pool_dir; fi
+pool_json="$public/pool.json"
+manifest=$pool_json
+# Older pools kept the generated public values in a separate file.
+if [[ -f $public/public.json ]] && ! jq -e 'has("settings")' "$pool_json" >/dev/null 2>&1; then
+  manifest="$public/public.json"
+fi
+if [[ $phase != create && -f $manifest ]]; then
+  pool_network=$(jq -er '.network | strings' "$manifest") || die "Missing network in $manifest"
+  [[ $pool_network == "$network" ]] || die "Pool belongs to $pool_network but the selected network is $network."
+fi
+
+pool_cmd="AMARU_NETWORK=$network ./scripts/register-pool"
+local_amaru="$(dirname "$0")/../target/release/amaru"
+if [[ -z ${AMARU_BIN:-} && -x $local_amaru ]]; then
+  amaru=$local_amaru
+else
+  amaru=$(command -v "${AMARU_BIN:-amaru}") || die 'Set AMARU_BIN to the Amaru executable.'
+fi
+[[ $amaru == /* ]] || amaru="$PWD/$amaru"
+
+stores="$pool_dir/stores"
+[[ $network == preprod ]] || stores="$pool_dir/stores-$network"
+db_chain=${AMARU_DB_CHAIN:-"$stores/chain"}
+db_ledger=${AMARU_DB_LEDGER:-"$stores/ledger"}
+node_args=(--network "$network" --db-chain "$db_chain" --db-ledger "$db_ledger")
+
+stores_populated() {
+  [[ -d $db_chain && -d $db_ledger && -n $(ls -A -- "$db_chain") && -n $(ls -A -- "$db_ledger") ]]
+}
+
+bootstrap() (
+  stores_populated && return
+  lock="$pool_dir/.bootstrap-lock"
+  mkdir "$lock" || die "Bootstrap is locked in $pool_dir. Check for a running bootstrap."
+  trap 'rmdir "$lock"' EXIT
+  stores_populated && return
+  if [[ $db_chain == "$stores/chain" && $db_ledger == "$stores/ledger" && ! -e $stores ]]; then
+    # Publish the default pair together once bootstrap succeeds.
+    staging=$(mktemp -d "$pool_dir/bootstrap.XXXXXXXX")
+    (cd "$staging" && "$amaru" node bootstrap --network "$network" --db-chain chain --db-ledger ledger)
+    mv "$staging" "$stores"
+  else
+    "$amaru" node bootstrap "${node_args[@]}"
+  fi
+)
+
+case $phase in
+  create)
+    [[ $# == 0 ]] || die 'Usage: scripts/register-pool create'
+    [[ ! -e $pool_dir ]] || die "Pool directory already exists: $pool_dir"
+    confirm 'Step 1 of 4: Create the pool keys and operational certificate' OFFLINE \
+      "amaru pool create generates cold, payment and owner stake keys, a funding address and an issue counter." \
+      "amaru pool vrf create and amaru pool kes create generate the block producer's keys." \
+      "amaru pool cert create issues node.cert using the offline clock and advances the counter once." \
+      "The script creates $pool_dir and puts the files needed for registration in public/."
+
+    mkdir -p "$(dirname "$pool_dir")"
+    mkdir "$pool_dir"
+    cd "$pool_dir"
+    mkdir public
+    # The cold, payment and stake signing keys stay here. Export the public registration files.
+    "$amaru" pool create --network "$network" --counter cold.counter \
+      --cold-signing-key cold.skey --cold-verification-key public/cold.vkey \
+      --payment-signing-key payment.skey --payment-verification-key payment.vkey \
+      --stake-signing-key stake.skey --stake-verification-key public/stake.vkey |
+      jq -e '.settings = {pledge: 0, margin: {numerator: 1, denominator: 100}}' > public/pool.json
+    # The producer uses the VRF and KES signing keys together with node.cert.
+    "$amaru" pool vrf create --signing-key vrf.skey --verification-key public/vrf.vkey
+    "$amaru" pool kes create --signing-key kes.skey --verification-key kes.vkey
+    "$amaru" pool cert create --cert node.cert --cold-signing-key cold.skey \
+      --counter cold.counter --kes-verification-key kes.vkey --network "$network"
+    jq -r '"Pool ID: \(.pool_id)\nFund this \(.network) address: \(.payment_address)"' public/pool.json
+    next_steps \
+      "[OFFLINE] Review pledge, cost and margin under settings in $PWD/public/pool.json. Omit cost to use the network minimum." \
+      "[OFFLINE → ONLINE] Copy only $PWD/public/ to the online host as ~/.amaru/$network-pool/public/ (or under that host's POOL_DIR)." \
+      "[ONLINE WALLET] Fund the payment_address in public/pool.json on $network. Allow for deposits, fees, minimum change and your pledge." \
+      "[ONLINE] From the Amaru checkout, run: $pool_cmd build-registration unsigned.cbor"
+    ;;
+
+  build-registration)
+    [[ -n ${1:-} ]] || die 'Usage: scripts/register-pool build-registration unsigned.cbor [TXID#INDEX ...]'
+    unsigned_tx=$1
+    shift
+    [[ ! -e $unsigned_tx ]] || die "Output already exists: $unsigned_tx"
+    address=$(jq -er '.payment_address | strings' "$manifest") || die "Missing funding address in $manifest"
+    settings=$(jq -ce 'if has("settings") then .settings else . end | objects' "$pool_json") || die "Invalid settings in $pool_json"
+    inputs=(--funding-address "$address")
+    funding="Discover ADA-only funding inputs at $address."
+    if (( $# )); then
+      inputs=()
+      for input do inputs+=(--tx-in "$input"); done
+      funding="Use the supplied funding inputs: $*."
+    fi
+    storage="Reuse the local databases."
+    stores_populated || storage="amaru node bootstrap will download the initial databases."
+    confirm 'Step 2 of 4: Build the unsigned pool registration' ONLINE "$storage Chain: $db_chain. Ledger: $db_ledger." "$funding" \
+      "amaru pool register syncs a temporary node and uses $public/pool.json to build the pool registration." \
+      "It registers the owner stake key if needed, delegates it to this pool, and writes $unsigned_tx for offline signing."
+
+    # Bootstrap seeds the stores once. Pool register syncs them and balances the unsigned transaction.
+    bootstrap
+    "$amaru" pool register <(printf '%s\n' "$settings") "${node_args[@]}" --timeout 10800 \
+      --cold "$public/cold.vkey" --vrf "$public/vrf.vkey" --reward "$public/stake.vkey" \
+      --delegate-owners --change "$address" "${inputs[@]}" --out "$unsigned_tx"
+    next_steps \
+      "[ONLINE → OFFLINE] Copy $unsigned_tx to the offline Amaru checkout as unsigned.cbor." \
+      "[OFFLINE] Review the transaction's pool registration, owner delegation, fee and change address." \
+      "[OFFLINE] From that checkout, with POOL_DIR pointing to the pool created offline, run: $pool_cmd sign unsigned.cbor signed.cbor"
+    ;;
+
+  sign)
+    [[ $# == 2 && -n ${1:-} && -n ${2:-} ]] || die 'Usage: scripts/register-pool sign unsigned.cbor signed.cbor'
+    confirm 'Step 3 of 4: Sign the pool registration transaction' OFFLINE \
+      "Review $1 before approving. amaru transaction sign will sign it with the payment, cold and stake keys." \
+      "It writes $2. Copy that signed file to the online host for submission."
+
+    # Offline signing uses the three witnesses required by the pool registration.
+    "$amaru" transaction sign --transaction "$1" --output "$2" \
+      --signing-key "$pool_dir/payment.skey" --signing-key "$pool_dir/cold.skey" --signing-key "$pool_dir/stake.skey"
+    next_steps \
+      "[OFFLINE → ONLINE] Copy $2 to the online Amaru checkout as signed.cbor. Keep the signing keys on the offline host." \
+      "[ONLINE] From that checkout, using the same pool directory as build-registration, run: $pool_cmd submit signed.cbor"
+    ;;
+
+  submit)
+    [[ $# == 1 && -n ${1:-} ]] || die 'Usage: scripts/register-pool submit signed.cbor'
+    confirm 'Step 4 of 4: Submit the signed transaction and wait for confirmation' ONLINE \
+      "amaru transaction submit syncs a temporary node. Chain: $db_chain. Ledger: $db_ledger." \
+      "It submits $1 to $network through the local HTTP endpoint. Required confirmations: ${AMARU_SUBMIT_WAIT-1}." \
+      "On inclusion, the transaction spends its funding inputs and pays the fee and any required deposits."
+
+    # The submit command owns the local HTTP endpoint and observes inclusion on the adopted chain.
+    "$amaru" transaction submit --transaction "$1" "${node_args[@]}"
+    next_steps \
+      "[ONLINE] Save the transaction_id and inclusion block from the confirmation JSON for your records." \
+      "[ONLINE] Look up that transaction ID in a $network explorer to see the pool registration and owner delegation. Registration is complete."
+    ;;
+esac
