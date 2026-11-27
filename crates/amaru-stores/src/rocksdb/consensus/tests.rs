@@ -1864,6 +1864,108 @@ fn iterator_over_chain() {
     assert_eq!(*(iter.next().unwrap().unwrap().0), [&CHAIN_PREFIX[..], &slot9].concat());
 }
 
+mod block_points_in_range {
+    use super::*;
+
+    #[test]
+    fn get_points_in_the_mutable_part_of_the_chain() {
+        with_db(|store| {
+            let chain = store_best_chain(store.clone(), 5);
+            store.set_anchor_point(&chain[0].point()).unwrap();
+            let ranges = &[(1, 1), (1, 3), (2, 3), (1, 4), (4, 4)];
+            for (from, through) in ranges {
+                check_range(&store, &chain, *from, *through);
+            }
+        });
+    }
+
+    #[test]
+    fn get_points_in_the_immutable_part() {
+        with_db(|store| {
+            let chain = store_best_chain(store.clone(), 10);
+            store.set_anchor_point(&chain[6].point()).unwrap();
+
+            let ranges = &[(0, 0), (0, 6), (2, 6), (2, 5), (4, 4)];
+            for (from, through) in ranges {
+                check_range(&store, &chain, *from, *through);
+            }
+        });
+    }
+
+    #[test]
+    fn get_points_across_both_parts() {
+        with_db(|store| {
+            let chain = store_best_chain(store.clone(), 10);
+            store.set_anchor_point(&chain[6].point()).unwrap();
+
+            let ranges = &[(0, 7), (1, 7), (1, 8), (5, 9), (6, 7)];
+            for (from, through) in ranges {
+                check_range(&store, &chain, *from, *through);
+            }
+        });
+    }
+
+    #[test]
+    fn a_fork_starting_from_the_anchor_is_returned() {
+        // h0 -> h1 -> h2 -> h3      the best chain
+        //        \
+        //         -> h2a -> h3a
+        with_db(|store| {
+            let chain = store_forked_chain(&store);
+            store.set_anchor_point(&chain.h1.header.point()).unwrap();
+            assert_eq!(
+                points_in_range(&store, &chain.h1.header, &chain.h3a.header),
+                &[chain.h1.header.point(), chain.h2a.header.point(), chain.h3a.header.point()]
+            );
+        });
+    }
+
+    #[test]
+    fn a_fork_starting_before_the_anchor_is_not_returned() {
+        // h0 -> h1 -> h2 -> h3      the best chain
+        //        \
+        //         -> h2a -> h3a
+        with_db(|store| {
+            let chain = store_forked_chain(&store);
+            store.set_anchor_point(&chain.h2.header.point()).unwrap();
+            check_no_range(&store, &chain.h0.header, &chain.h3a.header);
+        });
+    }
+
+    #[test]
+    fn refuse_a_from_after_through() {
+        with_db(|store| {
+            let chain = store_best_chain(store.clone(), 5);
+            check_no_range(&store, &chain[3], &chain[1]);
+        });
+    }
+
+    #[test]
+    fn refuses_a_from_that_is_not_an_ancestor_of_through() {
+        with_db(|store| {
+            let headers = make_forked_headers();
+            append_best_chain(store.clone(), headers.main());
+            for header in [&headers.h2a, &headers.h3a] {
+                store.store_header(header).unwrap();
+            }
+
+            // h2 is on the best chain but h3a hangs off h1
+            check_no_range(&store, &headers.h2, &headers.h3a);
+        });
+    }
+
+    #[test]
+    fn refuses_a_missing_header() {
+        with_db(|store| {
+            let chain = store_best_chain(store.clone(), 3);
+            let unknown = make_header(10, 10, Some(chain[2].hash()));
+
+            check_no_range(&store, &chain[0], &unknown);
+            check_no_range(&store, &unknown, &chain[2]);
+        });
+    }
+}
+
 // HELPERS
 
 #[cfg(not(target_os = "windows"))]
@@ -2076,4 +2178,50 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
         }
     }
     Ok(())
+}
+
+/// A best chain of `len` headers with slots and block numbers 1..=len, with stored headers and blocks
+fn store_best_chain(store: Arc<dyn FullChainStore>, len: usize) -> Vec<Header> {
+    let mut headers: Vec<Header> = Vec::with_capacity(len);
+    for i in 1..=len as u64 {
+        let header = make_header(i, i, headers.last().map(|parent| parent.hash()));
+        headers.push(header);
+    }
+    let blocks = make_encoded_chain(headers.clone(), &EraHistory::default());
+    for block in blocks.iter() {
+        store.store_block(&block.header.hash(), &block.raw).unwrap();
+        store.store_header(&block.header).unwrap();
+        store.roll_forward_chain(&block.header.point()).unwrap();
+    }
+    blocks.into_iter().map(|b| b.header).collect()
+}
+
+/// A forked chain with stored blocks and headers
+fn store_forked_chain(store: &Arc<dyn FullChainStore>) -> ForkedChain {
+    let forked = make_forked_chain();
+    for block in forked.all() {
+        store.store_block(&block.header.hash(), &block.raw).unwrap();
+        store.store_header(&block.header).unwrap();
+        store.roll_forward_chain(&block.header.point()).unwrap();
+    }
+    forked
+}
+
+/// The range retrieved on a valid chain must contain all its points
+fn check_range(store: &Arc<dyn FullChainStore>, headers: &[Header], start: usize, end: usize) {
+    let mut expected = vec![];
+    for (index, header) in headers.iter().enumerate() {
+        if index >= start && index <= end {
+            expected.push(header.point())
+        }
+    }
+    assert_eq!(points_in_range(store, &headers[start], &headers[end]), expected);
+}
+
+fn check_no_range(store: &Arc<dyn FullChainStore>, start: &Header, end: &Header) {
+    assert_eq!(points_in_range(store, start, end), &[]);
+}
+
+fn points_in_range(store: &Arc<dyn FullChainStore>, from: &Header, through: &Header) -> Vec<Point> {
+    store.get_block_points_in_range_and_anchor(&from.point(), &through.point()).1.collect()
 }

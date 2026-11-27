@@ -2736,13 +2736,12 @@ define_schemas! {
             blockfetch {
                 responder {
                     /// A requested block range was refused.
-                    /// Reason ∈ {inverted_range, exceeds_max_blocks}.
+                    /// Reason ∈ {inverted_range}.
                     event RANGE_REFUSED {
                         levels: debug
                         required from: %amaru_kernel::NetworkPoint
                         required through: %amaru_kernel::NetworkPoint
                         required reason: String
-                        optional max_blocks: usize
                     }
                 }
             }

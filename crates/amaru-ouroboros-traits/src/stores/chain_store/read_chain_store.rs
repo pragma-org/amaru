@@ -133,6 +133,52 @@ pub trait ReadChainStore: BaseReadChainStore {
         Some(tips)
     }
 
+    /// The points of the blocks from `from` to `to`, both inclusive, in parent -> child order, together with the
+    /// anchor that was used to read them.
+    ///
+    /// The anchor is taken from the same snapshot as the points. Give it to
+    /// [`Self::get_block_points_in_range_with_anchor`] to read the rest of the range later on, see that method
+    /// for how the range is read.
+    fn get_block_points_in_range_and_anchor<'a>(
+        &'a self,
+        from: &Point,
+        to: &Point,
+    ) -> (Point, Box<dyn Iterator<Item = Point> + 'a>) {
+        let snapshot = self.snapshot();
+        let anchor = snapshot.get_anchor_point();
+        (anchor, block_points_in_range_on(snapshot, from, to, &anchor))
+    }
+
+    /// The points of the blocks from `from` to `to`, both inclusive, in parent -> child order.
+    ///
+    /// The chain is read in two parts, split at the given `anchor` point:
+    ///  - The points up to the anchor follow the best chain forward from `from`.
+    ///  - The points after the anchor are found by walking back, by parent, from `to` to `from`.
+    ///
+    /// The points after the anchor are held in memory, so they are bounded by the size of the volatile chain.
+    /// The points up to the anchor are read lazily, so a long range does not use more memory.
+    ///
+    /// The anchor is a parameter so that a range read page after page is always split at the same point,
+    /// even if the anchor of the store moves in the meantime. Headers and blocks are never removed while the
+    /// node runs, so a range that was valid for an anchor stays valid for that anchor.
+    ///
+    /// The anchor must come from a read of the store that happened before this call, never after it.
+    /// The anchor only moves forward, so the snapshot taken here has at least the points up to that anchor.
+    /// An anchor read after the snapshot could be ahead of the snapshot and truncate the points read along the best chain.
+    ///
+    /// The iterator is empty when:
+    ///  - A header or a block is missing from the store.
+    ///  - `from` is not an ancestor of `to`.
+    ///  - The points follow a fork that starts before the anchor.
+    fn get_block_points_in_range_with_anchor<'a>(
+        &'a self,
+        from: &Point,
+        to: &Point,
+        anchor: &Point,
+    ) -> Box<dyn Iterator<Item = Point> + 'a> {
+        block_points_in_range_on(self.snapshot(), from, to, anchor)
+    }
+
     /// Return the fork point with the best chain (if it exists) and the list of points from
     /// that point to the new best tip (in that order, ending with `start`)
     ///
@@ -525,6 +571,99 @@ fn ancestors_with_validity_on_snapshot<'a>(
             h.parent().and_then(|p| snapshot.load_header_with_validity(&p))
         }
     }))
+}
+
+/// Return the points between `from` and `to` (both inclusive) in a parent -> child order, split at `anchor`,
+/// reading the chain from a single snapshot.
+fn block_points_in_range_on<'a>(
+    snapshot: Box<dyn BaseReadChainStore + 'a>,
+    from: &Point,
+    to: &Point,
+    anchor: &Point,
+) -> Box<dyn Iterator<Item = Point> + 'a> {
+    // Get the points after the anchor, by walking back from `to`.
+    let Some(parents) = parent_points_in_range(&snapshot, from, to, anchor) else {
+        return Box::new(std::iter::empty());
+    };
+
+    // Add the points up to the anchor, read along the best chain (including the anchor if
+    // to >= anchor).
+    let best = best_chain_points_in_range(snapshot, from, to, *anchor);
+
+    // Return the concatenation of the two iterators
+    Box::new(best.chain(parents))
+}
+
+/// Return the points between `from` and `to` (both inclusive) up to the anchor point, following the best chain
+/// forward from `from`.
+fn best_chain_points_in_range<'a>(
+    snapshot: Box<dyn BaseReadChainStore + 'a>,
+    from: &Point,
+    to: &Point,
+    anchor: Point,
+) -> Box<dyn Iterator<Item = Point> + 'a> {
+    if from.gt(&anchor) {
+        return Box::new(std::iter::empty());
+    }
+    if !snapshot.is_on_best_chain(from.into()) {
+        return Box::new(std::iter::empty());
+    }
+    let to_point = *to;
+    // points up to the anchor necessarily have a corresponding block, so
+    // we don't need to check that here.
+    let points = successors(Some(*from), move |p| snapshot.next_best_chain(p))
+        .take_while(move |p| *p <= to_point && *p <= anchor);
+    Box::new(points)
+}
+
+/// Return the points after the anchor between `from` and `to` inclusive in a parent -> child order, found by walking
+/// back by parent from `to`.
+/// If `from` is less than equal to the anchor return all the points strictly after the anchor up to `to`.
+/// Otherwise return exactly the points between `from` and `to` (both inclusive).
+///
+/// Return None if the points follow a chain whose fork is strictly before the anchor point.
+/// Since this walk accumulates points in memory, this makes sure that this amount is bounded.
+fn parent_points_in_range(
+    snapshot: &(dyn BaseReadChainStore + '_),
+    from: &Point,
+    to: &Point,
+    anchor: &Point,
+) -> Option<Box<dyn Iterator<Item = Point>>> {
+    let mut result = vec![];
+    let anchor = *anchor;
+
+    // If the end point is not after the anchor there are no points to find by walking back.
+    // We might still be able to collect points along the best chain
+    if *to <= anchor {
+        return Some(Box::new(std::iter::empty()));
+    }
+    let mut current = snapshot.load_header(&to.hash())?;
+
+    while current.point() > anchor && current.point() >= *from {
+        // Make sure that the block exists for the current hash
+        if !snapshot.has_block(&current.hash()).is_ok_and(|t| t) {
+            return None;
+        }
+
+        let parent_hash = current.parent_hash()?;
+        result.push(current.point());
+        let parent = snapshot.load_header(&parent_hash)?;
+        current = parent
+    }
+
+    // If the walk reached the anchor zone but the current point is not the anchor, the points follow a fork
+    // that starts before the anchor: we fail the iterator
+    if current.point() <= anchor && current.hash() != anchor.hash() {
+        return None;
+    }
+
+    // Return None if we were supposed to find the from point but we didn't find it before
+    // reaching the anchor.
+    result.reverse();
+    if from > &anchor && result.first() != Some(from) {
+        return None;
+    }
+    Some(Box::new(result.into_iter()))
 }
 
 impl<T: BaseReadChainStore + ?Sized> BaseReadChainStore for Arc<T> {
