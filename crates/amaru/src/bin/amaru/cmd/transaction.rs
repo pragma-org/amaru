@@ -22,17 +22,21 @@ use amaru_kernel::{
 use amaru_ouroboros::credentials::TransactionSigningKey;
 use anyhow::Context;
 
+mod submit;
+
 use super::files::{ensure_absent, prepare_file, publish_new};
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum TransactionCommand {
     Sign(SignArgs),
+    Submit(submit::SubmitArgs),
 }
 
 impl TransactionCommand {
     pub fn into_runnable(self) -> Runnable {
         match self {
             Self::Sign(args) => args.into_runnable(),
+            Self::Submit(args) => args.into_runnable(),
         }
     }
 }

@@ -14,8 +14,15 @@
 
 #![cfg(unix)]
 
-use std::{process::Output, time::Duration};
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    net::{Ipv4Addr, TcpListener},
+    process::Output,
+    thread,
+    time::Duration,
+};
 
+use amaru_kernel::{ProtocolVersion, Transaction, cbor};
 use assert_cmd::{Command, cargo::cargo_bin};
 use tempfile::TempDir;
 
@@ -124,6 +131,57 @@ fn top_level_help_shows_visible_commands() -> anyhow::Result<()> {
     assert!(!help.contains("dev"), "top-level help should NOT show hidden 'dev'");
     assert!(!help.contains("dump-chain-db"), "top-level help should NOT show legacy commands");
     assert!(!help.contains("remove-validation-status"), "top-level help should NOT show legacy commands");
+    Ok(())
+}
+
+#[test]
+fn transaction_submit_without_wait_uses_the_submit_url() -> anyhow::Result<()> {
+    let dir = TempDir::new()?;
+    let transaction = dir.path().join("signed.cbor");
+    let bytes = hex::decode("84a3008001800200a0f5f6")?;
+    std::fs::write(&transaction, &bytes)?;
+    let tx: Transaction = cbor::from_cbor_no_leftovers_with(&bytes, &mut ProtocolVersion::default())?;
+    let id = tx.tx_id();
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+    let url = format!("http://{}/api/submit/tx", listener.local_addr()?);
+    let server = thread::spawn(move || -> std::io::Result<()> {
+        let (socket, _) = listener.accept()?;
+        socket.set_read_timeout(Some(Duration::from_secs(5)))?;
+        let mut socket = BufReader::new(socket);
+        let mut headers = String::new();
+        while !headers.ends_with("\r\n\r\n") {
+            assert_ne!(socket.read_line(&mut headers)?, 0);
+        }
+        assert!(headers.starts_with("POST /api/submit/tx "));
+        assert!(headers.to_ascii_lowercase().contains("content-type: application/cbor\r\n"));
+        let mut received = vec![0; bytes.len()];
+        socket.read_exact(&mut received)?;
+        assert_eq!(received, bytes);
+        let body = format!("\"{id}\"");
+        write!(
+            socket.get_mut(),
+            "HTTP/1.1 202 Accepted\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )?;
+        Ok(())
+    });
+    let output = Command::new(cargo_bin("amaru"))
+        .args(["transaction", "submit", "--submit-url", &url, "--transaction"])
+        .arg(&transaction)
+        .arg("--db-chain")
+        .arg(dir.path().join("missing-chain"))
+        .arg("--db-ledger")
+        .arg(dir.path().join("missing-ledger"))
+        .env_remove("AMARU_NETWORK")
+        .env_remove("AMARU_SUBMIT_WAIT")
+        .timeout(Duration::from_secs(5))
+        .assert()
+        .success();
+    let confirmation: serde_json::Value = serde_json::from_slice(&output.get_output().stdout)?;
+    assert_eq!(confirmation, serde_json::json!({ "transaction_id": id }));
+    assert!(!dir.path().join("missing-chain").exists());
+    assert!(!dir.path().join("missing-ledger").exists());
+    server.join().unwrap()?;
     Ok(())
 }
 
