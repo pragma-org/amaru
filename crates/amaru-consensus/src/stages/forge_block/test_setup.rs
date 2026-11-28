@@ -37,8 +37,8 @@ use amaru_pure_stage::{
 
 pub use super::TestCredentials;
 use super::{
-    ForgeBlock, ForgeBlockMsg, LeaderScheduleEffect, ResourceForgingCredentials, SignHeaderEffect, TakeForForgeEffect,
-    schedule::EpochSchedule, stage, test_vrf_key,
+    ForgeBlock, ForgeBlockMsg, GetStakeDistributionEffect, LeaderScheduleEffect, ResourceForgingCredentials,
+    SignHeaderEffect, TakeForForgeEffect, schedule::EpochSchedule, stage, test_vrf_key,
 };
 use crate::{
     effects::{ResourceBlockBuilderConstraints, ValidateHeaderEffect},
@@ -91,6 +91,7 @@ pub fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_data_deserializer::<ForgeBlock>().boxed(),
         amaru_pure_stage::register_data_deserializer::<ForgeBlockMsg>().boxed(),
         amaru_pure_stage::register_data_deserializer::<SelectChainMsg>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<GetStakeDistributionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<LeaderScheduleEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<SignHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TakeForForgeEffect>().boxed(),
@@ -167,6 +168,9 @@ fn setup_with(
             resources.put::<ResourceMeter>(Arc::new(meter));
         },
         |running| {
+            running.override_external_effect::<GetStakeDistributionEffect>(usize::MAX, |_effect| {
+                OverrideResult::handled(None)
+            });
             running.override_external_effect::<LeaderScheduleEffect>(usize::MAX, |effect| {
                 OverrideResult::handled(EpochSchedule::empty(effect.epoch, effect.nonce))
             });

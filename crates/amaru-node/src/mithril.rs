@@ -27,6 +27,7 @@ use amaru_consensus::{
     block_validator::LedgerThreadStop,
     effects::{
         ConsensusMode, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourcePoolSummaries,
+        StakeDistributionSource,
     },
     performance::Performance,
 };
@@ -710,8 +711,9 @@ impl MithrilSynchronizer {
             let mut stage_graph =
                 TokioBuilder::default().with_global_epoch_offset(config.compute_global_clock_offset());
             let ledger_config = &config.ledger_config;
-            let state = make_state(ledger_config, None, chain_store.clone())
+            let (state, initial_pool_summaries) = make_state(ledger_config, None, chain_store.clone())
                 .map_err(|source| MithrilSyncError::Startup(source.into()))?;
+            let (stake_distribution_publisher, pool_summaries) = StakeDistributionSource::new(initial_pool_summaries);
             let ledger_tip = state.tip().into_owned();
             if NetworkPoint::from(ledger_tip) != NetworkPoint::from(resume_point) {
                 return Err(MithrilSyncError::ResumePointMismatch {
@@ -723,13 +725,12 @@ impl MithrilSynchronizer {
             advance_replay_anchor(chain_store.as_ref(), ledger_tip, security_param)?;
             let ledger_tip = resolve_resume_point(chain_store.as_ref(), ledger_tip.into())
                 .map_err(|_| MithrilSyncError::Startup(anyhow!("ledger tip header not found").into()))?;
-            let pool_summaries = state.pool_summaries();
             let validator = Arc::new(
                 make_block_validator(ledger_config, state, chain_store.clone())
                     .map_err(|source| MithrilSyncError::Startup(source.into()))?,
             );
             stage_graph.resources().put::<ResourceHeaderStore>(chain_store.clone());
-            stage_graph.resources().put::<ResourcePoolSummaries>(Arc::new(pool_summaries));
+            stage_graph.resources().put::<ResourcePoolSummaries>(pool_summaries);
             stage_graph.resources().put::<ResourceBlockValidation>(validator.clone());
             stage_graph
                 .resources()
@@ -740,12 +741,10 @@ impl MithrilSynchronizer {
             let performance = Performance::new().install(stage_graph.resources());
             let (source, events) =
                 wire_mithril_stages(&mut stage_graph, ledger_tip, security_param, self.ingest_until_slot);
-            // The validator lives in these resources; a strong capture would keep the stores open.
-            let resources = stage_graph.resources().downgrade();
             let stake_updates = source.clone();
-            validator.set_on_stake_dist_updated(Arc::new(move |summaries| {
-                let max_epoch = summaries.max_epoch();
-                resources.put::<ResourcePoolSummaries>(Arc::new(summaries));
+            validator.set_on_stake_dist_updated(Arc::new(move |new_summaries| {
+                let max_epoch = new_summaries.max_epoch();
+                stake_distribution_publisher.publish(new_summaries);
                 let send = async {
                     if stake_updates.send(MithrilInput::StakeDistUpdated(max_epoch)).await.is_err() {
                         amaru_observability::warn!(node::build::STAKE_DIST_NOTIFY_FAILED);
@@ -757,6 +756,7 @@ impl MithrilSynchronizer {
                     tokio::runtime::Builder::new_current_thread().build().expect("cannot build current thread runtime");
                 rt.block_on(send);
             }));
+            validator.start_background_computations();
             let running = stage_graph.run(tokio::runtime::Handle::current());
             (source, events, running, ledger_thread, performance)
         };
@@ -1361,7 +1361,8 @@ mod tests {
             test_config.chain_store.set_anchor_point(&header.point()).unwrap();
             let config = test_config.make_node_configuration().unwrap();
             let idle_references = Arc::strong_count(&test_config.chain_store);
-            let state = make_state(&config.ledger_config, None, test_config.chain_store.clone()).unwrap();
+            let (state, _pool_summaries) =
+                make_state(&config.ledger_config, None, test_config.chain_store.clone()).unwrap();
             let validator =
                 Arc::new(make_block_validator(&config.ledger_config, state, test_config.chain_store.clone()).unwrap());
             let ledger_thread = validator.thread_stop();

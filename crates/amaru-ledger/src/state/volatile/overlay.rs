@@ -22,6 +22,7 @@ use amaru_observability::{debug, info_span};
 use tracing::Span;
 
 use crate::{
+    StakeDistribution,
     epoch_transition::{
         Computed, Effective, GovernanceActivity, GovernanceUpdates, PoolsEpochTransitionUpdates, Rewards, RewardsState,
     },
@@ -61,6 +62,12 @@ pub struct StateOverlay {
     /// used for leader schedule is moved as rewards stake.
     rewards: RewardsState,
 
+    /// The stake distribution from 2 epochs ago; computed during the previous epoch and kept around
+    /// until the overlay is flushed. This is necessary in case of rollbacks across an epoch
+    /// boundary. We must keep the stake distribution around until the governance updates have been
+    /// flushed to disk.
+    stake_distribution: Option<Arc<StakeDistribution>>,
+
     /// Computed pools updates that are pending application to the stable store. The value is only
     /// `Some` during the first `k` blocks of an epoch since this corresponds to the unstable part
     /// of an epoch.
@@ -92,6 +99,7 @@ impl StateOverlay {
             epoch,
             most_recent_snapshot: RefCell::new(None),
             rewards: RewardsState::NotReady,
+            stake_distribution: None,
             pools_updates: None,
             governance_updates: None,
             treasury_delta: TreasuryDelta::Zero,
@@ -113,6 +121,7 @@ impl StateOverlay {
             epoch: self.epoch,
             most_recent_snapshot: RefCell::new(*self.most_recent_snapshot.borrow()),
             rewards: self.rewards.clone(),
+            stake_distribution: self.stake_distribution.clone(),
             pools_updates: self.pools_updates.clone(),
             governance_updates: self.governance_updates.clone(),
             treasury_delta: self.treasury_delta,
@@ -146,6 +155,7 @@ impl StateOverlay {
     /// Record transition into a new epoch.
     pub fn transition(
         &mut self,
+        stake_distribution: Arc<StakeDistribution>,
         effective_rewards: Option<Rewards<Effective>>,
         pools_updates: PoolsEpochTransitionUpdates,
         governance_updates: GovernanceUpdates,
@@ -186,6 +196,8 @@ impl StateOverlay {
 
         self.rewards =
             effective_rewards.map(|r| RewardsState::Effective(Arc::new(r))).unwrap_or(RewardsState::NotReady);
+
+        self.stake_distribution = Some(stake_distribution);
 
         self.pools_updates = Some(Arc::new(pools_updates));
 
@@ -322,6 +334,10 @@ impl StateOverlay {
         // above (rewards tax, donations, deposit-refund leftovers), so the straddle window is over.
         self.treasury_delta = TreasuryDelta::Zero;
 
+        // There's no longer any need for the previous stake distribution, it's not possible to
+        // rollback past the epoch boundary.
+        self.stake_distribution = None;
+
         assert!(matches!(self.rewards, RewardsState::NotReady), "rewards leftovers after flushing overlay?");
         assert!(self.governance_updates.is_none(), "governance updates leftovers after flushing overlay?");
         assert!(self.pools_updates.is_none(), "pools updates leftovers after flushing overlay?");
@@ -440,6 +456,10 @@ impl StateOverlay {
     pub fn take_computed_rewards(&mut self) -> Option<Rewards<Computed>> {
         self.rewards.take_computed_rewards()
     }
+
+    pub fn stake_distribution(&self) -> Option<Arc<StakeDistribution>> {
+        self.stake_distribution.clone()
+    }
 }
 
 #[cfg(test)]
@@ -457,6 +477,7 @@ mod test {
         let mut overlay = StateOverlay {
             epoch,
             most_recent_snapshot: RefCell::new(None),
+            stake_distribution: Some(Arc::new(StakeDistribution::default())),
             rewards: RewardsState::Effective(Arc::new(effective_rewards())),
             pools_updates: Some(Arc::new(PoolsEpochTransitionUpdates::default())),
             governance_updates: Some(Arc::new(GovernanceUpdates::default(PREPROD_DEFAULT_PROTOCOL_PARAMETERS.clone()))),
@@ -469,6 +490,7 @@ mod test {
         // drops the pending pools and governance updates.
         assert_eq!(overlay.epoch, epoch - 1);
         assert!(matches!(overlay.rewards, RewardsState::Computed(_)), "rewards should be computed after rollback");
+        assert!(overlay.stake_distribution.is_some(), "stake distribution should be preserved on rollback");
         assert!(overlay.pools_updates.is_none(), "pending pools updates should be dropped on rollback");
         assert!(overlay.governance_updates.is_none(), "pending governance updates should be dropped on rollback");
     }
