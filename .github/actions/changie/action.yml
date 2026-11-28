@@ -1,0 +1,21 @@
+name: changie
+
+description: Install the pinned changie release
+
+runs:
+  using: composite
+  steps:
+    - name: Install changie
+      shell: bash
+      env:
+        CHANGIE_VERSION: 1.26.0
+        CHANGIE_SHA256: eab168c8287a6e91912e1c02e5260911232d945bfd3c89d8a0e1ace6bb7b6161
+      run: |
+        set -euo pipefail
+        archive="changie_${CHANGIE_VERSION}_linux_amd64.tar.gz"
+        curl -fsSL -o "${RUNNER_TEMP}/${archive}" \
+          "https://github.com/miniscruff/changie/releases/download/v${CHANGIE_VERSION}/${archive}"
+        echo "${CHANGIE_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum -c -
+        mkdir -p "${RUNNER_TEMP}/changie"
+        tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/changie" changie
+        echo "${RUNNER_TEMP}/changie" >> "${GITHUB_PATH}"
