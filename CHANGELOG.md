@@ -56,10 +56,6 @@ Other guiding principles:
 - **amaru**: `amaru pool schedule inspect` also reports the pool id and the epoch nonce the schedule was computed with.
 - **amaru-protocols**: `connection.handshake_refused` and `connection.handshake_query_reply` carry `peer`, `conn_id` and `role`, so a refused handshake can be traced to a remote address and a direction. ([#1634](https://github.com/pragma-org/amaru/issues/1634))
 - **amaru**: loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.
-- **amaru**: a failed outbound connection attempt times out after 2 seconds. Each failure adds a large connection penalty, so healthier peers are dialed first. When no healthier peer can fill an open slot, the penalized peer is dialed anyway. A peer is not dialed again within 2 seconds of a connect attempt or a connection failure. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
-- **amaru**: block fetch asks further peers 30ms, 80ms, and 150ms after the first request, until every block in that request has arrived. A peer that returns only a prefix does not stop the later asks, and a slow first announcer no longer waits out the 5s fetch timeout before anyone else is asked. ([#1423](https://github.com/pragma-org/amaru/issues/1423))
-- **amaru**: Debian and RPM environment files now list every supported node setting with its description, default, and expected type.
-- **amaru-ledger**: keep only one live stake distribution in-memory (the most recent one) instead of a rotating fixed-size queue.
 
 ### Fixed
 
@@ -176,7 +172,6 @@ Other guiding principles:
 - **amaru-kernel**: fixed the decoding of port, constitution, `invalid_transactions` and `pool_metadata` content hash.
 - **amaru-uplc**: move machine version checks to parsing-time instead of execution-time to match Haskell's behavior.
 - **amaru-uplc**: fix 'is_constr_case_available' check wrongly assuming min protocol version 10.
-- **amaru-uplc**: refresh cost models and associate them to _semantics_ instead of _plutus version_.
 - **amaru-uplc**: lazily discharge UPLC machine final value, avoiding extra (unpaid) runtime cost when not needed.
 - **amaru-ledger**: a transaction whose fee or outputs add up to 2^63 lovelace or more is rejected as not value-conserved, instead of crashing the node.
 - **amaru-kernel**: implement the same faulty logic as the Haskell node for decoding invalid transactions in Conway.
@@ -229,10 +224,6 @@ Other guiding principles:
 ### Fixed
 
 - **amaru**: `amaru mithril sync` requires `--network` or `AMARU_NETWORK`; it no longer defaults to preprod.
-- **amaru-protocols**: a new connection no longer drops when the peer's first chainsync (and other mini-protocol) segments arrive in the same burst as the handshake accept. Those segments are held until the handlers are registered, instead of being rejected as an unknown protocol.
-- **amaru-consensus**: a node whose ledger and chain store are both still at origin no longer stops block fetch during startup recovery. Recovery still stops when the ledger is at origin but the chain store already has a candidate.
-- **amaru**: block production waits for the matching stake distribution while startup replay rebuilds volatile ledger state, instead of treating it as an empty leader schedule.
-- **amaru**: starting with many upstream peers no longer panics when connection attempts fail together, or when many name lookups fail or many peers are demoted at the same time. ([#1428](https://github.com/pragma-org/amaru/issues/1428))
 - **amaru**: `cardano-cli ping` from cardano-cli 11.2 onwards completes the handshake again. That client offers node-to-node version 16 alongside versions 14 and 15; version 16 is kept as raw CBOR and the node still agrees version 15. ([#1425](https://github.com/pragma-org/amaru/issues/1425))
 - **amaru**: `chainsync.chain_lagging` is logged when near-now headers have been arriving for a minute and the adopted tip is not getting closer to the wall clock. It stays quiet while sync is still adopting faster than 10 blocks per second, including while sync is finishing. ([#1396](https://github.com/pragma-org/amaru/issues/1396))
 - **amaru**: a VRF signing key from `cardano-cli conway node key-gen-VRF` loads. The file is the 32-byte seed followed by the verification key.

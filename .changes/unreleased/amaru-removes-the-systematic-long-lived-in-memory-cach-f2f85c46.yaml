@@ -1,0 +1,6 @@
+kind: Changed
+body: removes the systematic long-lived in-memory cache of two full stake distributions in favor of an ongoing background computation for rewards and new distribution and a stake distribution resource for the consensus accessed via a dedicated effect.
+time: 2026-11-28T15:52:15.114086+01:00
+custom:
+    Area: amaru
+    Issues: "1444"
