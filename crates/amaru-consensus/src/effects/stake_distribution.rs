@@ -56,6 +56,9 @@ impl StakeDistributionSource {
             if summaries.has_epoch(&epoch) {
                 return summaries.get_pool_at_epoch(epoch, &pool);
             }
+            if summaries.min_epoch().is_some_and(|min_epoch| epoch < min_epoch) {
+                return None;
+            }
             if receiver.changed().await.is_err() {
                 return None;
             }

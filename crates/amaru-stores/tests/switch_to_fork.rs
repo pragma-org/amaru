@@ -60,7 +60,10 @@
 //!
 
 use amaru_kernel::{PREPROD_GLOBAL_PARAMETERS, Point};
-use amaru_ledger::state::{BackwardError, StateError};
+use amaru_ledger::{
+    state::{BackwardError, StateError},
+    store::StoreError,
+};
 use amaru_ouroboros_traits::ForkSwitchOutcome;
 use amaru_uplc::arena_pool::ArenaPool;
 
@@ -294,7 +297,14 @@ fn the_volatile_db_is_restored_when_there_is_a_failed_epoch_transition() {
         Ok(outcome) => panic!("expected the epoch transition to fail, got: {outcome:?}"),
         Err(err) => err,
     };
-    assert!(matches!(err.downcast_ref::<StateError>(), Some(StateError::Storage(_))), "unexpected error: {err:#}");
+    assert!(
+        matches!(
+            err.downcast_ref::<StateError>(),
+            Some(StateError::Storage(StoreError::Internal(err)))
+            if err.to_string().contains("failed transition progress"),
+        ),
+        "unexpected error: {err:#}",
+    );
 
     assert_eq!(*state.tip(), initial_tip, "the pre-switch tip is restored after a failed transition");
     assert!(stable.lock().unwrap().is_empty(), "nothing reached the stable store");

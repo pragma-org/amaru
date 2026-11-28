@@ -119,7 +119,7 @@ pub fn make_state_in_epoch_with_store(
     epoch: Epoch,
     mock_store: MockStore,
 ) -> (State<MockStore, RocksDBHistoricalStores>, Arc<Mutex<Vec<Point>>>) {
-    make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch - 2, epoch - 1], mock_store)
+    make_state_in_epoch_with_snapshots_and_store(epoch, &[epoch - 3, epoch - 2, epoch - 1], mock_store)
 }
 
 #[expect(clippy::expect_used)]

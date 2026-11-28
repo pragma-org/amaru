@@ -1201,14 +1201,14 @@ impl<HS: HistoricalStores + Send + Sync + 'static> BackgroundTasks<HS> {
     }
 
     fn run(self) -> BackgroundTasksResult {
-        self.check_cancelled()?;
         let stake_distribution = self.stake_distribution()?;
-        self.check_cancelled()?;
         let rewards = self.rewards()?;
         Ok((stake_distribution, rewards))
     }
 
     fn stake_distribution(&self) -> Result<StakeDistribution, StateError> {
+        self.check_cancelled()?;
+
         let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
 
         let distr = compute_stake_distribution(
@@ -1221,6 +1221,8 @@ impl<HS: HistoricalStores + Send + Sync + 'static> BackgroundTasks<HS> {
 
         info!(ledger::stake_distribution::ROTATE, new_stake_distribution = previous_epoch.epoch());
 
+        self.check_cancelled()?;
+
         if let Some(notify) = &self.on_stake_dist_updated {
             notify((&distr).into());
         }
@@ -1230,8 +1232,12 @@ impl<HS: HistoricalStores + Send + Sync + 'static> BackgroundTasks<HS> {
 
     /// Compute rewards for a given epoch using an anterior stake distribution.
     fn rewards(&self) -> Result<RewardsSummary, StateError> {
+        self.check_cancelled()?;
+
         let previous_epoch = self.snapshots.for_epoch(self.epoch - 1)?;
         let rewards_snapshot = self.snapshots.for_epoch(self.epoch - 3)?;
+
+        self.check_cancelled()?;
 
         info_span!(
             ledger::rewards::COMPUTE,
@@ -1246,6 +1252,8 @@ impl<HS: HistoricalStores + Send + Sync + 'static> BackgroundTasks<HS> {
                 |_| {},
             )
             .map_err(StateError::Storage)?;
+
+            self.check_cancelled()?;
 
             Ok(RewardsSummary::new(
                 stake_summary,

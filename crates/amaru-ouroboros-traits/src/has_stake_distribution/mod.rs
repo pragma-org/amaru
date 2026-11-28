@@ -43,7 +43,7 @@ pub enum GetPoolError {
     StakeDistributionNotAvailable(Slot, Option<Epoch>),
 }
 
-/// PoolSummaries holds (up to three) projected maps of `PoolId -> PoolSummary` derived from the
+/// PoolSummaries holds up to two projected maps of `PoolId -> PoolSummary` derived from the
 /// ledger's stake distributions (only the small `.pools` data, not the large accounts map).
 ///
 /// This replaces the previous `HasStakeDistribution` trait for header validation. The ledger
@@ -62,6 +62,10 @@ impl PoolSummaries {
 
     pub fn max_epoch(&self) -> Epoch {
         self.by_epoch.last_key_value().map(|(e, _)| *e).unwrap_or(*Epoch::ZERO)
+    }
+
+    pub fn min_epoch(&self) -> Option<Epoch> {
+        self.by_epoch.first_key_value().map(|(e, _)| *e)
     }
 
     pub fn has_epoch(&self, epoch: &Epoch) -> bool {
