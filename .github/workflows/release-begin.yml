@@ -578,8 +578,9 @@ jobs:
     if: >-
       ${{ !cancelled()
           && needs.rust-build.result == 'success'
+          && needs.build-metadata.outputs.is_release != 'true'
           && github.event_name == 'schedule' }}
-    needs: [rust-build, conformance-reports]
+    needs: [build-metadata, rust-build, conformance-reports]
 
     runs-on: ubuntu-24.04
 
