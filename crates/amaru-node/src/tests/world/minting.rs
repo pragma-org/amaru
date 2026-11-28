@@ -37,7 +37,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     epoch_transition::GovernanceActivity,
-    state::initial_stake_distributions,
+    state::tasks::compute_stake_distribution::initialize_stake_distributions,
     store::{
         Columns, Store, TransactionalContext,
         columns::{accounts, pools},
@@ -593,7 +593,7 @@ fn synthesized_snapshot_splits_stake_evenly() {
     let fixture = synthesize(&network);
     let snapshots = RocksDBHistoricalStores::new(&RocksDbConfig::new(fixture.ledger_dir.clone()), 0);
     let distributions =
-        initial_stake_distributions(NetworkName::Preprod, &snapshots, &network.era_history, false).expect("stake");
+        initialize_stake_distributions(NetworkName::Preprod, &snapshots, &network.era_history, false).expect("stake");
     let epoch2 = distributions.iter().find(|distribution| distribution.epoch == Epoch::from(2)).expect("epoch 2");
     assert_eq!(epoch2.pools.len(), POOLS, "five pools");
     let stakes: Vec<_> = epoch2.pools.values().map(|pool| pool.stake).collect();
@@ -618,7 +618,7 @@ fn synthesized_snapshot_splits_stake_evenly() {
             .collect();
         by_epoch.insert(distribution.epoch, pools);
     }
-    let summaries = PoolSummaries { by_epoch };
+    let summaries = PoolSummaries { by_epoch, ..Default::default() };
     let slot = Slot::from(4 * network.global_parameters.epoch_length());
     for credentials in &fixture.pools {
         let summary =

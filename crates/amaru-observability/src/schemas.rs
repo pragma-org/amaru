@@ -1237,6 +1237,28 @@ define_schemas! {
                     required reason: String
                 }
             }
+            candidate_snapshot {
+                /// A snapshot of an epoch whose last blocks are still volatile changed state.
+                /// Outcome ∈ {created, final, discarded, restored, removed}: `created` at the first
+                /// block after 3·k/f; `final` when its last block became stable; `discarded` when a
+                /// rollback removed its last block; `restored` after a failed fork switch;
+                /// `removed` when its directory is deleted.
+                public event UPDATE {
+                    levels: info
+                    required epoch: amaru_kernel::Epoch
+                    required last_block: amaru_kernel::Point
+                    required outcome: String
+                }
+                /// The directory of a candidate snapshot that no longer serves could not be deleted.
+                /// Nothing reads it. The node tries to delete it again when it starts, and does not
+                /// start if it still cannot delete it.
+                public event REMOVE_FAILED {
+                    levels: warn
+                    required epoch: amaru_kernel::Epoch
+                    required last_block: amaru_kernel::Point
+                    required reason: String
+                }
+            }
             constitutional_committee {
                 /// The constitutional committee votes were ignored during ratification
                 public event IGNORE {
@@ -2258,10 +2280,10 @@ define_schemas! {
                         optional snapshot_count: u64
                         optional continuous_ranges: u64
                     }
-                    /// Skipped an unexpected file found in the snapshots directory
-                    public event UNEXPECTED_FILE {
+                    /// Skipped an unexpected directory found in the snapshots directory
+                    public event UNEXPECTED_DIRECTORY {
                         levels: warn
-                        required filename: String
+                        required dirname: String
                     }
                 }
                 /// Full scan for a given collection

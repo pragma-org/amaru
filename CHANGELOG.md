@@ -65,6 +65,8 @@ Other guiding principles:
 - **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))
 - **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
 - **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.
+- **amaru-ledger**: on a chain with fewer than `k` blocks in the first 3·k/f slots of an epoch, take a candidate snapshot to compute the stake distribution and validate headers.
+- **amaru-node**: a node, or a Mithril replay, starts computing the stake distribution of epoch `e - 1`, as soon as a header with a slot >= the stability window of epoch `e` is known.
 
 
 

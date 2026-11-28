@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::Ordering,
     fs::File,
     io::BufReader,
     path::Path,
@@ -635,6 +636,24 @@ impl EraHistory {
         Ok(Slot::new(elapsed))
     }
 
+    /// Return true if the slot is valid for a given epoch and inside the stability window.
+    pub fn is_stable(&self, slot: Slot) -> bool {
+        let Ok(relative_slot) = self.slot_in_epoch(slot, slot) else { return false };
+        relative_slot >= self.stability_window
+    }
+
+    /// Return true if:
+    ///
+    /// - The slot is in the stability window of the given epoch, OR
+    /// - The slot is in an epoch strictly greater that the given epoch
+    pub fn is_slot_stable_for(&self, slot: Slot, epoch: &Epoch) -> bool {
+        match unsafe_slot_to_epoch(self, slot).cmp(epoch) {
+            Ordering::Greater => true,
+            Ordering::Equal => self.is_stable(slot),
+            Ordering::Less => false,
+        }
+    }
+
     /// Returns the era index (0-based) for the given slot.
     ///
     /// The era index should correspond to the position in the era history vector:
@@ -684,6 +703,18 @@ impl EraHistory {
         #[expect(clippy::expect_used)]
         self.eras.last().expect("EraHistory cannot be empty")
     }
+}
+
+// NOTE: calculating current epoch from slot on block application.
+//
+// This is only safe provided the next_tip is within the foreseeable window. If this isn't
+// the case, it's a clear signal of something going very wrong in the consensus/networking
+// pipeline feeding blocks to the ledger since they'd be attempting to feed a block that is
+// many day after the last applied block!
+pub fn unsafe_slot_to_epoch(era_history: &EraHistory, slot: Slot) -> Epoch {
+    era_history
+        .slot_to_epoch_unchecked_horizon(slot)
+        .unwrap_or_else(|e| unreachable!("impossible; failed to compute epoch from tip ({slot:?}): {e:?}"))
 }
 
 /// Compute the time in milliseconds between the start of the system and the given slot.

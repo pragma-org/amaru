@@ -125,7 +125,15 @@ pub(crate) async fn mithril_block_source(
     .await
     {
         match error.as_invalid_header().and_then(|source| source.missing_stake_distribution()) {
-            Some(epoch) => state.pending = Some((epoch, raw)),
+            Some(epoch) => {
+                // This block is the next one for the ledger. If its epoch has no block after the
+                // stability window, let the ledger check if its slot can start the computation
+                // of the stake distribution.
+                match Ledger::new(eff.clone()).request_stake_distribution(point.slot_or_default()).await {
+                    Ok(()) => state.pending = Some((epoch, raw)),
+                    Err(error) => eff.send(&state.events, MithrilBlockEvent::Failed(point, error.to_string())).await,
+                }
+            }
             None => eff.send(&state.events, MithrilBlockEvent::Failed(point, error.to_string())).await,
         }
         return state;

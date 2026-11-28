@@ -107,7 +107,10 @@ pub const MAX_HEADER_CLOCK_SKEW: Duration = Duration::from_secs(2);
 ///   `RecheckLedgerHeight` timer (poll interval [`HEIGHT_RECHECK_INTERVAL`]).
 /// - **StakeDistribution** — pool stake for the header's epoch is not yet known (at most one
 ///   epoch ahead of `max_epoch`). `RequestNext` may already have been pipelined before validation
-///   failed. Woken by [`TrackPeersMsg::StakeDistUpdated`] (no self-timer).
+///   failed.  Woken by [`TrackPeersMsg::StakeDistUpdated`]. When the header is one block above the
+///   applied ledger height, the ledger is asked (only once) to prepare that stake distribution. \
+///   Until then, the header arms the recheck timer, so that the recheck sees the applied ledger
+///   height reach the height below it.
 /// - **ClockSkew** — header slot onset is at most [`MAX_HEADER_CLOCK_SKEW`] in the future.
 ///   Contributes the header onset as the next recheck deadline; `RequestNext` may already have been sent.
 /// - **FollowUp** — further headers arrived while the peer was already deferred. Held until
@@ -121,7 +124,8 @@ pub const MAX_HEADER_CLOCK_SKEW: Duration = Duration::from_secs(2);
 ///
 /// # Recheck
 ///
-/// Time-based deferred work (ledger height + clock skew) shares **one** outstanding
+/// Time-based deferred work (ledger height, clock skew, and stake distributions not yet prepared)
+/// shares **one** outstanding
 /// `RecheckLedgerHeight` schedule (`recheck_timer`). The earliest deadline among deferred items
 /// wins; a later arm does not replace an earlier timer; an earlier arm cancels and replaces a
 /// later one. After each recheck, the timer is re-armed only if height/clock work remains.
@@ -154,6 +158,10 @@ pub struct TrackPeers {
     ledger_applied_block_height: BlockHeight,
     ledger_last_checked_at: Instant,
     max_epoch: Epoch,
+    /// The applied ledger height at which the ledger was last asked to prepare a stake
+    /// distribution. The ledger gets at most one such request per height, whatever the number of
+    /// peers that send the header of the next block.
+    stake_distribution_requested_at: Option<BlockHeight>,
     deferred: Vec<DeferredHeader>,
     /// Single outstanding self-schedule for height/clock deferred rechecks.
     recheck_timer: Option<ScheduleId>,
@@ -377,6 +385,7 @@ impl TrackPeers {
             ledger_applied_block_height: BlockHeight::from(0),
             ledger_last_checked_at: Instant::at_offset(Duration::ZERO, Duration::ZERO),
             max_epoch,
+            stake_distribution_requested_at: None,
             recheck_timer: None,
             chain_lag: ChainLagMonitor::default(),
         }
@@ -669,17 +678,49 @@ impl TrackPeers {
             .filter_map(|d| match &d.reason {
                 DeferReason::LedgerHeight { .. } => Some(now + HEIGHT_RECHECK_INTERVAL),
                 DeferReason::ClockSkew { min_time, .. } => Some(*min_time),
+                DeferReason::StakeDistribution { header, .. } if !self.stake_distribution_requested_for(header) => {
+                    Some(now + HEIGHT_RECHECK_INTERVAL)
+                }
                 DeferReason::StakeDistribution { .. } | DeferReason::FollowUp { .. } => None,
             })
             .min()
     }
 
+    /// Whether the ledger was asked to prepare the stake distribution for `header`, as its next block.
+    fn stake_distribution_requested_for(&self, header: &Header) -> bool {
+        self.stake_distribution_requested_at.is_some_and(|height| header.block_height() == height + 1)
+    }
+
+    /// Ask the ledger to prepare the stake distribution that a deferred header waits for.
+    /// This only triggers when that header is one block above the applied ledger height.
+    async fn request_stake_distribution_for_next_block(&mut self, eff: &Effects<TrackPeersMsg>) {
+        let ledger_height = self.ledger_applied_block_height;
+        if self.stake_distribution_requested_at == Some(ledger_height) {
+            return;
+        }
+        let Some(slot) = self.deferred.iter().find_map(|d| match &d.reason {
+            DeferReason::StakeDistribution { header, .. } if header.block_height() == ledger_height + 1 => {
+                Some(header.slot())
+            }
+            DeferReason::StakeDistribution { .. }
+            | DeferReason::LedgerHeight { .. }
+            | DeferReason::ClockSkew { .. }
+            | DeferReason::FollowUp { .. } => None,
+        }) else {
+            return;
+        };
+        self.stake_distribution_requested_at = Some(ledger_height);
+        // This only fails when the ledger thread has terminated, and then the node stops.
+        let _ = Ledger::new(eff.clone()).request_stake_distribution(slot).await;
+    }
+
     /// Ensure at most one outstanding `RecheckLedgerHeight` for time-based deferred work.
     async fn ensure_recheck_armed(&mut self, eff: &Effects<TrackPeersMsg>) {
-        let needs_timer = self
-            .deferred
-            .iter()
-            .any(|d| matches!(d.reason, DeferReason::LedgerHeight { .. } | DeferReason::ClockSkew { .. }));
+        let needs_timer = self.deferred.iter().any(|d| match &d.reason {
+            DeferReason::LedgerHeight { .. } | DeferReason::ClockSkew { .. } => true,
+            DeferReason::StakeDistribution { header, .. } => !self.stake_distribution_requested_for(header),
+            DeferReason::FollowUp { .. } => false,
+        });
         if !needs_timer {
             if let Some(id) = self.recheck_timer.take() {
                 eff.cancel_schedule(id).await;
@@ -1020,6 +1061,7 @@ impl TrackPeers {
                     };
                     if let Err(dh) = self.try_roll_forward(args, &eff, now).await {
                         self.defer(dh);
+                        self.request_stake_distribution_for_next_block(&eff).await;
                         self.ensure_recheck_armed(&eff).await;
                     }
                 }
@@ -1111,6 +1153,7 @@ impl TrackPeers {
                 self.defer(dh);
             }
         }
+        self.request_stake_distribution_for_next_block(eff).await;
         self.ensure_recheck_armed(eff).await;
     }
 }

@@ -42,8 +42,8 @@ use tokio::runtime::{Handle, Runtime};
 use super::{NewTip, TrackPeers, TrackPeersMsg, stage};
 use crate::{
     effects::{
-        ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory, ResourceHasStakePools,
-        ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
+        RequestStakeDistributionEffect, ResourceBlockValidation, ResourceConsensusParameters, ResourceEraHistory,
+        ResourceHasStakePools, ResourcePoolSummaries, TipEffect, ValidateHeaderEffect, VolatileTipEffect,
     },
     stages::{
         peer_selection::PeerSelectionMsg,
@@ -264,6 +264,7 @@ fn register_guards() -> DeserializerGuards {
         amaru_pure_stage::register_effect_deserializer::<ValidateHeaderEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<TipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<VolatileTipEffect>().boxed(),
+        amaru_pure_stage::register_effect_deserializer::<RequestStakeDistributionEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<GetBestChainTipEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::effects::QueryConsensusModeEffect>().boxed(),
         amaru_pure_stage::register_effect_deserializer::<crate::performance::SyncAdoptionPaceEffect>().boxed(),
@@ -362,7 +363,9 @@ pub fn setup_base(
     setup_inner(rt, state, msg, store, overrides, true)
 }
 
-fn setup_base_until_sleeping(
+/// Like [`setup_base`], but stops at the first stage timer without firing it. Use it when a
+/// deferred header arms a recheck timer that would poll a frozen ledger forever.
+pub fn setup_base_until_sleeping(
     rt: &Handle,
     state: TrackPeers,
     msg: impl IntoIterator<Item = TrackPeersMsg>,

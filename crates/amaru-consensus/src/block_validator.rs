@@ -44,7 +44,8 @@ const JOIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Upper bound on requests waiting for the ledger thread. Sized by counting the request
 /// producers — block validation (serialized by `SelectChain`), fork switches, mempool
-/// transaction validation, the submission API, and occasional tip or relay lookups —
+/// transaction validation, the submission API, occasional tip or relay lookups, and the
+/// preparation of a stake distribution for the header of the next block —
 /// and doubling the estimate. Exceeding it means a producer went out of bounds, which is
 /// treated as a bug rather than a back-pressure condition.
 const REQUEST_QUEUE_BOUND: usize = 16;
@@ -68,7 +69,8 @@ enum LedgerRequest {
     ),
     RegisteredRelayCandidates(oneshot::Sender<Result<BTreeSet<PeerCandidate>, BlockValidationError>>),
     BlockBuilderConstraints(oneshot::Sender<BlockBuilderConstraintsResponse>),
-    SetOnStakeDistUpdated(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
+    Start(Arc<dyn Fn(PoolSummaries) + Send + Sync>),
+    RequestStakeDistribution(Slot),
 }
 
 /// Worker activity reported when ledger cleanup is still pending.
@@ -83,7 +85,8 @@ pub enum LedgerThreadPhase {
     ValidatingTransaction,
     ReadingRelayCandidates,
     ReadingBlockBuilderConstraints,
-    UpdatingStakeDistributionCallback,
+    Starting,
+    RequestedStakeDistribution,
     JoiningRewards,
     ReleasingStores,
 }
@@ -185,13 +188,13 @@ impl BlockValidator {
         let dispatch = tracing::dispatcher::get_default(|dispatch| dispatch.clone());
         let join = thread::Builder::new().name("ledger".into()).spawn(move || {
             tracing::dispatcher::with_default(&dispatch, || {
-                let mut ledger = LedgerThread { state, vm_eval_pool };
+                let mut ledger = LedgerThread { state, vm_eval_pool, computation_error: None };
                 while let Some(request) = receiver.blocking_recv() {
                     ledger.handle(request, &worker_phase);
                     *worker_phase.lock() = LedgerThreadPhase::WaitingForRequests;
                 }
                 *worker_phase.lock() = LedgerThreadPhase::JoiningRewards;
-                ledger.state.shutdown_rewards();
+                ledger.state.cancel_tasks();
                 *worker_phase.lock() = LedgerThreadPhase::ReleasingStores;
             });
         })?;
@@ -206,10 +209,13 @@ impl BlockValidator {
         self.stop.clone()
     }
 
-    /// Set callback invoked when a new stake distribution is computed/available.
-    /// The provided PoolSummaries should be used to update resources for header validation.
-    pub fn set_on_stake_dist_updated(&self, callback: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
-        self.send(LedgerRequest::SetOnStakeDistUpdated(callback)).unwrap_or(())
+    /// Start the ledger: set the callback invoked when a new stake distribution is available, then
+    /// start the stake distribution and rewards computation that the ledger tip needs.
+    ///
+    /// The callback receives the PoolSummaries to use for header validation. If the computation
+    /// cannot start, each later block application fails with that error.
+    pub fn start(&self, on_stake_dist_updated: Arc<dyn Fn(PoolSummaries) + Send + Sync>) {
+        self.send(LedgerRequest::Start(on_stake_dist_updated)).unwrap_or(())
     }
 
     fn send(&self, request: LedgerRequest) -> Result<(), LedgerThreadTerminated> {
@@ -315,6 +321,10 @@ impl CanValidateBlocks for BlockValidator {
     async fn volatile_tip(&self) -> Option<Point> {
         self.request(LedgerRequest::VolatileTip).await.expect("the ledger thread has terminated")
     }
+
+    fn request_stake_distribution(&self, slot: Slot) -> Result<(), LedgerThreadTerminated> {
+        self.send(LedgerRequest::RequestStakeDistribution(slot))
+    }
 }
 
 #[async_trait::async_trait]
@@ -327,6 +337,9 @@ impl HasStakePools for BlockValidator {
 struct LedgerThread<S: Store, HS: HistoricalStores> {
     state: State<S, HS>,
     vm_eval_pool: ArenaPool,
+    /// Why the stake distribution and rewards computation could not start, at [`State::start`] or
+    /// for a header. No block can be applied after this failure.
+    computation_error: Option<String>,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS> {
@@ -334,15 +347,15 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
         match request {
             LedgerRequest::RollForwardBlock(block, reply) => {
                 *phase.lock() = LedgerThreadPhase::ValidatingBlock;
-                let _ = reply.send(self.roll_forward_block(&block));
+                let _ = reply.send(self.check_started().and_then(|()| self.roll_forward_block(&block)));
             }
             LedgerRequest::SwitchToFork(fork_point, blocks, reply) => {
                 *phase.lock() = LedgerThreadPhase::SwitchingFork;
-                let _ = reply.send(
+                let _ = reply.send(self.check_started().and_then(|()| {
                     self.state
                         .switch_to_fork(&fork_point, blocks, &self.vm_eval_pool)
-                        .map_err(|err| BlockValidationError::from(anyhow!(err))),
-                );
+                        .map_err(|err| BlockValidationError::from(anyhow!(err)))
+                }));
             }
             LedgerRequest::Tip(reply) => {
                 *phase.lock() = LedgerThreadPhase::ReadingTip;
@@ -368,10 +381,31 @@ impl<S: Store + Send, HS: HistoricalStores + Send + 'static> LedgerThread<S, HS>
                     constraints: BlockBuilderConstraints::from(self.state.protocol_parameters()),
                 });
             }
-            LedgerRequest::SetOnStakeDistUpdated(callback) => {
-                *phase.lock() = LedgerThreadPhase::UpdatingStakeDistributionCallback;
-                self.state.set_on_stake_dist_updated(callback);
+            LedgerRequest::Start(on_stake_dist_updated) => {
+                *phase.lock() = LedgerThreadPhase::Starting;
+                self.state.set_on_stake_dist_updated(on_stake_dist_updated);
+                self.computation_error = self.state.start().err().map(|err| err.to_string());
             }
+            LedgerRequest::RequestStakeDistribution(slot) => {
+                *phase.lock() = LedgerThreadPhase::RequestedStakeDistribution;
+                if self.computation_error.is_none()
+                    && let Err(err) = self
+                        .state
+                        .try_take_snapshot(slot)
+                        .and_then(|()| self.state.try_compute_stake_distribution_and_rewards(slot))
+                {
+                    self.computation_error = Some(err.to_string());
+                }
+            }
+        }
+    }
+
+    fn check_started(&self) -> Result<(), BlockValidationError> {
+        match &self.computation_error {
+            Some(err) => Err(BlockValidationError::new(anyhow!(
+                "the ledger could not start the stake distribution and rewards computation: {err}"
+            ))),
+            None => Ok(()),
         }
     }
 
