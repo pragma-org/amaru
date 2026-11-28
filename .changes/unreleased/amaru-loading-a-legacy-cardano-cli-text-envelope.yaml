@@ -1,5 +1,0 @@
-kind: Changed
-body: 'loading a legacy cardano-cli text envelope emits `envelope.legacy` under `amaru::io` at trace level with its envelope type and path, including VRF keys, certificates, and counters. Raw key and binary CBOR files do not emit this event.'
-time: 2026-11-25T13:06:51-05:00
-custom:
-    Area: amaru

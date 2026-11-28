@@ -1,6 +1,0 @@
-kind: Fixed
-body: '`chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check.'
-time: 2026-11-25T13:06:53-05:00
-custom:
-    Area: amaru
-    Issues: "1631"

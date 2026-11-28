@@ -1,6 +1,0 @@
-kind: Fixed
-body: 'chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it.'
-time: 2026-11-25T13:06:54-05:00
-custom:
-    Area: amaru-consensus
-    Issues: "1650"

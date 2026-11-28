@@ -1,5 +1,0 @@
-kind: Added
-body: '`amaru transaction sign` signs binary CBOR Conway transactions offline with one or more payment, stake, or pool cold signing keys, supplied as raw 32-byte seeds or cardano-cli text envelopes.'
-time: 2026-11-25T13:06:42-05:00
-custom:
-    Area: amaru

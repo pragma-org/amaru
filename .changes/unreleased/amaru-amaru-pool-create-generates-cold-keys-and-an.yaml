@@ -1,5 +1,0 @@
-kind: Added
-body: '`amaru pool create` generates cold keys and an issue counter offline, with optional payment and owner/reward stake key pairs. Prints the pool ID and generated verification keys and addresses as JSON to stdout; payment keys without stake keys produce an enterprise address with no staking rights. Existing output files are never replaced.'
-time: 2026-11-25T13:06:40-05:00
-custom:
-    Area: amaru

@@ -1,5 +1,0 @@
-kind: Added
-body: 'embedded applications can submit transactions, inspect mempool contents, and subscribe to insertion and removal events. Slow subscribers are notified when they miss events.'
-time: 2026-11-25T13:06:43-05:00
-custom:
-    Area: amaru-node

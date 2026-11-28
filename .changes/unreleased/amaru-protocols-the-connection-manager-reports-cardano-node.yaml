@@ -1,5 +1,0 @@
-kind: Added
-body: 'the connection manager reports `cardano_node_metrics_connectionManager_duplexConns_int`, the number of connections whose handshake agreed on full duplex.'
-time: 2026-11-25T13:06:45-05:00
-custom:
-    Area: amaru-protocols
