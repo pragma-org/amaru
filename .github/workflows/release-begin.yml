@@ -485,12 +485,12 @@ jobs:
             printf '## Documentation\n\n'
             printf '| What                                                                                                 | What for                                                             |\n'
             printf '| ---                                                                                                  | ---                                                                  |\n'
-            printf '| [Getting Started](https://github.com/pragma-org/amaru/tree/main#getting-started)                     | First steps with Amaru                                               |\n'
+            printf '| [Getting Started](https://amaru.global/user-guide/overview/)                                         | First steps with Amaru                                               |\n'
             printf '| [Bootstrapping](https://github.com/pragma-org/amaru/blob/main/docs/BOOTSTRAP.md#bootstrap-snapshots) | Creating snapshots and/or restoring from available snapshots         |\n'
             printf '| [Monitoring](https://github.com/pragma-org/amaru/blob/main/monitoring/README.md#monitoring)          | Filtering traces, understanding metrics and observability in general |\n'
             printf '| [Using Docker](https://github.com/pragma-org/amaru/tree/main/docker)                                 | Using Amaru with Docker or spinning up local testnets                |\n'
             printf '| [Submit API](https://github.com/pragma-org/amaru/blob/main/docs/SUBMIT_API.md)                       | Submitting transaction to Amaru local mempool                        |\n'
-            printf '| crates.io / lib (coming soon)                                                                        | Developers using Amaru as a library                                  |\n'
+            printf '| [crates.io / lib](https://crates.io/search?q=amaru)                                                  | Developers using Amaru as a library                                  |\n'
             printf '## Linux\n\n'
             printf '| Type | File Extension | Download Links |\n'
             printf '| --- | --- | --- |\n'
@@ -578,8 +578,9 @@ jobs:
     if: >-
       ${{ !cancelled()
           && needs.rust-build.result == 'success'
+          && needs.build-metadata.outputs.is_release != 'true'
           && github.event_name == 'schedule' }}
-    needs: [rust-build, conformance-reports]
+    needs: [build-metadata, rust-build, conformance-reports]
 
     runs-on: ubuntu-24.04
 

@@ -35,8 +35,6 @@ Other guiding principles:
   ```
 -->
 
-## Unreleased
-
 ## [v10.11.20261127](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261127)
 
 ### Added
@@ -67,6 +65,25 @@ Other guiding principles:
 - **amaru**: `chainsync.chain_lagging` is no longer logged for a node at the tip when two checks in a row fall in a long gap between blocks. The check stays quiet once the adopted tip has reached the height of the header seen at the previous check. ([#1631](https://github.com/pragma-org/amaru/issues/1631))
 - **amaru-consensus**: chain selection breaks a tie between two tips of the same height on the VRF output of the header, as cardano-node does, instead of on the leader value derived from it. ([#1650](https://github.com/pragma-org/amaru/issues/1650))
 - **amaru-node**: the HTTP submit API rejects transaction bodies larger than 64 KiB with 413, rejects trailing CBOR data with 400, and returns 503 when the node has stopped.
+
+
+
+## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
+
+### Added
+
+- **amaru**: `amaru pool schedule inspect` exports a pool's schedule, stake share, and absolute and relative slots as JSON. It reads the nonce and stake from the chain and ledger databases, uses the selected built-in network, and formats times in the local timezone by default or UTC with `--time-utc`.
+
+### Changed
+
+- **amaru**: logging options are now scoped to `node run` and `mithril sync`. Use `--log-json`, `--log-export`, and `--log-otlp` (or `AMARU_LOG_JSON`, `AMARU_LOG_EXPORT`, and `AMARU_LOG_OTLP`); the previous option and environment names remain accepted as (now deprecated) aliases.
+- **amaru**: commands without logging options no longer emit startup filter, observability, or build-version events.
+
+### Fixed
+
+- **amaru-kernel**: support more ways to decode rational numbers for protocol versions 10 and 11.
+- **amaru-consensus**: don't revalidate invalid transactions received by the node unless the ledger tip changes.
+- **amaru-protocols**: log an invalid transaction from a peer at the `DEBUG` level.
 
 ## [v10.11.20261112](https://github.com/pragma-org/amaru/releases/tag/v10.11.20261112)
 
