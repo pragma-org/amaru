@@ -4,7 +4,7 @@ headerPath: header.tpl.md
 changelogPath: CHANGELOG.md
 versionExt: md
 envPrefix: CHANGIE_
-fragmentFileFormat: '{{ .Custom.Area | replace ", " "-" }}-{{ regexReplaceAll "-[a-z0-9]*$" (regexReplaceAll "[^a-z0-9]+" (lower .Body) "-" | trimAll "-" | trunc 48) "" }}'
+fragmentFileFormat: '{{ .Custom.Area | replace ", " "-" }}-{{ regexReplaceAll "[^a-z0-9]+" (lower .Body) "-" | trimAll "-" | trunc 48 | trimAll "-" }}-{{ sha256sum .Body | trunc 8 }}'
 versionFormat: '## [{{.Version}}](https://github.com/pragma-org/amaru/releases/tag/{{.Version}})'
 kindFormat: '### {{.Kind}}'
 changeFormat: >-
